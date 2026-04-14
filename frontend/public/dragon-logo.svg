@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="ChinaAPI Dragon Logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ef4444" />
+      <stop offset="100%" stop-color="#b91c1c" />
+    </linearGradient>
+    <linearGradient id="stroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fde68a" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)" />
+
+  <g fill="none" stroke="url(#stroke)" stroke-linecap="round" stroke-linejoin="round">
+    <path
+      d="M56 141c10-38 42-67 86-67 29 0 52 11 66 30 11 17 12 39 2 56-10 17-29 28-49 28-19 0-34-9-43-21-10-14-12-32-2-46 11-15 34-18 49-9 10 6 15 17 12 27-3 13-18 21-30 15"
+      stroke-width="12"
+    />
+    <path d="M125 56l8-24 9 19 21-8-11 18 19 10-23 2" stroke-width="10" />
+    <path d="M103 186l-6 18 17-8 8 16 3-19 19 2-14-12" stroke-width="9" />
+    <circle cx="176" cy="128" r="5.5" fill="#fde68a" stroke="none" />
+  </g>
+</svg>
