@@ -82,6 +82,30 @@ func TestDeriveCompatPromptCacheKey_UsesResolvedSparkFamily(t *testing.T) {
 	require.Equal(t, k1, k2, "resolved spark family should derive a stable compat cache key")
 }
 
+func TestDeriveCompatPromptCacheKey_UsesNestedReasoningEffort(t *testing.T) {
+	base := &apicompat.ChatCompletionsRequest{
+		Model: "gpt-5.4",
+		Messages: []apicompat.ChatMessage{
+			{Role: "user", Content: mustRawJSON(t, `"Question A"`)},
+		},
+	}
+	withReasoning := &apicompat.ChatCompletionsRequest{
+		Model: "gpt-5.4",
+		Reasoning: &apicompat.ChatCompletionsReasoning{
+			Effort: "x-high",
+		},
+		Messages: []apicompat.ChatMessage{
+			{Role: "user", Content: mustRawJSON(t, `"Question A"`)},
+		},
+	}
+
+	require.NotEqual(t,
+		deriveCompatPromptCacheKey(base, "gpt-5.4"),
+		deriveCompatPromptCacheKey(withReasoning, "gpt-5.4"),
+		"nested reasoning effort should affect compat cache keys",
+	)
+}
+
 func TestDeriveAnthropicCompatPromptCacheKey_StableAcrossLaterTurns(t *testing.T) {
 	base := &apicompat.AnthropicRequest{
 		Model:  "claude-sonnet-4-5",

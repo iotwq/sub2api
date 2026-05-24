@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -60,7 +61,20 @@ func Logger() gin.HandlerFunc {
 		l.Info("http request completed", zap.Time("completed_at", endTime))
 
 		if len(c.Errors) > 0 {
-			l.Warn("http request contains gin errors", zap.String("errors", c.Errors.String()))
+			if errText := strings.TrimSpace(c.Errors.String()); errText != "" && !isIgnorableClientDisconnectErrors(errText) {
+				l.Warn("http request contains gin errors", zap.String("errors", errText))
+			}
 		}
 	}
+}
+
+func isIgnorableClientDisconnectErrors(errText string) bool {
+	lower := strings.ToLower(strings.TrimSpace(errText))
+	if lower == "" {
+		return false
+	}
+	return strings.Contains(lower, "broken pipe") ||
+		strings.Contains(lower, "connection reset by peer") ||
+		strings.Contains(lower, "use of closed network connection") ||
+		strings.Contains(lower, "client disconnected")
 }

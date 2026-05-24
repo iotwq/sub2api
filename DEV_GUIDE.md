@@ -12,6 +12,10 @@
 | **数据库** | PostgreSQL 16 + Redis |
 | **包管理** | 后端: go modules, 前端: **pnpm**（不是 npm） |
 
+### 上游同步
+
+- 上游同步基线、分支约定和冲突热点见 `docs/UPSTREAM_SYNC.md`
+
 ## 二、本地环境配置
 
 ### PostgreSQL 16 (Windows 服务)

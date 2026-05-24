@@ -2,7 +2,7 @@
   <aside
     class="sidebar"
     :class="[
-      sidebarCollapsed ? 'w-[72px]' : 'w-64',
+      sidebarCollapsed ? 'w-[72px]' : 'w-52',
       { '-translate-x-full lg:translate-x-0': !mobileOpen }
     ]"
   >
@@ -180,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
@@ -628,6 +628,21 @@ const PriceTagIcon = {
     )
 }
 
+const ChatBubbleIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M8.625 9.75h6.75m-6.75 3h4.5m6.375-.75c0 4.142-3.693 7.5-8.25 7.5a8.841 8.841 0 01-3.398-.661L3.75 20.25l1.443-3.367A7.209 7.209 0 014.5 12c0-4.142 3.693-7.5 8.25-7.5s8.25 3.358 8.25 7.5z'
+        })
+      ]
+    )
+}
+
 const ChevronDownIcon = {
   render: () =>
     h(
@@ -666,6 +681,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/chat', label: t('nav.chat'), icon: ChatBubbleIcon },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
@@ -884,12 +900,6 @@ watch(
   },
   { immediate: true }
 )
-
-onMounted(() => {
-  if (isAdmin.value) {
-    adminSettingsStore.fetch()
-  }
-})
 </script>
 
 <style scoped>

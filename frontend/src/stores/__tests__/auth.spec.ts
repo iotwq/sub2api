@@ -360,6 +360,33 @@ describe('useAuthStore', () => {
       expect(JSON.parse(localStorage.getItem('auth_user')!)).toEqual(updatedUser)
     })
 
+    it('并发刷新复用同一个请求', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+
+      let resolveCurrentUser!: (value: any) => void
+      mockGetCurrentUser.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCurrentUser = resolve
+          })
+      )
+
+      const p1 = store.refreshUser()
+      const p2 = store.refreshUser()
+
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+
+      const refreshedUser = { ...fakeUser, username: 'refreshed' }
+      resolveCurrentUser({ data: refreshedUser })
+
+      const [r1, r2] = await Promise.all([p1, p2])
+      expect(r1).toEqual(refreshedUser)
+      expect(r2).toEqual(refreshedUser)
+      expect(store.user).toEqual(refreshedUser)
+    })
+
     it('未认证时抛出错误', async () => {
       const store = useAuthStore()
       await expect(store.refreshUser()).rejects.toThrow('Not authenticated')

@@ -45,12 +45,19 @@ function onTokenRefreshed(token: string): void {
 // ==================== Request Interceptor ====================
 
 // Get user's timezone
+let cachedUserTimezone: string | null = null
 const getUserTimezone = (): string => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
+  if (cachedUserTimezone) {
+    return cachedUserTimezone
   }
+
+  try {
+    cachedUserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    cachedUserTimezone = 'UTC'
+  }
+
+  return cachedUserTimezone
 }
 
 apiClient.interceptors.request.use(

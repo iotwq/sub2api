@@ -294,11 +294,13 @@ function handleClickOutside(event: MouseEvent) {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
-  // Trigger initial fetch if not already loaded
-  // The actual data loading is handled by App.vue globally
-  subscriptionStore.fetchActiveSubscriptions().catch((error) => {
-    console.error('Failed to load subscriptions in SubscriptionProgressMini:', error)
-  })
+  // App.vue preloads subscriptions for authenticated users.
+  // Only fall back to a local fetch if the shared store has not been populated yet.
+  if (!subscriptionStore.loaded && !subscriptionStore.loading) {
+    subscriptionStore.fetchActiveSubscriptions().catch((error) => {
+      console.error('Failed to load subscriptions in SubscriptionProgressMini:', error)
+    })
+  }
 })
 
 onBeforeUnmount(() => {

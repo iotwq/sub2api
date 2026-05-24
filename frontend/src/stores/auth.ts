@@ -79,6 +79,8 @@ export const useAuthStore = defineStore('auth', () => {
   const pendingAuthSession = ref<PendingAuthSessionSummary | null>(null)
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let refreshUserPromise: Promise<User> | null = null
+  let refreshUserPromiseToken: string | null = null
 
   // ==================== Computed ====================
 
@@ -411,27 +413,52 @@ export const useAuthStore = defineStore('auth', () => {
    * @throws Error if not authenticated or request fails
    */
   async function refreshUser(): Promise<User> {
-    if (!token.value) {
+    const currentToken = token.value
+    if (!currentToken) {
       throw new Error('Not authenticated')
     }
 
     try {
-      const response = await authAPI.getCurrentUser()
-      if (response.data.run_mode) {
-        runMode.value = response.data.run_mode
+      if (refreshUserPromise && refreshUserPromiseToken === currentToken) {
+        return refreshUserPromise
       }
-      const { run_mode: _run_mode, ...userData } = response.data
-      user.value = userData
 
-      // Update localStorage
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
+      let requestPromise!: Promise<User>
+      requestPromise = authAPI
+        .getCurrentUser()
+        .then((response) => {
+          const refreshedUser = response.data
+          const { run_mode: runModeValue, ...userData } = refreshedUser
 
-      return userData
+          // Ignore stale responses if the session changed while the request was in flight.
+          if (token.value === currentToken) {
+            if (runModeValue) {
+              runMode.value = runModeValue
+            }
+            user.value = userData
+            localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
+          }
+
+          return userData
+        })
+        .catch((error) => {
+          // If refresh fails with 401, clear auth state.
+          if ((error as { status?: number }).status === 401 && token.value === currentToken) {
+            clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+          }
+          throw error
+        })
+        .finally(() => {
+          if (refreshUserPromise === requestPromise) {
+            refreshUserPromise = null
+            refreshUserPromiseToken = null
+          }
+        })
+
+      refreshUserPromise = requestPromise
+      refreshUserPromiseToken = currentToken
+      return requestPromise
     } catch (error) {
-      // If refresh fails with 401, clear auth state
-      if ((error as { status?: number }).status === 401) {
-        clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
-      }
       throw error
     }
   }
@@ -450,6 +477,8 @@ export const useAuthStore = defineStore('auth', () => {
     refreshTokenValue.value = null
     tokenExpiresAt.value = null
     user.value = null
+    refreshUserPromise = null
+    refreshUserPromiseToken = null
     localStorage.removeItem(AUTH_TOKEN_KEY)
     localStorage.removeItem(AUTH_USER_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)

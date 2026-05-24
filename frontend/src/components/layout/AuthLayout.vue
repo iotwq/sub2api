@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useAppStore } from '@/stores'
 import { sanitizeUrl } from '@/utils/url'
 
@@ -76,10 +76,6 @@ const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 
 const currentYear = computed(() => new Date().getFullYear())
-
-onMounted(() => {
-  appStore.fetchPublicSettings()
-})
 </script>
 
 <style scoped>

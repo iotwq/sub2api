@@ -319,6 +319,13 @@
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
               </button>
+              <button
+                @click="chatWithKey(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+              >
+                <Icon name="chatBubble" size="sm" />
+                <span class="text-xs">{{ t('keys.chatWithKey') }}</span>
+              </button>
               <!-- Import to CC Switch Button -->
               <button
                 v-if="!publicSettings?.hide_ccs_import_button"
@@ -1047,12 +1054,15 @@
 <script setup lang="ts">
 	import { ref, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
+	import { useRouter } from 'vue-router'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { useLocalChat } from '@/composables/useLocalChat'
 
 const { t } = useI18n()
+const router = useRouter()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1073,6 +1083,10 @@ import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
+import {
+  buildCcSwitchImportDeeplink,
+  type CcSwitchClientType
+} from '@/utils/ccswitchImport'
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
@@ -1094,6 +1108,7 @@ interface GroupOption {
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
+const { saveDraftConfig } = useLocalChat()
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
@@ -1358,6 +1373,16 @@ const loadPublicSettings = async () => {
 const openUseKeyModal = (key: ApiKey) => {
   selectedKey.value = key
   showUseKeyModal.value = true
+}
+
+const chatWithKey = async (key: ApiKey) => {
+  const baseUrl = publicSettings.value?.api_base_url || `${window.location.origin}/v1`
+  saveDraftConfig({
+    apiKey: key.key,
+    baseUrl,
+    sessionTitle: key.name || t('chat.defaultSessionTitle'),
+  })
+  await router.push('/chat')
 }
 
 const closeUseKeyModal = () => {
@@ -1700,33 +1725,9 @@ const importToCcswitch = (row: ApiKey) => {
   executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
 }
 
-const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
+const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
   const platform = row.group?.platform || 'anthropic'
-
-  // Determine app name and endpoint based on platform and client type
-  let app: string
-  let endpoint: string
-
-  if (platform === 'antigravity') {
-    // Antigravity always uses /antigravity suffix
-    app = clientType === 'gemini' ? 'gemini' : 'claude'
-    endpoint = `${baseUrl}/antigravity`
-  } else {
-    switch (platform) {
-      case 'openai':
-        app = 'codex'
-        endpoint = baseUrl
-        break
-      case 'gemini':
-        app = 'gemini'
-        endpoint = baseUrl
-        break
-      default: // anthropic
-        app = 'claude'
-        endpoint = baseUrl
-    }
-  }
 
   const usageScript = `({
     request: {
@@ -1746,19 +1747,14 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
   })`
   const providerName = (publicSettings.value?.site_name || 'chinaapi').trim() || 'chinaapi'
 
-  const params = new URLSearchParams({
-    resource: 'provider',
-    app: app,
-    name: providerName,
-    homepage: baseUrl,
-    endpoint: endpoint,
+  const deeplink = buildCcSwitchImportDeeplink({
+    baseUrl,
+    platform,
+    clientType,
+    providerName,
     apiKey: row.key,
-    configFormat: 'json',
-    usageEnabled: 'true',
-    usageScript: btoa(usageScript),
-    usageAutoInterval: '30'
+    usageScript
   })
-  const deeplink = `ccswitch://v1/import?${params.toString()}`
 
   try {
     window.open(deeplink, '_self')
@@ -1775,7 +1771,7 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
   }
 }
 
-const handleCcsClientSelect = (clientType: 'claude' | 'gemini') => {
+const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   if (pendingCcsRow.value) {
     executeCcsImport(pendingCcsRow.value, clientType)
   }

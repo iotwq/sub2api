@@ -92,19 +92,19 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
-  // Check if setup is needed
-  try {
-    const status = await getSetupStatus()
-    if (status.needs_setup && route.path !== '/setup') {
-      router.replace('/setup')
-      return
-    }
-  } catch {
-    // If setup endpoint fails, assume normal mode and continue
+  // Start independent startup reads together so first paint is not gated by a
+  // serial setup-status -> public-settings waterfall.
+  const setupStatusPromise = getSetupStatus().catch(() => null)
+  const publicSettingsPromise = appStore.fetchPublicSettings()
+
+  const status = await setupStatusPromise
+  if (status?.needs_setup && route.path !== '/setup') {
+    router.replace('/setup')
+    return
   }
 
   // Load public settings into appStore (will be cached for other components)
-  await appStore.fetchPublicSettings()
+  await publicSettingsPromise
 
   // Re-resolve document title now that siteName is available
   document.title = resolveDocumentTitle(route.meta.title, appStore.siteName, route.meta.titleKey as string)

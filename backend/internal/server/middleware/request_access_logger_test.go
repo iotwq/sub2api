@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -198,6 +199,31 @@ func TestLogger_HealthPathSkipped(t *testing.T) {
 	}
 	if len(sink.list()) != 0 {
 		t.Fatalf("health endpoint should not write access log")
+	}
+}
+
+func TestLogger_IgnoresClientDisconnectErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sink := initMiddlewareTestLogger(t)
+
+	r := gin.New()
+	r.Use(Logger())
+	r.GET("/api/test", func(c *gin.Context) {
+		_ = c.Error(errors.New("write tcp 127.0.0.1:8080->127.0.0.1:12345: write: broken pipe"))
+		c.Status(http.StatusOK)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d", w.Code)
+	}
+
+	for _, event := range sink.list() {
+		if event != nil && event.Message == "http request contains gin errors" {
+			t.Fatalf("expected client disconnect errors to be ignored, got %+v", event)
+		}
 	}
 }
 

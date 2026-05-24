@@ -295,6 +295,48 @@ describe('useAppStore', () => {
       expect(store.cachedPublicSettings).toBeNull()
     })
 
+    it('fetchPublicSettings 会复用并发中的同一个请求', async () => {
+      vi.mocked(getPublicSettings).mockReset()
+      vi.mocked(getPublicSettings).mockResolvedValue({
+        registration_enabled: false,
+        email_verify_enabled: false,
+        registration_email_suffix_whitelist: [],
+        promo_code_enabled: true,
+        password_reset_enabled: false,
+        invitation_code_enabled: false,
+        turnstile_enabled: false,
+        turnstile_site_key: '',
+        site_name: 'Concurrent Site',
+        site_logo: '',
+        site_subtitle: '',
+        api_base_url: '',
+        contact_info: '',
+        doc_url: '',
+        home_content: '',
+        hide_ccs_import_button: false,
+        purchase_subscription_enabled: false,
+        purchase_subscription_url: '',
+        table_default_page_size: 20,
+        table_page_size_options: [10, 20, 50, 100],
+        custom_menu_items: [],
+        custom_endpoints: [],
+        linuxdo_oauth_enabled: false,
+        backend_mode_enabled: false,
+        version: '1.0.0'
+      })
+
+      const store = useAppStore()
+      const first = store.fetchPublicSettings()
+      const second = store.fetchPublicSettings()
+
+      const [firstResult, secondResult] = await Promise.all([first, second])
+
+      expect(getPublicSettings).toHaveBeenCalledTimes(1)
+      expect(firstResult?.site_name).toBe('Concurrent Site')
+      expect(secondResult?.site_name).toBe('Concurrent Site')
+      expect(store.publicSettingsLoaded).toBe(true)
+    })
+
     it('fetchPublicSettings(force) 会同步更新运行时注入配置', async () => {
       vi.mocked(getPublicSettings).mockResolvedValue({
         registration_enabled: false,
