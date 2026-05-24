@@ -534,10 +534,12 @@ const formatTokens = (value: number | undefined): string => {
 }
 
 const formatNumber = (value: number): string => {
+  value = Number(value) || 0
   return value.toLocaleString()
 }
 
 const formatCost = (value: number): string => {
+  value = Number(value) || 0
   if (value >= 1000) {
     return (value / 1000).toFixed(2) + 'K'
   } else if (value >= 1) {

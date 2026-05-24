@@ -227,6 +227,7 @@ const doughnutOptions = computed(() => ({
 }))
 
 const formatTokens = (value: number): string => {
+  value = Number(value) || 0
   if (value >= 1_000_000_000) {
     return `${(value / 1_000_000_000).toFixed(2)}B`
   } else if (value >= 1_000_000) {
@@ -238,10 +239,12 @@ const formatTokens = (value: number): string => {
 }
 
 const formatNumber = (value: number): string => {
+  value = Number(value) || 0
   return value.toLocaleString()
 }
 
 const formatCost = (value: number): string => {
+  value = Number(value) || 0
   if (value >= 1000) {
     return (value / 1000).toFixed(2) + 'K'
   } else if (value >= 1) {
