@@ -98,3 +98,24 @@
 - 验证结果：
   - 临时合并工作区：`go test ./internal/handler/... ./internal/service/... ./internal/pkg/apicompat/...` 通过
   - 主工作区验证见本次同步后的命令输出
+
+## 2026-05-24 选择性同步结果
+
+- 同步范围：`e5d6f172..63b0631a`
+- 同步策略：先为当前本地工作区创建快照提交，再只应用上次同步点之后的上游增量补丁；修复唯一冲突后保留 fork 侧已有功能，最后用记录性 merge 标记 `upstream/main` 已同步，避免下次重复处理同一批提交
+- 已同步内容：
+  - 版本更新到 `0.1.130`，补充 RunAPI 赞助商资源与 README 文案
+  - 安全依赖更新：`golang.org/x/net`、`golang.org/x/crypto`、`golang.org/x/text`、`golang.org/x/sys`
+  - API Key ACL 支持信任反代真实 IP，拒绝日志记录真实客户端 IP
+  - 注册邮箱白名单支持后缀通配符，OIDC verified email 快速登录路径加固
+  - 内容审计支持按模型生效，并补充 Agent 工具循环去重与输入提取测试
+  - 兑换码批量更新、订阅到期邮件提醒开关、前端支付/风控/代理资源链接等管理端改进
+  - OpenAI/Bedrock 相关修复：账号测试 Chat Completions 路径、Bedrock Claude Code 兼容、Responses developer role 映射、图片生成上游错误透传、账号冷却调度优化
+- 刻意保留/收敛的本地改动：
+  - 继续保留本地品牌、聊天页、Airwallex/多币种、Codex 导入、`chinaapi` 默认值以及已有支付设置体验
+  - `openai_images_responses.go` 同时保留本地 Responses 终态错误识别和上游新增的结构化图片上游错误透传
+  - 支付设置页补回支付配置文档入口，使本地 UI 与现有测试断言保持一致
+- 验证结果：
+  - `go test ./internal/handler/... ./internal/service/... ./internal/repository/... ./internal/pkg/apicompat/...` 通过
+  - `pnpm --dir frontend run typecheck` 通过
+  - `pnpm --dir frontend exec vitest run src/views/admin/__tests__/RedeemView.batchUpdate.spec.ts src/views/admin/__tests__/RiskControlView.spec.ts src/components/charts/__tests__/TokenUsageTrend.spec.ts src/views/admin/__tests__/SettingsView.spec.ts src/components/account/__tests__/AccountTestModal.spec.ts` 通过
