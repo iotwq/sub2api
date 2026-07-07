@@ -19,13 +19,23 @@
       <div>
         <label class="input-label">{{ t('admin.accounts.dataImportFile') }}</label>
         <div
-          class="flex items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 dark:border-dark-600 dark:bg-dark-800"
+          class="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 transition-colors"
+          :class="dragActive
+            ? 'border-primary-400 bg-primary-50/70 dark:border-primary-500 dark:bg-primary-900/20'
+            : 'border-gray-300 bg-gray-50 dark:border-dark-600 dark:bg-dark-800'"
+          @dragenter.prevent="handleDragEnter"
+          @dragover.prevent
+          @dragleave.prevent="handleDragLeave"
+          @drop.prevent="handleDrop"
         >
           <div class="min-w-0">
-            <div class="truncate text-sm text-gray-700 dark:text-dark-200">
-              {{ fileName || t('admin.accounts.dataImportSelectFile') }}
+            <div class="truncate text-sm text-gray-700 dark:text-dark-200" :title="fileListTitle">
+              {{ selectedFilesLabel || t('admin.accounts.dataImportSelectFile') }}
             </div>
-            <div class="text-xs text-gray-500 dark:text-dark-400">JSON (.json)</div>
+            <div class="text-xs text-gray-500 dark:text-dark-400">
+              JSON (.json), ZIP (.zip)
+              <span v-if="files.length > 1"> · {{ fileListTitle }}</span>
+            </div>
           </div>
           <button type="button" class="btn btn-secondary shrink-0" @click="openFilePicker">
             {{ t('common.chooseFile') }}
@@ -36,6 +46,7 @@
           type="file"
           class="hidden"
           accept="application/json,.json,application/zip,.zip"
+          multiple
           @change="handleFileChange"
         />
       </div>
@@ -102,14 +113,6 @@ interface Emits {
   (e: 'imported'): void
 }
 
-const props = defineProps<Props>()
-const emit = defineEmits<Emits>()
-
-const { t } = useI18n()
-const appStore = useAppStore()
-
-const importing = ref(false)
-const file = ref<File | null>(null)
 type ImportResultState =
   | { kind: 'data'; value: AdminDataImportResult }
   | { kind: 'codex'; value: CodexSessionImportResult }
@@ -118,10 +121,26 @@ type ImportRequestState =
   | { kind: 'data'; payload: AdminDataPayload }
   | { kind: 'codex'; contents: string[] }
 
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
+const { t } = useI18n()
+const appStore = useAppStore()
+
+const importing = ref(false)
+const files = ref<File[]>([])
+const dragDepth = ref(0)
+const dragActive = computed(() => dragDepth.value > 0)
+const hasCreatedData = ref(false)
 const result = ref<ImportResultState | null>(null)
 
 const fileInput = ref<HTMLInputElement | null>(null)
-const fileName = computed(() => file.value?.name || '')
+const selectedFilesLabel = computed(() => {
+  if (files.value.length === 0) return ''
+  if (files.value.length === 1) return files.value[0]?.name || ''
+  return t('admin.accounts.selectedCount', { count: files.value.length })
+})
+const fileListTitle = computed(() => files.value.map((item) => item.name).join(', '))
 
 const errorLines = computed(() => {
   if (!result.value) return []
@@ -148,7 +167,9 @@ watch(
   () => props.show,
   (open) => {
     if (open) {
-      file.value = null
+      files.value = []
+      dragDepth.value = 0
+      hasCreatedData.value = false
       result.value = null
       if (fileInput.value) {
         fileInput.value.value = ''
@@ -163,17 +184,60 @@ const openFilePicker = () => {
 
 const handleFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement
-  file.value = target.files?.[0] || null
+  setSelectedFiles(target.files)
+  target.value = ''
 }
 
 const handleClose = () => {
   if (importing.value) return
+  if (hasCreatedData.value) {
+    hasCreatedData.value = false
+    emit('imported')
+  }
   emit('close')
 }
 
 const isZipFile = (sourceFile: File): boolean => {
   const lowerName = sourceFile.name.toLowerCase()
   return sourceFile.type === 'application/zip' || lowerName.endsWith('.zip')
+}
+
+const isImportFile = (sourceFile: File): boolean => {
+  const lowerName = sourceFile.name.toLowerCase()
+  return lowerName.endsWith('.json') || lowerName.endsWith('.zip') ||
+    sourceFile.type === 'application/json' || sourceFile.type === 'application/zip'
+}
+
+const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => {
+  if (importing.value) return
+  const incoming = Array.from(sourceFiles || [])
+  const picked = incoming.filter(isImportFile)
+  if (!picked.length) {
+    appStore.showError(t('admin.accounts.dataImportSelectFile'))
+    return
+  }
+  if (picked.length < incoming.length) {
+    appStore.showWarning(
+      t('admin.accounts.dataImportIgnoredFiles', { count: incoming.length - picked.length })
+    )
+  }
+  files.value = picked
+  result.value = null
+}
+
+const handleDragEnter = () => {
+  if (importing.value) return
+  dragDepth.value += 1
+}
+
+const handleDragLeave = () => {
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+
+const handleDrop = (event: DragEvent) => {
+  dragDepth.value = 0
+  if (importing.value) return
+  setSelectedFiles(event.dataTransfer?.files)
 }
 
 const looksLikeJSON = (input: string): boolean => {
@@ -208,16 +272,35 @@ const readFileAsText = async (sourceFile: File): Promise<string> => {
   })
 }
 
+const SUPPORTED_DATA_TYPES = ['sub2api-data', 'sub2api-bundle']
+const SUPPORTED_DATA_VERSION = 1
+
+const isValidDataPayload = (payload: unknown): payload is AdminDataPayload => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+  const candidate = payload as Record<string, unknown>
+  if (
+    candidate.type !== undefined &&
+    candidate.type !== '' &&
+    !SUPPORTED_DATA_TYPES.includes(candidate.type as string)
+  ) {
+    return false
+  }
+  if (
+    candidate.version !== undefined &&
+    candidate.version !== 0 &&
+    candidate.version !== SUPPORTED_DATA_VERSION
+  ) {
+    return false
+  }
+  return Array.isArray(candidate.proxies) && Array.isArray(candidate.accounts)
+}
+
 const normalizeDataPayload = (raw: unknown, sourceName: string): AdminDataPayload => {
-  if (!raw || typeof raw !== 'object') {
+  if (!isValidDataPayload(raw)) {
     throw new Error(t('admin.accounts.dataImportInvalidPayload', { file: sourceName }))
   }
 
-  const payload = raw as Partial<AdminDataPayload>
-  if (!Array.isArray(payload.proxies) || !Array.isArray(payload.accounts)) {
-    throw new Error(t('admin.accounts.dataImportInvalidPayload', { file: sourceName }))
-  }
-
+  const payload = raw as AdminDataPayload
   return {
     type: payload.type,
     version: payload.version,
@@ -226,30 +309,81 @@ const normalizeDataPayload = (raw: unknown, sourceName: string): AdminDataPayloa
       : new Date().toISOString(),
     proxies: payload.proxies,
     accounts: payload.accounts,
+    skipped_shadows: payload.skipped_shadows,
   }
 }
 
-const isDataPayloadLike = (raw: unknown): raw is Partial<AdminDataPayload> => {
-  if (!raw || typeof raw !== 'object') {
+const isCodexSessionPayloadLike = (raw: unknown): boolean => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return false
   }
 
-  const payload = raw as Partial<AdminDataPayload>
-  return Array.isArray(payload.proxies) && Array.isArray(payload.accounts)
+  const candidate = raw as Record<string, unknown>
+  if (
+    typeof candidate.accessToken === 'string' ||
+    typeof candidate.access_token === 'string' ||
+    typeof candidate.sessionToken === 'string'
+  ) {
+    return true
+  }
+
+  const tokens = candidate.tokens
+  return Boolean(
+    tokens &&
+    typeof tokens === 'object' &&
+    !Array.isArray(tokens) &&
+    typeof (tokens as Record<string, unknown>).access_token === 'string'
+  )
 }
 
 const mergeDataPayloads = (payloads: AdminDataPayload[]): AdminDataPayload => {
-  if (!payloads.length) {
+  const [firstPayload] = payloads
+  if (!firstPayload) {
     throw new Error(t('admin.accounts.dataImportZipNoJsonFiles'))
   }
+  if (payloads.length === 1) return firstPayload
 
   return {
-    type: payloads.find((item) => item.type)?.type,
+    type: payloads.find((item) => typeof item.type === 'string')?.type,
     version: payloads.find((item) => typeof item.version === 'number')?.version,
-    exported_at: payloads[0]?.exported_at || new Date().toISOString(),
+    exported_at: firstPayload.exported_at || new Date().toISOString(),
     proxies: payloads.flatMap((item) => item.proxies),
     accounts: payloads.flatMap((item) => item.accounts),
+    skipped_shadows: payloads.reduce((sum, item) => {
+      const count = Number(item.skipped_shadows || 0)
+      return Number.isFinite(count) ? sum + count : sum
+    }, 0)
   }
+}
+
+const classifyTextImport = (text: string, sourceName: string): ImportRequestState => {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    throw new Error(t('admin.accounts.dataImportInvalidPayload', { file: sourceName }))
+  }
+
+  if (!looksLikeJSON(trimmed)) {
+    if (!isLikelyRawCodexContent(trimmed)) {
+      throw new Error(t('admin.accounts.dataImportZipJsonParseFailed', { file: sourceName }))
+    }
+    return { kind: 'codex', contents: [trimmed] }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(t('admin.accounts.dataImportZipJsonParseFailed', { file: sourceName }))
+  }
+
+  if (isValidDataPayload(parsed)) {
+    return { kind: 'data', payload: normalizeDataPayload(parsed, sourceName) }
+  }
+  if (isCodexSessionPayloadLike(parsed)) {
+    return { kind: 'codex', contents: [trimmed] }
+  }
+
+  throw new Error(t('admin.accounts.dataImportInvalidPayload', { file: sourceName }))
 }
 
 const readZipImportRequest = async (sourceFile: File): Promise<ImportRequestState> => {
@@ -264,63 +398,27 @@ const readZipImportRequest = async (sourceFile: File): Promise<ImportRequestStat
 
   const payloads: AdminDataPayload[] = []
   const codexContents: string[] = []
-  let hasDataPayload = false
-  let hasCodexPayload = false
 
   for (const entry of jsonEntries) {
-    const text = await entry.async('text')
-    const trimmed = text.trim()
-    if (!trimmed) {
-      continue
+    const item = classifyTextImport(await entry.async('text'), entry.name)
+    if (item.kind === 'data') {
+      payloads.push(item.payload)
+    } else {
+      codexContents.push(...item.contents)
     }
-
-    if (!looksLikeJSON(trimmed)) {
-      if (!isLikelyRawCodexContent(trimmed)) {
-        throw new Error(t('admin.accounts.dataImportZipJsonParseFailed', { file: entry.name }))
-      }
-      codexContents.push(trimmed)
-      hasCodexPayload = true
-      continue
-    }
-
-    if (looksLikeJSON(trimmed)) {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(text)
-      } catch {
-        throw new Error(t('admin.accounts.dataImportZipJsonParseFailed', { file: entry.name }))
-      }
-
-      if (isDataPayloadLike(parsed)) {
-        payloads.push(normalizeDataPayload(parsed, entry.name))
-        hasDataPayload = true
-        continue
-      }
-    }
-
-    codexContents.push(trimmed)
-    hasCodexPayload = true
   }
 
-  if (!payloads.length && !codexContents.length) {
-    throw new Error(t('admin.accounts.dataImportZipNoJsonFiles'))
-  }
-
-  if (hasDataPayload && hasCodexPayload) {
+  if (payloads.length && codexContents.length) {
     throw new Error(t('admin.accounts.dataImportZipMixedFormats'))
   }
-
-  if (hasDataPayload) {
-    return {
-      kind: 'data',
-      payload: mergeDataPayloads(payloads),
-    }
+  if (payloads.length) {
+    return { kind: 'data', payload: mergeDataPayloads(payloads) }
+  }
+  if (codexContents.length) {
+    return { kind: 'codex', contents: codexContents }
   }
 
-  return {
-    kind: 'codex',
-    contents: codexContents,
-  }
+  throw new Error(t('admin.accounts.dataImportZipNoJsonFiles'))
 }
 
 const readImportRequest = async (sourceFile: File): Promise<ImportRequestState> => {
@@ -328,42 +426,51 @@ const readImportRequest = async (sourceFile: File): Promise<ImportRequestState> 
     return readZipImportRequest(sourceFile)
   }
 
-  const text = await readFileAsText(sourceFile)
-  const trimmed = text.trim()
-  if (looksLikeJSON(trimmed)) {
-    const parsed = JSON.parse(text)
-    if (isDataPayloadLike(parsed)) {
-      return {
-        kind: 'data',
-        payload: normalizeDataPayload(parsed, sourceFile.name),
-      }
+  try {
+    return classifyTextImport(await readFileAsText(sourceFile), sourceFile.name)
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(t('admin.accounts.dataImportParseFailedFile', { name: sourceFile.name }))
     }
-
-    return {
-      kind: 'codex',
-      contents: [trimmed],
-    }
-  }
-
-  if (!isLikelyRawCodexContent(trimmed)) {
-    throw new SyntaxError('Invalid import payload')
-  }
-
-  return {
-    kind: 'codex',
-    contents: [trimmed],
+    throw error
   }
 }
 
+const readSelectedImportRequest = async (): Promise<ImportRequestState> => {
+  const payloads: AdminDataPayload[] = []
+  const codexContents: string[] = []
+
+  for (const sourceFile of files.value) {
+    const item = await readImportRequest(sourceFile)
+    if (item.kind === 'data') {
+      payloads.push(item.payload)
+    } else {
+      codexContents.push(...item.contents)
+    }
+  }
+
+  if (payloads.length && codexContents.length) {
+    throw new Error(t('admin.accounts.dataImportZipMixedFormats'))
+  }
+  if (payloads.length) {
+    return { kind: 'data', payload: mergeDataPayloads(payloads) }
+  }
+  if (codexContents.length) {
+    return { kind: 'codex', contents: codexContents }
+  }
+
+  throw new Error(t('admin.accounts.dataImportSelectFile'))
+}
+
 const handleImport = async () => {
-  if (!file.value) {
+  if (files.value.length === 0) {
     appStore.showError(t('admin.accounts.dataImportSelectFile'))
     return
   }
 
   importing.value = true
   try {
-    const importRequest = await readImportRequest(file.value)
+    const importRequest = await readSelectedImportRequest()
 
     if (importRequest.kind === 'data') {
       const res = await adminAPI.accounts.importData({
@@ -381,6 +488,9 @@ const handleImport = async () => {
         proxy_failed: res.proxy_failed,
       }
       if (res.account_failed > 0 || res.proxy_failed > 0) {
+        if (res.account_created > 0 || res.proxy_created > 0) {
+          hasCreatedData.value = true
+        }
         appStore.showError(t('admin.accounts.dataImportCompletedWithErrors', msgParams))
       } else {
         appStore.showSuccess(t('admin.accounts.dataImportSuccess', msgParams))
@@ -419,11 +529,7 @@ const handleImport = async () => {
 
     appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
   } catch (error: any) {
-    if (error instanceof SyntaxError) {
-      appStore.showError(t('admin.accounts.dataImportParseFailed'))
-    } else {
-      appStore.showError(error?.message || t('admin.accounts.dataImportFailed'))
-    }
+    appStore.showError(error?.message || t('admin.accounts.dataImportFailed'))
   } finally {
     importing.value = false
   }
