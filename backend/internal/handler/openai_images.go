@@ -91,11 +91,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		zap.Bool("stream", parsed.Stream),
 		zap.Bool("multipart", parsed.Multipart),
 		zap.String("capability", string(parsed.RequiredCapability)),
-		zap.String("size", parsed.Size),
-		zap.String("size_tier", parsed.SizeTier),
-		zap.String("quality", parsed.Quality),
-		zap.String("response_format", parsed.ResponseFormat),
-		zap.String("output_format", parsed.OutputFormat),
+		zap.String("img_quality", parsed.Quality),
+		zap.String("img_size", parsed.Size),
+		zap.String("img_size_tier", parsed.SizeTier),
+		zap.String("img_response_format", parsed.ResponseFormat),
+		zap.String("img_output_format", parsed.OutputFormat),
 	)
 
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
@@ -380,6 +380,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if result != nil {
 			upstreamModel = result.UpstreamModel
 		}
+		sessionID := service.ExtractClientSessionID(c)
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
@@ -394,6 +395,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				RequestPayloadHash: requestPayloadHash,
 				APIKeyService:      h.apiKeyService,
 				QuotaPlatform:      quotaPlatform,
+				SessionID:          sessionID,
 				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
 			}); err != nil {
 				logger.L().With(
