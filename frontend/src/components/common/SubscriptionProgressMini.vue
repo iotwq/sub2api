@@ -1,5 +1,5 @@
 <template>
-  <div v-if="hasActiveSubscriptions" class="relative" ref="containerRef">
+  <div v-if="subscriptionFeatureEnabled && hasActiveSubscriptions" class="relative" ref="containerRef">
     <!-- Mini Progress Display -->
     <button
       @click="toggleTooltip"
@@ -182,6 +182,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { useSubscriptionStore } from '@/stores'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import type { UserSubscription } from '@/types'
 
 const { t } = useI18n()
@@ -194,6 +195,8 @@ const tooltipOpen = ref(false)
 // Use store data instead of local state
 const activeSubscriptions = computed(() => subscriptionStore.activeSubscriptions)
 const hasActiveSubscriptions = computed(() => subscriptionStore.hasActiveSubscriptions)
+// 订阅功能关闭后，即使用户仍持有后台分配的订阅，顶栏也不再露出订阅进度与「查看全部订阅」入口。
+const subscriptionFeatureEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.subscription))
 
 const displaySubscriptions = computed(() => {
   // Sort by most usage (highest percentage first)
@@ -294,6 +297,7 @@ function handleClickOutside(event: MouseEvent) {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  if (!subscriptionFeatureEnabled.value) return
   // App.vue preloads subscriptions for authenticated users.
   // Only fall back to a local fetch if the shared store has not been populated yet.
   if (!subscriptionStore.loaded && !subscriptionStore.loading) {
