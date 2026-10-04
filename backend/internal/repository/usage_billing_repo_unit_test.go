@@ -5,13 +5,88 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+func TestUsageBillingRepositoryApplyWithUsageLog_CommitsChargeLogAndLedgerTogether(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	repo := &usageBillingRepository{db: db}
+	cmd := &service.UsageBillingCommand{
+		RequestID:   "atomic-charge",
+		APIKeyID:    7,
+		UserID:      42,
+		AccountID:   11,
+		BalanceCost: 2.5,
+	}
+	log := &service.UsageLog{
+		UserID:      42,
+		APIKeyID:    7,
+		AccountID:   11,
+		RequestID:   "atomic-charge",
+		Model:       "gpt-test",
+		TotalCost:   2.5,
+		ActualCost:  2.5,
+		BillingType: service.BillingTypeBalance,
+		CreatedAt:   time.Now(),
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO usage_billing_dedup`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(`SELECT request_fingerprint\s+FROM usage_billing_dedup_archive`).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(conditionalBalanceDeductSQL).
+		WithArgs(2.5, int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(7.5))
+	mock.ExpectQuery(`INSERT INTO usage_logs`).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(99, log.CreatedAt))
+	mock.ExpectExec(`INSERT INTO billing_usage_entries`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	result, err := repo.ApplyWithUsageLog(ctx, cmd, log)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.Equal(t, int64(99), log.ID)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageBillingRepositoryApplyWithUsageLog_RollsBackChargeWhenLogInsertFails(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	repo := &usageBillingRepository{db: db}
+	cmd := &service.UsageBillingCommand{
+		RequestID:   "atomic-rollback",
+		APIKeyID:    7,
+		UserID:      42,
+		AccountID:   11,
+		BalanceCost: 2.5,
+	}
+	log := &service.UsageLog{UserID: 42, APIKeyID: 7, AccountID: 11, RequestID: cmd.RequestID, Model: "gpt-test"}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO usage_billing_dedup`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(`SELECT request_fingerprint\s+FROM usage_billing_dedup_archive`).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(conditionalBalanceDeductSQL).
+		WithArgs(2.5, int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(7.5))
+	mock.ExpectQuery(`INSERT INTO usage_logs`).WillReturnError(errors.New("usage log insert failed"))
+	mock.ExpectRollback()
+
+	_, err = repo.ApplyWithUsageLog(ctx, cmd, log)
+	require.ErrorContains(t, err, "usage log insert failed")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
 
 const (
 	conditionalBalanceDeductSQL = `(?s)UPDATE users\s+SET balance = balance - \$1,\s+updated_at = NOW\(\)\s+WHERE id = \$2 AND deleted_at IS NULL AND balance >= \$1\s+RETURNING balance`
@@ -42,6 +117,36 @@ func TestDeductUsageBillingBalance_UsesSufficientBalanceGuard(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, sufficient)
 	require.InDelta(t, 7.5, newBalance, 0.000001)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDeductUsageBillingBalance_RecordsFullCostWhenResidualBalanceIsInsufficient(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	const (
+		residualBalance = 0.00032025
+		actualCost      = 0.00118608
+	)
+
+	mock.ExpectBegin()
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	mock.ExpectQuery(conditionalBalanceDeductSQL).
+		WithArgs(actualCost, int64(108)).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(overdraftBalanceDeductSQL).
+		WithArgs(actualCost, int64(108)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(residualBalance - actualCost))
+	mock.ExpectCommit()
+
+	newBalance, sufficient, err := deductUsageBillingBalance(ctx, tx, 108, actualCost)
+	require.NoError(t, err)
+	require.False(t, sufficient)
+	require.InDelta(t, -0.00086583, newBalance, 0.000000001)
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -292,6 +397,43 @@ func TestReleaseUsageBillingBatchImageBalance_ReturnsFrozenToAvailable(t *testin
 	require.InDelta(t, 10.0, *result.NewBalance, 0.000001)
 	require.InDelta(t, 0.0, *result.FrozenBalance, 0.000001)
 	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUsageBillingRepositoryReleaseBatchImageBalance_QuantizesHoldAmount(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	repo := &usageBillingRepository{db: db}
+	unitPrice := 1.32
+	cmd := &service.BatchImageBalanceHoldCommand{
+		RequestID:  service.BatchImageReleaseRequestID("openai-media:precision-regression"),
+		APIKeyID:   7,
+		UserID:     42,
+		BatchID:    "openai-media:precision-regression",
+		HoldAmount: unitPrice * 5,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO usage_billing_dedup`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(`SELECT request_fingerprint\s+FROM usage_billing_dedup_archive`).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`SELECT 1\s+FROM usage_billing_dedup\s+WHERE request_id = \$1 AND api_key_id = \$2`).
+		WithArgs(service.BatchImageHoldRequestID(cmd.BatchID), cmd.APIKeyID).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	mock.ExpectQuery(releaseBatchImageHoldSQL).
+		WithArgs(6.6, cmd.UserID).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "frozen_balance"}).AddRow(10.0, 0.0))
+	mock.ExpectCommit()
+
+	result, err := repo.ReleaseBatchImageBalance(ctx, cmd)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.Equal(t, 6.6, cmd.HoldAmount)
+	require.InDelta(t, 0.0, *result.FrozenBalance, 0.000001)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

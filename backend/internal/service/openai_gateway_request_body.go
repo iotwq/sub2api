@@ -2392,6 +2392,24 @@ func sanitizeEmptyBase64InputImagesInOpenAIRequestBodyMap(reqBody map[string]any
 	return true
 }
 
+func normalizeDanglingOpenAIResponsesImageToolChoiceBody(body []byte) ([]byte, bool, error) {
+	if len(body) == 0 || !openAIJSONToolChoiceSelectsImageGeneration(gjson.GetBytes(body, "tool_choice")) {
+		return body, false, nil
+	}
+	var reqBody map[string]any
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return body, false, fmt.Errorf("normalize dangling image tool_choice body: %w", err)
+	}
+	if !normalizeDanglingOpenAIResponsesImageToolChoice(reqBody) {
+		return body, false, nil
+	}
+	normalized, err := marshalOpenAIUpstreamJSON(reqBody)
+	if err != nil {
+		return body, false, fmt.Errorf("serialize normalized dangling image tool_choice body: %w", err)
+	}
+	return normalized, true, nil
+}
+
 func sanitizeEmptyBase64InputImagesInOpenAIInput(input any) (any, bool) {
 	items, ok := input.([]any)
 	if !ok {

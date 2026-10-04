@@ -43,12 +43,20 @@ func (h *OpenAIGatewayHandler) GrokVideoExtension(c *gin.Context) {
 
 // GrokVideoStatus handles xAI video status retrieval through Grok groups.
 func (h *OpenAIGatewayHandler) GrokVideoStatus(c *gin.Context) {
-	h.handleGrokMedia(c, service.GrokMediaEndpointVideoStatus, c.Param("request_id"))
+	requestID := c.Param("request_id")
+	if strings.TrimSpace(requestID) == "" {
+		requestID = c.Param("task_id")
+	}
+	h.handleGrokMedia(c, service.GrokMediaEndpointVideoStatus, requestID)
 }
 
-// GrokVideoContent proxies downloadable video content through the task's upstream account.
+// GrokVideoContent retrieves generated xAI video content through Grok groups.
 func (h *OpenAIGatewayHandler) GrokVideoContent(c *gin.Context) {
-	h.handleGrokMedia(c, service.GrokMediaEndpointVideoContent, c.Param("request_id"))
+	requestID := c.Param("request_id")
+	if strings.TrimSpace(requestID) == "" {
+		requestID = c.Param("task_id")
+	}
+	h.handleGrokMedia(c, service.GrokMediaEndpointVideoContent, requestID)
 }
 
 func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.GrokMediaEndpoint, requestID string) {

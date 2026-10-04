@@ -54,7 +54,6 @@ func newJSONResponse(status int, body string) *http.Response {
 // --- test functions ---
 
 func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
-	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/1/test", nil)
@@ -102,7 +101,6 @@ func (r *openAIAccountTestRepo) SetError(_ context.Context, id int64, errorMsg s
 }
 
 func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
 
 	resp := newJSONResponse(http.StatusOK, "")
@@ -165,8 +163,40 @@ func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
 	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
 }
 
-func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
+func TestAccountTestService_OpenAIMiniMaxVideoUsesTaskListProbe(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{newJSONResponse(http.StatusOK, `{"items":[],"total":0}`)}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          upstreamModelSyncTestConfig(),
+	}
+	account := &Account{
+		ID:          91,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":             "minimax-key",
+			"base_url":            "https://metaso.example/api/minimax",
+			"openai_capabilities": []any{"minimax_video"},
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "", "", "")
+
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	req := upstream.requests[0]
+	require.Equal(t, http.MethodGet, req.Method)
+	require.Equal(t, "https://metaso.example/api/minimax/v2/query/video_generation?page_num=1&page_size=1", req.URL.String())
+	require.Equal(t, "Bearer minimax-key", req.Header.Get("Authorization"))
+	require.Contains(t, recorder.Body.String(), `"model":"MiniMax-H3"`)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+}
+
+func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
 	ctx, recorder := newTestContext()
 
 	resp := newJSONResponse(http.StatusOK, "")
@@ -224,7 +254,6 @@ func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *t
 }
 
 func TestAccountTestService_OpenAIStreamEOFBeforeCompletedFails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
 
 	resp := newJSONResponse(http.StatusOK, "")
@@ -356,7 +385,6 @@ func TestAccountTestService_DeepSeekDefaultBaseURLUsesNativeResponsesPath(t *tes
 }
 
 func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimitState(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","resets_at":1777283883}}`)
@@ -392,7 +420,6 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimitState(t *testin
 }
 
 func TestAccountTestService_OpenAI429BodyOnlyPersistsRateLimitAndClearsStaleError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","resets_at":"1777283883"}}`)
@@ -422,7 +449,6 @@ func TestAccountTestService_OpenAI429BodyOnlyPersistsRateLimitAndClearsStaleErro
 }
 
 func TestAccountTestService_OpenAI429SyncsObservedPlanType(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","plan_type":"free","resets_at":1777283883}}`)
@@ -449,7 +475,6 @@ func TestAccountTestService_OpenAI429SyncsObservedPlanType(t *testing.T) {
 }
 
 func TestAccountTestService_OpenAI429ActiveAccountDoesNotClearError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","resets_in_seconds":3600}}`)
@@ -476,7 +501,6 @@ func TestAccountTestService_OpenAI429ActiveAccountDoesNotClearError(t *testing.T
 }
 
 func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached"}}`)
@@ -505,7 +529,6 @@ func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState
 }
 
 func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusUnauthorized, `{"error":"bad token"}`)
@@ -563,7 +586,6 @@ func TestAccountTestService_OpenAIAPIKeyResponsesUsesCodexProbeHeaders(t *testin
 }
 
 func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
 
 	upstreamBody := strings.Join([]string{
@@ -614,7 +636,6 @@ func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsP
 }
 
 func TestAccountTestService_OpenAIChatCompletionsPathReturns4xx(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
 
 	upstream := &httpUpstreamRecorder{resp: newJSONResponse(http.StatusBadRequest, `{"error":{"message":"bad request"}}`)}
@@ -643,7 +664,6 @@ func TestAccountTestService_OpenAIChatCompletionsPathReturns4xx(t *testing.T) {
 }
 
 func TestAccountTestService_OpenAIChatCompletionsPathTimeout(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
 
 	upstream := &httpUpstreamRecorder{err: context.DeadlineExceeded}
@@ -673,7 +693,6 @@ func TestAccountTestService_OpenAIChatCompletionsPathTimeout(t *testing.T) {
 }
 
 func TestAccountTestService_OpenAIChatCompletionsPathRejectsNonJSONStream(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
 
 	upstream := &httpUpstreamRecorder{resp: &http.Response{

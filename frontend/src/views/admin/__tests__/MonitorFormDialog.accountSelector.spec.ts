@@ -115,7 +115,6 @@ function mountDialog(monitor: ChannelMonitor | null = null) {
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
-        Toggle: true,
         ModelTagInput: true,
         MonitorKeyPickerDialog: true,
         MonitorAdvancedRequestConfig: true,
@@ -168,6 +167,41 @@ describe('MonitorFormDialog linked account selector', () => {
     accountsGetById.mockReset()
     monitorCreate.mockReset().mockResolvedValue({})
     monitorUpdate.mockReset().mockResolvedValue({})
+  })
+
+  it('saves the intelligence switch and resets it for another monitor', async () => {
+    const wrapper = mountDialog(makeMonitor())
+    await flushPromises()
+    const toggle = wrapper.get('[data-testid="monitor-intelligence-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await toggle.trigger('click')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).toHaveBeenCalledWith(42, expect.objectContaining({ intelligence_enabled: true }))
+    await wrapper.setProps({ monitor: makeMonitor({ id: 43, intelligence_enabled: false }) })
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    await wrapper.setProps({ monitor: makeMonitor({ intelligence_enabled: true }) })
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    await toggle.trigger('click')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).toHaveBeenLastCalledWith(42, expect.objectContaining({ intelligence_enabled: false }))
+  })
+
+  it('rejects intelligence with replace mode and disables it for quota-only mode', async () => {
+    const wrapper = mountDialog(makeMonitor({ intelligence_enabled: true, body_override_mode: 'replace' }))
+    await flushPromises()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('monitorCommon.intelligence.incompatible')
+    accountsGetById.mockResolvedValue({ id: 7, name: 'linked', platform: 'openai' })
+    await wrapper.setProps({ monitor: makeMonitor({ intelligence_enabled: true, check_mode: 'quota', account_id: 7 }) })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="monitor-intelligence-toggle"]').exists()).toBe(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).toHaveBeenCalledWith(42, expect.objectContaining({ intelligence_enabled: false }))
   })
 
   it('loads the first page of provider accounts when quota mode is enabled', async () => {

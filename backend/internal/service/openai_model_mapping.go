@@ -21,6 +21,18 @@ func resolveOpenAIForwardModel(account *Account, requestedModel, messagesDispatc
 	return mappedModel
 }
 
+// ResolveOpenAIMessagesUpstreamModel mirrors the model selection performed by
+// ForwardAsAnthropic after the channel-mapped request body has been parsed.
+func ResolveOpenAIMessagesUpstreamModel(account *Account, requestedModel, channelMappedModel, messagesDispatchMappedModel string) string {
+	forwardedModel := strings.TrimSpace(channelMappedModel)
+	if forwardedModel == "" {
+		forwardedModel = strings.TrimSpace(requestedModel)
+	}
+	forwardedModel = NormalizeOpenAICompatRequestedModel(forwardedModel)
+	billingModel := resolveOpenAIForwardModel(account, forwardedModel, messagesDispatchMappedModel)
+	return normalizeOpenAIModelForUpstream(account, billingModel)
+}
+
 // openAIOAuthForeignModelPrefixes 列出明确属于其他厂商家族的模型名前缀。
 // Codex 上游不可能服务这些模型：转发阶段 normalizeOpenAIModelForUpstream
 // 对未知模型原样透传，上游必然返回不可重试的 400。

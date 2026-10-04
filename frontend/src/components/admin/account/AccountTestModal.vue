@@ -749,7 +749,8 @@ watch(
     } else {
       abortStream()
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(grokTestMode, () => {
@@ -760,13 +761,17 @@ watch(grokTestMode, () => {
   applyDefaultPromptForMode()
 })
 
-const loadAvailableModels = async () => {
+async function loadAvailableModels() {
   if (!props.account) return
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const fetchedModels = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = fetchedModels.map(model => ({
+      ...model,
+      display_name: model.display_name?.trim() || model.id
+    }))
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
@@ -790,7 +795,7 @@ const loadAvailableModels = async () => {
   }
 }
 
-const resetState = () => {
+function resetState() {
   status.value = 'idle'
   outputLines.value = []
   streamingContent.value = ''
@@ -806,11 +811,11 @@ const handleClose = () => {
   emit('close')
 }
 
-const abortStream = () => {
-  if (abortController) {
-    abortController.abort()
-    abortController = null
-  }
+function abortStream() {
+	if (abortController) {
+		abortController.abort()
+		abortController = null
+	}
 }
 
 const addLine = (text: string, className: string = 'text-gray-300') => {

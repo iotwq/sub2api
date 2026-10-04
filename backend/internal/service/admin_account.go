@@ -447,6 +447,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	}
+	if _, err := AccountTrafficPlanFor(account); err != nil {
+		return nil, err
+	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
 		if err := ValidateQuotaResetConfig(account.Extra); err != nil {
@@ -533,6 +536,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateBasispoints403GroupSettings(ctx, account); err != nil {
+		return nil, err
+	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
@@ -602,6 +608,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, err
 		}
 		if err := ValidateUpstreamRequestIDHeaderExtra(normalizedExtra); err != nil {
+			return nil, err
+		}
+		candidate := *account
+		candidate.Type, candidate.Extra = effectiveType, normalizedExtra
+		if _, err := AccountTrafficPlanFor(&candidate); err != nil {
 			return nil, err
 		}
 	}
@@ -863,6 +874,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if err := s.validateBasispoints403GroupSettings(ctx, account); err != nil {
+		return nil, err
+	}
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
 	if updater == nil {
@@ -928,7 +942,27 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	_, move := updates[BasispointsAutoMoveOn403Key]
+	_, target := updates[Basispoints403TargetGroupIDKey]
+	if move || target {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		merged := *account
+		merged.Extra = make(map[string]any, len(account.Extra)+len(updates))
+		maps.Copy(merged.Extra, account.Extra)
+		maps.Copy(merged.Extra, updates)
+		if err := s.validateBasispoints403GroupSettings(ctx, &merged); err != nil {
+			return err
+		}
+	}
 	updates = MergeOpenAICodexTicketExtra(updates, nil)
+	if _, exists := updates[AccountTrafficPolicyKey]; exists {
+		if _, err := ParseAccountTrafficPolicy(updates); err != nil {
+			return err
+		}
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -957,6 +991,11 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 // BulkUpdateAccounts updates multiple accounts in one request.
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
+	if _, exists := input.Extra[AccountTrafficPolicyKey]; exists {
+		if _, err := ParseAccountTrafficPolicy(input.Extra); err != nil {
+			return nil, err
+		}
+	}
 	// Managed probe/session state may only enter through dedicated typed endpoints.
 	input.Extra = MergeOpenAICodexTicketExtra(input.Extra, nil)
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)
@@ -1004,7 +1043,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	_, bpsMoveUpdate := input.Extra[BasispointsAutoMoveOn403Key]
+	_, bpsTargetUpdate := input.Extra[Basispoints403TargetGroupIDKey]
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil || bpsMoveUpdate || bpsTargetUpdate {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1012,6 +1053,20 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		cachedTargets = loaded
 	}
 	targetsByID := make(map[int64]*Account, len(cachedTargets))
+	if bpsMoveUpdate || bpsTargetUpdate {
+		for _, account := range cachedTargets {
+			if account == nil {
+				continue
+			}
+			merged := *account
+			merged.Extra = make(map[string]any, len(account.Extra)+len(input.Extra))
+			maps.Copy(merged.Extra, account.Extra)
+			maps.Copy(merged.Extra, input.Extra)
+			if err := s.validateBasispoints403GroupSettings(ctx, &merged); err != nil {
+				return nil, err
+			}
+		}
+	}
 	for _, account := range cachedTargets {
 		if account != nil {
 			targetsByID[account.ID] = account

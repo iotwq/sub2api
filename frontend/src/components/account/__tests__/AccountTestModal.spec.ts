@@ -118,7 +118,78 @@ describe('AccountTestModal', () => {
     localStorage.clear()
   })
 
-  it('posts compact mode for OpenAI compact probe', async () => {
+  it.each(['oauth', 'apikey'])('shows, searches and submits model IDs when %s model names are missing', async (type) => {
+    getAvailableModelsMock.mockResolvedValue([
+      { id: 'gpt-6-astra' },
+      { id: 'gpt-5.4', display_name: '' },
+      { id: 'gpt-5.6-sol', display_name: '   ' },
+      { id: 'gpt-5.5', display_name: null },
+      { id: 'custom-model', display_name: 'Custom Model' },
+      { id: 'gpt-image-2', display_name: 'GPT Image 2' }
+    ])
+    const wrapper = mount(AccountTestModal, {
+      props: { show: true, account: { ...buildAccount(), type } },
+      global: {
+        stubs: { BaseDialog: BaseDialogStub, Teleport: true, Icon: true }
+      }
+    })
+
+    try {
+      await flushPromises()
+      expect(wrapper.get('.select-value').text()).toBe('gpt-6-astra')
+
+      await wrapper.get('.select-trigger').trigger('click')
+      expect(wrapper.findAll('[role="option"]').map(option => option.text())).toEqual([
+        'gpt-6-astra', 'gpt-5.4', 'gpt-5.6-sol', 'gpt-5.5', 'Custom Model', 'GPT Image 2'
+      ])
+
+      await wrapper.get('.select-search-input').setValue('gpt-5.4')
+      expect(wrapper.findAll('[role="option"]')).toHaveLength(1)
+      expect(wrapper.get('[role="option"]').text()).toBe('gpt-5.4')
+      await wrapper.get('[role="option"]').trigger('click')
+      expect(wrapper.get('.select-value').text()).toBe('gpt-5.4')
+
+      const startButton = wrapper.findAll('button').find(button =>
+        button.text().includes('admin.accounts.startTest')
+      )!
+      await startButton.trigger('click')
+      await flushPromises()
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+      const [, options] = (global.fetch as any).mock.calls[0]
+      expect(JSON.parse(options.body)).toMatchObject({ model_id: 'gpt-5.4' })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('preserves native test modes for default Codex accounts', async () => {
+    const wrapper = mount(AccountTestModal, {
+      props: { show: true, account: buildAccount() },
+      global: { stubs: { BaseDialog: BaseDialogStub, Select: SelectStub, TextArea: TextAreaStub, Icon: true } }
+    })
+    await flushPromises()
+    expect(wrapper.find('option[value="bps_tools"]').exists()).toBe(false)
+    expect(wrapper.find('option[value="compact"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each(['oauth', 'setup-token'])('posts explicit BPS tool mode for %s accounts', async (type) => {
+    const wrapper = mount(AccountTestModal, {
+      props: { show: true, account: { ...buildAccount(), type, extra: { openai_oauth_responses_endpoint: 'basispoints' } } },
+      global: { stubs: { BaseDialog: BaseDialogStub, Select: SelectStub, TextArea: TextAreaStub, Icon: true } }
+    })
+    await flushPromises()
+    const mode = wrapper.findAll('select').find(select => select.find('option[value="bps_tools"]').exists())!
+    expect(mode).toBeDefined()
+    expect(wrapper.find('option[value="compact"]').exists()).toBe(false)
+    await mode.setValue('bps_tools')
+    await wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!.trigger('click')
+    await flushPromises()
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toMatchObject({ mode: 'bps_tools', model_id: 'gpt-5.4' })
+    wrapper.unmount()
+  })
+
+  it('posts compact mode for the original Codex probe', async () => {
     const wrapper = mount(AccountTestModal, {
       props: {
         show: true,

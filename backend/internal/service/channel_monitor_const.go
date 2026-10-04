@@ -139,12 +139,29 @@ const (
 	monitorResponseHeaderTimeout = 30 * time.Second
 	// monitorPingDiscardMaxBytes ping 时丢弃响应体的最大字节数。
 	monitorPingDiscardMaxBytes = 1024
-
+	// ChannelMonitorProbeAttempts 单个模型一次监控最多探测的不同账号数。
+	// 池模式账号内部的同账号重试不重复占用该预算。
+	ChannelMonitorProbeAttempts = 5
+	// ChannelMonitorProbeAttemptsHeader 通知本站网关限制监控探测的账号数。
+	// 外部兼容端点会忽略该请求头。
+	ChannelMonitorProbeAttemptsHeader = "X-Sub2API-Channel-Monitor-Probe-Attempts"
+	// ChannelMonitorProbeLatencyHeader 由本站网关在监控探测成功时返回，
+	// 表示最终成功账号这一次尝试的耗时，不包含此前失败账号的等待时间。
+	ChannelMonitorProbeLatencyHeader = "X-Sub2API-Channel-Monitor-Probe-Latency-Ms"
+	// monitorProbeRequestTimeout 覆盖单个网关请求内最多五个账号的串行探测预算。
+	monitorProbeRequestTimeout = time.Duration(ChannelMonitorProbeAttempts) * monitorRequestTimeout
 	// monitorDialTimeout 自定义 dialer 单次连接超时。
 	monitorDialTimeout = 10 * time.Second
 	// monitorDialKeepAlive 自定义 dialer keep-alive 间隔。
 	monitorDialKeepAlive = 30 * time.Second
 )
+
+// ChannelMonitorRunTimeout returns the maximum wall-clock budget for a single
+// end-to-end monitor run, including probe retries, endpoint ping, and a small
+// service-layer buffer.
+func ChannelMonitorRunTimeout() time.Duration {
+	return monitorProbeRequestTimeout + monitorPingTimeout + monitorRunOneBuffer
+}
 
 // 业务错误（统一在此声明，避免散落）。
 var (

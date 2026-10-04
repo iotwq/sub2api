@@ -148,42 +148,41 @@ describe('UseKeyModal', () => {
     )
     expect(grokTab).toBeDefined()
 
-    const allCode = wrapper.findAll('pre code').map((code) => code.text()).join('\n')
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const allCode = codeBlocks.join('\n')
     expect(allCode).toContain('GROK_MODELS_BASE_URL')
     expect(allCode).toContain('XAI_API_KEY')
-    expect(allCode).toContain('[model."grok-4.5"]')
-    expect(allCode).toContain('[model."grok-build-0.1"]')
-    expect(allCode).toContain('[model."grok-4.20-multi-agent-0309"]')
-    expect(allCode).toContain('[model."grok-4.3"]')
-    expect(allCode).toContain('default = "grok-4.5"')
-    expect(allCode).toContain('models_base_url = "https://example.com/v1"')
-    expect(allCode).toContain('models_list_url = "https://example.com/v1/models"')
-    expect(allCode).toContain('xai_api_base_url = "https://example.com/v1"')
-    expect(allCode).toContain('cli_chat_proxy_base_url = "https://example.com/v1"')
-    expect(allCode).toContain('preferred_method = "api_key"')
-    expect(allCode).toContain('image_description = "grok-4.5"')
-    expect(allCode).toContain('auto_compact_threshold_percent = 80')
-    expect(allCode).toContain('image_gen = true')
-    expect(allCode).toContain('video_gen = true')
-    expect(allCode).toContain('image_gen_model_override = "grok-imagine-image-quality"')
-    expect(allCode).toContain('image_edit_model_override = "grok-imagine-edit"')
-    expect(allCode).toContain('env_key = "XAI_API_KEY"')
-    expect(allCode).toContain('Keep api_backend = "responses" on every model entry.')
-    expect(allCode).toContain('grok-imagine-image')
-    expect(allCode).toContain('grok-imagine-edit')
-    expect(allCode).toMatch(/\[model\."grok-4\.5"\][\s\S]*?context_window = 500000/)
-    expect(allCode).toMatch(/\[model\."grok-build-0\.1"\][\s\S]*?context_window = 256000/)
-    // Prefer env_key; hardcode api_key only as commented alternative
-    expect(allCode).not.toMatch(/^api_key = "sk-grok-test"$/m)
+    const configToml = codeBlocks.find((content) => content.includes('[model."grok-4.6"]'))
+    expect(configToml).toBe(`installer = "internal"
+auto_update = false
 
-    const modelBlocks = allCode
-      .split(/(?=^\[model\.)/m)
-      .filter((block) => block.startsWith('[model."'))
-    expect(modelBlocks.length).toBeGreaterThanOrEqual(4)
-    for (const block of modelBlocks) {
-      if (block.includes('# [model.')) continue
-      expect(block).toContain('api_backend = "responses"')
-    }
+[endpoints]
+models_base_url = "https://example.com/v1"
+
+[models]
+default = "grok-4.6"
+default_reasoning_effort = "xhigh"
+
+[model."grok-4.6"]
+model = "grok-4.6"
+api_key = "sk-grok-test"
+name = "Grok 4.6"
+context_window = 500000
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "medium", "high", "xhigh"]
+
+[marketplace]
+default_skills_installs_purged = true
+
+[ui]
+max_thoughts_width = 120
+fork_secondary_model = "grok-4.5"
+yolo = false
+compact_mode = false
+permission_mode = "always-approve"
+
+[cli]
+installer = "internal"`)
 
     const windowsTab = wrapper.findAll('button').find(
       (button) => button.text().trim() === 'Windows'
@@ -800,7 +799,7 @@ describe('UseKeyModal', () => {
     expect(fable.options.thinking).not.toHaveProperty('budgetTokens')
   })
 
-  // Scenario: API Key users can load a routed catalog remotely or download it for older clients.
+  // Routed catalogs stay remote; downloading a copy never adds a local config dependency.
   it('offers remote and downloadable Codex catalogs for Composite API keys', async () => {
     const manifest = {
       models: [
@@ -861,8 +860,6 @@ describe('UseKeyModal', () => {
     expect(unixConfig).toContain('env_key = "SUB2API_API_KEY"')
     expect(fetchMock).not.toHaveBeenCalled()
 
-    await wrapper.get('[data-testid="codex-model-catalog-mode"]').setValue('file')
-
     await wrapper.get('[data-testid="codex-model-catalog-fetch"]').trigger('click')
     await flushPromises()
 
@@ -881,8 +878,8 @@ describe('UseKeyModal', () => {
     expect(loadedUnixConfig).toContain('model = "claude-opus-4-8"')
     expect(loadedUnixConfig).toContain('review_model = "claude-opus-4-8"')
     expect(loadedUnixConfig).not.toContain('model = "gpt-5.5"')
-    expect(loadedUnixConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
-    expect(loadedUnixConfig).not.toContain('model_catalog_url')
+    expect(loadedUnixConfig).not.toContain('model_catalog_json')
+    expect(loadedUnixConfig).toContain('model_catalog_url = "https://example.com/v1/models"')
 
     const downloadButton = wrapper.findAll('button').find((button) =>
       button.text().includes('keys.useKeyModal.codexModelCatalog.download')
@@ -901,11 +898,10 @@ describe('UseKeyModal', () => {
     const windowsConfig = wrapper.findAll('pre code')
       .map((code) => code.text())
       .find((content) => content.includes('[model_providers.sub2api]'))
-    // Codex does not expand %userprofile% in config.toml; it only expands ~/.
-    expect(windowsConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
+    expect(windowsConfig).not.toContain('model_catalog_json')
     expect(windowsConfig).not.toContain('%userprofile%')
     expect(wrapper.get('[data-testid="codex-model-catalog"]').text())
-      .toContain('%userprofile%\\.codex\\codex-models.json')
+      .toContain('https://example.com/v1/models')
   })
 
   it.each(['anthropic', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'] as const)(
@@ -947,6 +943,56 @@ describe('UseKeyModal', () => {
       expect(config).toContain('wire_api = "responses"')
     }
   )
+
+  it.each([
+    ['openai', 'codexCli'],
+    ['openai', 'codexCliWs'],
+    ['grok', 'codexCli'],
+    ['composite', 'codexCli']
+  ] as const)('omits the local model catalog from %s %s on both operating systems', async (platform, client) => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-codex-config-test',
+        baseUrl: 'https://example.com/v1',
+        platform
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+
+    const clientTab = wrapper.findAll('button').find((button) =>
+      button.text().trim() === `keys.useKeyModal.cliTabs.${client}`
+    )
+    expect(clientTab).toBeDefined()
+    await clientTab!.trigger('click')
+
+    for (const os of ['macOS / Linux', 'Windows']) {
+      const osTab = wrapper.findAll('button').find((button) => button.text().trim() === os)
+      expect(osTab).toBeDefined()
+      await osTab!.trigger('click')
+
+      const configBlock = wrapper.findAll('pre code').find((code) =>
+        code.text().includes('[model_providers.')
+      )
+      expect(configBlock).toBeDefined()
+      const config = configBlock!.text()
+      expect(config).not.toContain('model_catalog_json')
+      expect(config).toContain('wire_api = "responses"')
+      expect(config).toContain('base_url = "https://example.com/v1"')
+
+      copyToClipboardMock.mockClear()
+      const configCard = configBlock!.element.closest('pre')!.parentElement!
+      configCard.querySelector('button')!.click()
+      await flushPromises()
+      expect(copyToClipboardMock).toHaveBeenCalledWith(config, 'keys.copied')
+    }
+    wrapper.unmount()
+  })
 
   // Scenario: the platform-preferred model remains selected when the downloaded catalog contains it.
   it('keeps the preferred Composite default when it exists in the catalog', async () => {
@@ -995,7 +1041,7 @@ describe('UseKeyModal', () => {
     expect(config).toContain('review_model = "gpt-5.5"')
   })
 
-  it('offers remote and optional file catalogs for OpenAI in both transport modes and on both platforms', async () => {
+  it('offers only remote catalog configuration for OpenAI in both transport modes and on both platforms', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(UseKeyModal, {
@@ -1031,21 +1077,14 @@ describe('UseKeyModal', () => {
         expect(configToml).not.toContain('client_version')
         expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(true)
 
-        await wrapper.get('[data-testid="codex-model-catalog-mode"]').setValue('file')
-        const fileConfig = wrapper.findAll('pre code')
-          .map((code) => code.text())
-          .find((content) => content.includes('model_provider = "OpenAI"'))!
-        expect(fileConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
-        expect(fileConfig).not.toContain('model_catalog_url')
-        expect(fileConfig.indexOf('model_catalog_json')).toBeLessThan(fileConfig.indexOf('[model_providers.OpenAI]'))
-        await wrapper.get('[data-testid="codex-model-catalog-mode"]').setValue('remote')
+        expect(wrapper.find('[data-testid="codex-model-catalog-mode"]').exists()).toBe(false)
       }
     }
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it.each([1024 * 1024 - 1, 1024 * 1024, 1024 * 1024 + 1])(
-    'uses file mode only when the manifest exceeds the remote byte limit (%s bytes)',
+    'warns about oversized catalogs without restoring a local config path (%s bytes)',
     async (responseBytes) => {
       const manifest = { models: [{ slug: 'gpt-5.5', description: '' }] }
       manifest.models[0]!.description = 'x'.repeat(responseBytes - JSON.stringify(manifest).length)
@@ -1074,14 +1113,12 @@ describe('UseKeyModal', () => {
       await flushPromises()
 
       const oversized = responseBytes > 1024 * 1024
-      const mode = wrapper.get('[data-testid="codex-model-catalog-mode"]')
-      expect((mode.element as HTMLSelectElement).value).toBe(oversized ? 'file' : 'remote')
-      expect((mode.get('option[value="remote"]').element as HTMLOptionElement).disabled).toBe(oversized)
+      expect(wrapper.find('[data-testid="codex-model-catalog-mode"]').exists()).toBe(false)
       const config = wrapper.findAll('pre code').map((code) => code.text())
         .find((content) => content.includes('model_provider = "OpenAI"'))!
       if (oversized) {
-        expect(config).toContain('model_catalog_json = "~/.codex/codex-models.json"')
-        expect(config).not.toContain('model_catalog_url')
+        expect(config).not.toContain('model_catalog_json')
+        expect(config).toContain('model_catalog_url = "https://example.com/v1/models"')
         expect(wrapper.text()).toContain('keys.useKeyModal.codexModelCatalog.oversized')
         await wrapper.findAll('button').find((button) =>
           button.text().includes('keys.useKeyModal.codexModelCatalog.download')
@@ -1090,7 +1127,6 @@ describe('UseKeyModal', () => {
         expect(JSON.parse(await readBlobAsText(downloaded))).toEqual(manifest)
 
         await wrapper.setProps({ apiKey: 'sk-new-group' })
-        expect((mode.get('option[value="remote"]').element as HTMLOptionElement).disabled).toBe(false)
         expect(wrapper.text()).not.toContain('keys.useKeyModal.codexModelCatalog.oversized')
       } else {
         expect(config).toContain('model_catalog_url = "https://example.com/v1/models"')

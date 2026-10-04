@@ -126,6 +126,10 @@ func TestReasoningEffortBillingGroupOverrideAndUnitBilling(t *testing.T) {
 					ReasoningEffort: effort, Resolver: resolver,
 				}
 				cost, err := bs.CalculateCostUnified(input)
+				if mode == BillingModeVideo {
+					require.ErrorIs(t, err, ErrModelPricingUnavailable, "video billing must go through verified media duration")
+					continue
+				}
 				require.NoError(t, err)
 				base := 0.2
 				if mode == BillingModeToken {

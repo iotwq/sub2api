@@ -75,6 +75,7 @@ type LiveCallCreated struct {
 	CallID   string
 	Location string
 	Account  *Account
+	record   *LiveCallRecord
 }
 
 // LiveCallStore 由 GatewayCache 的 Redis 实现可选提供，避免扩大旧缓存接口。

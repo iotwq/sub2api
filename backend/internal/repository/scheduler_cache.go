@@ -956,7 +956,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	}
 	// Candidate-list admission evaluates the account override before hydrating
 	// the full account. Dropping it silently falls back to the platform threshold.
-	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold"}
+	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold", "openai_capabilities"}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {
@@ -1021,8 +1021,19 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 走网关报 no available accounts"。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
+		"openai_oauth_responses_endpoint",
+		"openai_basispoints_auto_disable_on_403",
+		"openai_basispoints_auto_move_on_403",
+		"openai_basispoints_403_target_group_id",
+		"openai_basispoints_cache_creation_as_input",
+		service.BasispointsIgnoreImagesKey,
+		service.BasispointsIgnoreEncryptedContentKey,
+		service.Basispoints403DisabledAtKey,
+		service.Basispoints403MovedAtKey,
+		service.Basispoints403MovedGroupIDKey,
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
+		service.AccountTrafficPolicyKey,
 		"codex_5h_used_percent",
 		"codex_7d_used_percent",
 		"codex_5h_reset_at",

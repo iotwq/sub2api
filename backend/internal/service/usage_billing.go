@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
 
 var ErrUsageBillingRequestIDRequired = errors.New("usage billing request_id is required")
 var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerprint conflict")
+var ErrMediaBalanceHoldInconsistent = errors.New("media balance hold requires reconciliation")
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {
@@ -42,6 +44,13 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+
+	// RestoreUsageCreatedAt limits refund adjustments to quota windows that still
+	// contain the original usage. It is zero for normal charges.
+	RestoreUsageCreatedAt time.Time
+	// CapturedBalanceHold settles a pre-authorized media balance hold in the same
+	// transaction as the usage log and the remaining quota effects.
+	CapturedBalanceHold *BatchImageBalanceHoldCommand
 }
 
 func (c *UsageBillingCommand) Normalize() {
@@ -49,6 +58,9 @@ func (c *UsageBillingCommand) Normalize() {
 		return
 	}
 	c.RequestID = strings.TrimSpace(c.RequestID)
+	if c.CapturedBalanceHold != nil {
+		c.CapturedBalanceHold.Normalize()
+	}
 	if strings.TrimSpace(c.RequestFingerprint) == "" {
 		c.RequestFingerprint = buildUsageBillingFingerprint(c)
 	}
@@ -132,6 +144,12 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
 	}
+	if !c.RestoreUsageCreatedAt.IsZero() {
+		raw += "|restore_at:" + c.RestoreUsageCreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if c.CapturedBalanceHold != nil {
+		raw += "|balance_hold:" + c.CapturedBalanceHold.RequestFingerprint
+	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -180,6 +198,9 @@ type BatchImageBalanceHoldCommand struct {
 	BatchID            string
 	HoldAmount         float64
 	ActualAmount       float64
+	// CompletedMedia permits settling the exact cost of completed synchronous
+	// media or an accepted video, including any amount above the estimate.
+	CompletedMedia bool
 }
 
 func (c *BatchImageBalanceHoldCommand) Normalize() {
@@ -191,6 +212,8 @@ func (c *BatchImageBalanceHoldCommand) Normalize() {
 	if strings.TrimSpace(c.RequestFingerprint) == "" {
 		c.RequestFingerprint = buildBatchImageBalanceHoldFingerprint(c)
 	}
+	c.HoldAmount = QuantizeUsageBillingAmount(c.HoldAmount)
+	c.ActualAmount = QuantizeUsageBillingAmount(c.ActualAmount)
 }
 
 func buildBatchImageBalanceHoldFingerprint(c *BatchImageBalanceHoldCommand) string {
@@ -223,4 +246,10 @@ type UsageBillingRepository interface {
 	ReserveBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
 	ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error)
+}
+
+// AtomicUsageBillingRepository persists billing effects, the visible usage log,
+// and the reconciliation ledger in one database transaction.
+type AtomicUsageBillingRepository interface {
+	ApplyWithUsageLog(ctx context.Context, cmd *UsageBillingCommand, log *UsageLog) (*UsageBillingApplyResult, error)
 }

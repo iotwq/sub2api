@@ -14,6 +14,8 @@ type DeferredService struct {
 	interval    time.Duration
 
 	lastUsedUpdates sync.Map
+	codexSignalMu   sync.Mutex
+	codexSignals    map[int64]CodexSignalStatus
 }
 
 // NewDeferredService creates a new DeferredService instance
@@ -43,6 +45,7 @@ func (s *DeferredService) ScheduleLastUsedUpdate(accountID int64) {
 }
 
 func (s *DeferredService) flushLastUsed() {
+	s.flushCodexSignals()
 	updates := make(map[int64]time.Time)
 	s.lastUsedUpdates.Range(func(key, value any) bool {
 		id, ok := key.(int64)

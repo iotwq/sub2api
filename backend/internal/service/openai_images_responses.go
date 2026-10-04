@@ -1456,7 +1456,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		var upstreamErr *OpenAIImagesUpstreamError
 		if errors.As(err, &upstreamErr) {
 			setOpsUpstreamError(c, upstreamErr.clientStatusCode(), upstreamErr.clientMessage(), "")
-			writeOpenAIImagesUpstreamErrorResponse(c, upstreamErr)
+			if !IsOpenAIImagesRetryableUpstreamError(upstreamErr) {
+				writeOpenAIImagesUpstreamErrorResponse(c, upstreamErr)
+			}
 		}
 		return OpenAIUsage{}, 0, nil, err
 	}
@@ -2282,13 +2284,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		if responseWritten {
 			return err
 		}
-		return s.newOpenAIAccountFailoverError(
-			account,
+		// A missing image/tool is a capability verdict, not a transient HTTP
+		// failure. Preserve direct account failover without OAuth same-account retry.
+		return newOpenAIUpstreamFailoverError(
 			upstreamErr.StatusCode,
 			headers,
 			responseBody,
 			upstreamErr.clientMessage(),
-			false,
 			false,
 		)
 	}

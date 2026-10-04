@@ -3,6 +3,9 @@ package handler
 import (
 	"context"
 	"log/slog"
+	"math"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -27,13 +30,14 @@ type AuthHandler struct {
 	redeemService        *service.RedeemService
 	totpService          *service.TotpService
 	userAttributeService *service.UserAttributeService
+	newAPIAccessTokens   *service.NewAPIBalanceAccessTokenService
 
 	dingTalkClientInstance *DingTalkClient
 	dingTalkClientMu       sync.Mutex
 }
 
 // NewAuthHandler creates a new AuthHandler
-func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, promoService *service.PromoService, redeemService *service.RedeemService, totpService *service.TotpService, userAttributeService *service.UserAttributeService) *AuthHandler {
+func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, promoService *service.PromoService, redeemService *service.RedeemService, totpService *service.TotpService, userAttributeService *service.UserAttributeService, newAPIAccessTokens *service.NewAPIBalanceAccessTokenService) *AuthHandler {
 	return &AuthHandler{
 		cfg:                  cfg,
 		authService:          authService,
@@ -43,6 +47,7 @@ func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userSe
 		redeemService:        redeemService,
 		totpService:          totpService,
 		userAttributeService: userAttributeService,
+		newAPIAccessTokens:   newAPIAccessTokens,
 	}
 }
 
@@ -453,6 +458,104 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	response.Success(c, UserResponse{
 		userProfileResponse: userProfileResponseFromService(user, identities),
 		RunMode:             runMode,
+	})
+}
+
+func (h *AuthHandler) NewAPIBalanceAccessTokenService() *service.NewAPIBalanceAccessTokenService {
+	if h == nil {
+		return nil
+	}
+	return h.newAPIAccessTokens
+}
+
+// GenerateNewAPIAccessToken rotates the long-lived, balance-read-only token.
+func (h *AuthHandler) GenerateNewAPIAccessToken(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok || h == nil || h.newAPIAccessTokens == nil {
+		writeNewAPISelfError(c, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+	token, err := h.newAPIAccessTokens.Generate(c.Request.Context(), subject.UserID)
+	if err != nil {
+		writeNewAPISelfError(c, http.StatusInternalServerError, "Failed to generate access token")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    token,
+	})
+}
+
+// GetNewAPISelf exposes the NewAPI-compatible balance response used by
+// cc-switch. Authentication accepts either the regular dashboard JWT or the
+// dedicated long-lived balance access token.
+func (h *AuthHandler) GetNewAPISelf(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		writeNewAPISelfError(c, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	// cc-switch sends this header as an additional user identity hint. Do not
+	// trust it for authorization; when present, require it to match the JWT.
+	if rawUserID := strings.TrimSpace(c.GetHeader("New-Api-User")); rawUserID != "" {
+		userID, err := strconv.ParseInt(rawUserID, 10, 64)
+		if err != nil || userID != subject.UserID {
+			writeNewAPISelfError(c, http.StatusForbidden, "New-Api-User does not match the authenticated user")
+			return
+		}
+	}
+	if h == nil || h.userService == nil {
+		writeNewAPISelfError(c, http.StatusInternalServerError, "User service is unavailable")
+		return
+	}
+
+	user, err := h.userService.GetByID(c.Request.Context(), subject.UserID)
+	if err != nil || user == nil || !user.IsActive() {
+		writeNewAPISelfError(c, http.StatusUnauthorized, "User not found")
+		return
+	}
+
+	usedBalance := user.TotalRecharged - user.Balance
+	if usedBalance < 0 || math.IsNaN(usedBalance) {
+		usedBalance = 0
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"id":            user.ID,
+			"username":      user.Username,
+			"email":         user.Email,
+			"quota":         newAPIQuotaUnits(user.Balance),
+			"used_quota":    newAPIQuotaUnits(usedBalance),
+			"request_count": 0,
+		},
+	})
+}
+
+const newAPIQuotaUnitsPerUSD int64 = 500000
+
+func newAPIQuotaUnits(amount float64) int64 {
+	if amount <= 0 || math.IsNaN(amount) {
+		return 0
+	}
+	if math.IsInf(amount, 1) {
+		return math.MaxInt64
+	}
+	if amount >= float64(math.MaxInt64)/float64(newAPIQuotaUnitsPerUSD) {
+		return math.MaxInt64
+	}
+	return int64(math.Round(amount * float64(newAPIQuotaUnitsPerUSD)))
+}
+
+func writeNewAPISelfError(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{
+		"success": false,
+		"message": message,
 	})
 }
 

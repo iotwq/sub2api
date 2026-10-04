@@ -373,6 +373,24 @@ func TestBuildSchedulerMetadataAccount_KeepsGrokMediaEligibility(t *testing.T) {
 	})
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsOpenAIEndpointCapabilities(t *testing.T) {
+	capabilities := []any{"chat_completions", "embeddings", "gemini_native"}
+	account := service.Account{
+		ID:       43,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"openai_capabilities": capabilities,
+			"access_token":        "drop-me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, capabilities, got.Credentials["openai_capabilities"])
+	require.Nil(t, got.Credentials["access_token"])
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
 	account := service.Account{
 		ID:       42,

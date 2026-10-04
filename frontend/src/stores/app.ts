@@ -27,7 +27,7 @@ export const useAppStore = defineStore('app', () => {
   const publicSettingsLoaded = ref<boolean>(false)
   const publicSettingsLoading = ref<boolean>(false)
   const siteName = ref<string>('ChinaAPI')
-  const siteLogo = ref<string>('/dragon-logo.svg')
+  const siteLogo = ref<string>('/dragon-logo.png')
   const siteVersion = ref<string>('')
   const contactInfo = ref<string>('')
   const apiBaseUrl = ref<string>('')
@@ -304,9 +304,11 @@ export const useAppStore = defineStore('app', () => {
     cachedPublicSettings.value = normalizedConfig
     siteName.value = normalizedConfig.site_name || 'ChinaAPI'
     siteLogo.value =
-      normalizedConfig.site_logo && normalizedConfig.site_logo !== '/logo.png'
+      normalizedConfig.site_logo &&
+      normalizedConfig.site_logo !== '/logo.png' &&
+      normalizedConfig.site_logo !== '/dragon-logo.svg'
         ? normalizedConfig.site_logo
-        : '/dragon-logo.svg'
+        : '/dragon-logo.png'
     siteVersion.value = normalizedConfig.version || ''
     contactInfo.value = normalizedConfig.contact_info || ''
     apiBaseUrl.value = normalizedConfig.api_base_url || ''
@@ -354,12 +356,14 @@ export const useAppStore = defineStore('app', () => {
         site_logo: siteLogo.value,
         site_subtitle: '',
         api_base_url: apiBaseUrl.value,
+        optimized_api_base_url: '',
         contact_info: contactInfo.value,
         doc_url: docUrl.value,
         home_content: '',
         compact_home_enabled: false,
         hide_ccs_import_button: false,
         payment_enabled: false,
+        image_workspace_url: 'https://image.iotwq.top/',
         table_default_page_size: 20,
         table_page_size_options: [10, 20, 50, 100],
         custom_menu_items: [],

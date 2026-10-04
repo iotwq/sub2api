@@ -146,6 +146,9 @@ func (s *ChannelMonitorService) Get(ctx context.Context, id int64) (*ChannelMoni
 
 // Create 创建监控（内部加密 api_key）。
 func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCreateParams) (*ChannelMonitor, error) {
+	if err := validateMonitorIntelligence(p.IntelligenceEnabled, p.CheckMode, p.BodyOverrideMode); err != nil {
+		return nil, err
+	}
 	if err := validateCreateParams(p); err != nil {
 		return nil, err
 	}
@@ -164,24 +167,25 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		return nil, fmt.Errorf("encrypt api key: %w", err)
 	}
 	m := &ChannelMonitor{
-		Name:             strings.TrimSpace(p.Name),
-		Provider:         p.Provider,
-		APIMode:          defaultAPIMode(p.APIMode),
-		Endpoint:         normalizeEndpoint(p.Endpoint),
-		APIKey:           encrypted, // 注意：传入 repository 时该字段为密文
-		PrimaryModel:     normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
-		ExtraModels:      normalizeModels(p.ExtraModels),
-		GroupName:        strings.TrimSpace(p.GroupName),
-		Enabled:          p.Enabled,
-		IntervalSeconds:  p.IntervalSeconds,
-		JitterSeconds:    p.JitterSeconds,
-		CreatedBy:        p.CreatedBy,
-		TemplateID:       p.TemplateID,
-		ExtraHeaders:     emptyHeadersIfNil(p.ExtraHeaders),
-		BodyOverrideMode: defaultBodyMode(p.BodyOverrideMode),
-		BodyOverride:     p.BodyOverride,
-		CheckMode:        checkMode,
-		AccountID:        cloneInt64Pointer(p.AccountID),
+		Name:                strings.TrimSpace(p.Name),
+		Provider:            p.Provider,
+		APIMode:             defaultAPIMode(p.APIMode),
+		Endpoint:            normalizeEndpoint(p.Endpoint),
+		APIKey:              encrypted, // 注意：传入 repository 时该字段为密文
+		PrimaryModel:        normalizeMonitorPrimaryModel(p.Provider, checkMode, p.PrimaryModel),
+		ExtraModels:         normalizeModels(p.ExtraModels),
+		GroupName:           strings.TrimSpace(p.GroupName),
+		IntelligenceEnabled: p.IntelligenceEnabled,
+		Enabled:             p.Enabled,
+		IntervalSeconds:     p.IntervalSeconds,
+		JitterSeconds:       p.JitterSeconds,
+		CreatedBy:           p.CreatedBy,
+		TemplateID:          p.TemplateID,
+		ExtraHeaders:        emptyHeadersIfNil(p.ExtraHeaders),
+		BodyOverrideMode:    defaultBodyMode(p.BodyOverrideMode),
+		BodyOverride:        p.BodyOverride,
+		CheckMode:           checkMode,
+		AccountID:           cloneInt64Pointer(p.AccountID),
 	}
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
@@ -239,6 +243,7 @@ func (s *ChannelMonitorService) Duplicate(
 		PrimaryModel:         source.PrimaryModel,
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
+		IntelligenceEnabled:  source.IntelligenceEnabled,
 		Enabled:              false,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,
@@ -435,6 +440,9 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 	if err := applyMonitorUpdate(existing, p); err != nil {
 		return nil, err
 	}
+	if err := validateMonitorIntelligence(existing.IntelligenceEnabled, existing.CheckMode, existing.BodyOverrideMode); err != nil {
+		return nil, err
+	}
 
 	newPlainAPIKey, apiKeyUpdated, err := s.applyAPIKeyUpdate(existing, p.APIKey)
 	if err != nil {
@@ -610,6 +618,11 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	if !rt.ActiveProbesAllowed() {
 		return nil, ErrChannelMonitorActiveProbesRetired
 	}
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, ChannelMonitorRunTimeout())
+		defer cancel()
+	}
 	m, err := s.Get(ctx, id) // 已解密 APIKey
 	if err != nil {
 		return nil, err
@@ -628,6 +641,13 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 		attachQuotaSnapshot(results, s.fetchQuotaSnapshot(ctx, m))
 	default:
 		results = s.runChecksConcurrent(ctx, m)
+	}
+	if m.IntelligenceEnabled {
+		// Preserve the inconclusive sample when the probe exhausts its deadline.
+		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		s.persistCheckResults(persistCtx, m, results)
+		return results, nil
 	}
 	s.persistCheckResults(ctx, m, results)
 	return results, nil
@@ -681,6 +701,7 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 			Message:       r.Message,
 			CheckedAt:     r.CheckedAt,
 			Quota:         r.Quota,
+			Intelligence:  r.Intelligence,
 		})
 	}
 	if err := s.repo.InsertHistoryBatch(ctx, rows); err != nil {
@@ -704,10 +725,11 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 
 	// 所有模型共用同一份 CheckOptions（来自监控的快照字段）。
 	opts := &CheckOptions{
-		APIMode:          m.APIMode,
-		ExtraHeaders:     m.ExtraHeaders,
-		BodyOverrideMode: m.BodyOverrideMode,
-		BodyOverride:     m.BodyOverride,
+		APIMode:             m.APIMode,
+		ExtraHeaders:        m.ExtraHeaders,
+		BodyOverrideMode:    m.BodyOverrideMode,
+		BodyOverride:        m.BodyOverride,
+		IntelligenceEnabled: m.IntelligenceEnabled,
 	}
 
 	var eg errgroup.Group
@@ -942,6 +964,9 @@ func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) 
 	}
 	if p.GroupName != nil {
 		existing.GroupName = strings.TrimSpace(*p.GroupName)
+	}
+	if p.IntelligenceEnabled != nil {
+		existing.IntelligenceEnabled = *p.IntelligenceEnabled
 	}
 	if p.Enabled != nil {
 		existing.Enabled = *p.Enabled

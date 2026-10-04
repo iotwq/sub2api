@@ -213,8 +213,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
+			retryStatus := normalizeWrappedUpstreamRetryStatus(resp.StatusCode, respBody)
+			shouldFailover := s.shouldFailoverGrokUpstreamError(retryStatus, respBody)
 			kind := "http_error"
-			if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
+			if shouldFailover {
 				kind = "failover"
 			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -228,15 +230,15 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 				Kind:               kind,
 				Message:            upstreamMsg,
 			})
-			s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)
-			if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
-				retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
+			s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, retryStatus, resp.Header, respBody)
+			if shouldFailover {
+				retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, retryStatus, respBody)
 				return nil, &UpstreamFailoverError{
-					StatusCode:               resp.StatusCode,
+					StatusCode:               retryStatus,
 					ResponseBody:             respBody,
 					ResponseHeaders:          resp.Header.Clone(),
 					RetryableOnSameAccount:   retryable,
-					RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
+					RequestScopedTransient:   retryable && retryStatus == http.StatusTooManyRequests,
 					SameAccountRetryDelay:    retryDelay,
 					SameAccountRetryDeadline: retryDeadline,
 					SameAccountRetryMax:      retryMax,

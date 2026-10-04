@@ -144,6 +144,36 @@ func TestGetModelPricing_JevLatestInputOnlyAndChannelOverride(t *testing.T) {
 	require.Equal(t, output, pricing.OutputPricePerToken)
 }
 
+func TestGetModelPricing_Grok46UsesOfficialDefault(t *testing.T) {
+	svc := newTestBillingService()
+
+	grok45, err := svc.GetModelPricing("grok-4.5")
+	require.NoError(t, err)
+	grok46, err := svc.GetModelPricing("grok-4.6")
+	require.NoError(t, err)
+
+	require.Equal(t, grok45.InputPricePerToken, grok46.InputPricePerToken)
+	require.Equal(t, grok45.OutputPricePerToken, grok46.OutputPricePerToken)
+	require.InDelta(t, 0.5e-6, grok46.CacheReadPricePerToken, 1e-12)
+	require.True(t, svc.HasIdentifiedTokenPricing("grok-4.6"))
+	require.True(t, svc.HasIdentifiedTokenPricing("grok-4.7"))
+}
+
+func TestGetModelPricingWithChannel_Grok46ChannelPriceOverridesDefault(t *testing.T) {
+	svc := newTestBillingService()
+	channelPricing := &ChannelModelPricing{
+		InputPrice:     testPtrFloat64(9e-6),
+		OutputPrice:    testPtrFloat64(18e-6),
+		CacheReadPrice: testPtrFloat64(3e-6),
+	}
+
+	pricing, err := svc.GetModelPricingWithChannel("grok-4.6", channelPricing)
+	require.NoError(t, err)
+	require.InDelta(t, 9e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 18e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 3e-6, pricing.CacheReadPricePerToken, 1e-12)
+}
+
 // issue #3394: fallback warn 应按模型名去重,每个模型每进程最多打一条,
 // 避免热路径每请求刷屏 ops_system_logs。
 func TestGetModelPricing_FallbackWarnLoggedOncePerModel(t *testing.T) {

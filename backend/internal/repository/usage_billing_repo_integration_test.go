@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,169 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+func TestUsageBillingRepositoryApplyWithUsageLog_IsAtomic(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+	atomicRepo, ok := repo.(service.AtomicUsageBillingRepository)
+	require.True(t, ok)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-atomic-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+		Balance:      10,
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: user.ID,
+		Key:    "sk-usage-billing-atomic-" + uuid.NewString(),
+		Name:   "billing-atomic",
+	})
+	account := mustCreateAccount(t, client, &service.Account{
+		Name: "usage-billing-atomic-account-" + uuid.NewString(),
+		Type: service.AccountTypeAPIKey,
+	})
+
+	requestID := "atomic-" + uuid.NewString()
+	createdAt := time.Now().UTC()
+	cmd := &service.UsageBillingCommand{
+		RequestID:   requestID,
+		APIKeyID:    apiKey.ID,
+		UserID:      user.ID,
+		AccountID:   account.ID,
+		AccountType: account.Type,
+		BalanceCost: 2.5,
+	}
+	log := &service.UsageLog{
+		UserID:      user.ID,
+		APIKeyID:    apiKey.ID,
+		AccountID:   account.ID,
+		RequestID:   requestID,
+		Model:       "gpt-atomic",
+		TotalCost:   2.5,
+		ActualCost:  2.5,
+		BillingType: service.BillingTypeBalance,
+		CreatedAt:   createdAt,
+	}
+
+	result, err := atomicRepo.ApplyWithUsageLog(ctx, cmd, log)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	var balance float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
+	require.InDelta(t, 7.5, balance, 0.000001)
+	var usageCount, ledgerCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_logs WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&usageCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM billing_usage_entries WHERE usage_log_id = $1", log.ID).Scan(&ledgerCount))
+	require.Equal(t, 1, usageCount)
+	require.Equal(t, 1, ledgerCount)
+
+	failedRequestID := "atomic-fail-" + uuid.NewString()
+	_, err = atomicRepo.ApplyWithUsageLog(ctx, &service.UsageBillingCommand{
+		RequestID:   failedRequestID,
+		APIKeyID:    apiKey.ID,
+		UserID:      user.ID,
+		AccountID:   account.ID,
+		AccountType: account.Type,
+		BalanceCost: 1,
+	}, &service.UsageLog{
+		UserID:      user.ID,
+		APIKeyID:    apiKey.ID,
+		AccountID:   account.ID + 999999999,
+		RequestID:   failedRequestID,
+		Model:       "gpt-atomic",
+		TotalCost:   1,
+		ActualCost:  1,
+		BillingType: service.BillingTypeBalance,
+		CreatedAt:   createdAt,
+	})
+	require.Error(t, err)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
+	require.InDelta(t, 7.5, balance, 0.000001, "usage log 插入失败时扣费必须回滚")
+	var failedDedupCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_billing_dedup WHERE request_id = $1 AND api_key_id = $2", failedRequestID, apiKey.ID).Scan(&failedDedupCount))
+	require.Zero(t, failedDedupCount)
+}
+
+func TestUsageBillingRepositoryApplyWithUsageLog_RefundRestoresAllCurrentWindows(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+	atomicRepo := repo.(service.AtomicUsageBillingRepository)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-refund-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+		Balance:      10,
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID:      user.ID,
+		Key:         "sk-usage-billing-refund-" + uuid.NewString(),
+		Name:        "billing-refund",
+		Quota:       1,
+		RateLimit5h: 10,
+		RateLimit1d: 10,
+		RateLimit7d: 10,
+	})
+	account := mustCreateAccount(t, client, &service.Account{
+		Name: "usage-billing-refund-account-" + uuid.NewString(),
+		Type: service.AccountTypeAPIKey,
+		Extra: map[string]any{
+			"quota_limit":        10.0,
+			"quota_daily_limit":  10.0,
+			"quota_weekly_limit": 10.0,
+		},
+	})
+	createdAt := time.Now().UTC()
+	chargeID := "refund-charge-" + uuid.NewString()
+	chargeLog := &service.UsageLog{
+		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+		RequestID: chargeID, Model: "video-test", TotalCost: 2, ActualCost: 2,
+		BillingType: service.BillingTypeBalance, CreatedAt: createdAt,
+	}
+	_, err := atomicRepo.ApplyWithUsageLog(ctx, &service.UsageBillingCommand{
+		RequestID: chargeID, APIKeyID: apiKey.ID, UserID: user.ID, AccountID: account.ID,
+		AccountType: account.Type, BalanceCost: 2, APIKeyQuotaCost: 2,
+		APIKeyRateLimitCost: 2, AccountQuotaCost: 2,
+	}, chargeLog)
+	require.NoError(t, err)
+
+	refundID := "refund-reversal-" + uuid.NewString()
+	refundLog := &service.UsageLog{
+		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+		RequestID: refundID, Model: "video-test", TotalCost: -2, ActualCost: -2,
+		BillingType: service.BillingTypeBalance, CreatedAt: time.Now().UTC(),
+	}
+	_, err = atomicRepo.ApplyWithUsageLog(ctx, &service.UsageBillingCommand{
+		RequestID: refundID, APIKeyID: apiKey.ID, UserID: user.ID, AccountID: account.ID,
+		AccountType: account.Type, BalanceCost: -2, APIKeyQuotaCost: -2,
+		APIKeyRateLimitCost: -2, AccountQuotaCost: -2, RestoreUsageCreatedAt: createdAt,
+	}, refundLog)
+	require.NoError(t, err)
+
+	var balance, quotaUsed, usage5h, usage1d, usage7d float64
+	var keyStatus string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT quota_used, usage_5h, usage_1d, usage_7d, status FROM api_keys WHERE id = $1", apiKey.ID).Scan(&quotaUsed, &usage5h, &usage1d, &usage7d, &keyStatus))
+	require.InDelta(t, 10, balance, 0.000001)
+	require.Zero(t, quotaUsed)
+	require.Zero(t, usage5h)
+	require.Zero(t, usage1d)
+	require.Zero(t, usage7d)
+	require.Equal(t, service.StatusAPIKeyActive, keyStatus)
+
+	var totalUsed, dailyUsed, weeklyUsed float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT
+		COALESCE((extra->>'quota_used')::numeric, 0),
+		COALESCE((extra->>'quota_daily_used')::numeric, 0),
+		COALESCE((extra->>'quota_weekly_used')::numeric, 0)
+		FROM accounts WHERE id = $1`, account.ID).Scan(&totalUsed, &dailyUsed, &weeklyUsed))
+	require.Zero(t, totalUsed)
+	require.Zero(t, dailyUsed)
+	require.Zero(t, weeklyUsed)
+	require.Less(t, refundLog.ActualCost, 0.0)
+}
 
 func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 	ctx := context.Background()
@@ -78,6 +242,65 @@ func TestUsageBillingRepositoryApply_DeduplicatesBalanceBilling(t *testing.T) {
 	var dedupCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_billing_dedup WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&dedupCount))
 	require.Equal(t, 1, dedupCount)
+}
+
+func TestUsageBillingRepositoryApply_ConcurrentResidualBalanceChargesEveryRequest(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+
+	const (
+		residualBalance = 0.00032025
+		actualCost      = 0.00118608
+		requestCount    = 2
+	)
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-residual-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+		Balance:      residualBalance,
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: user.ID,
+		Key:    "sk-usage-billing-residual-" + uuid.NewString(),
+		Name:   "billing-residual",
+	})
+
+	start := make(chan struct{})
+	results := make(chan *service.UsageBillingApplyResult, requestCount)
+	errs := make(chan error, requestCount)
+	var wg sync.WaitGroup
+	for i := 0; i < requestCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			result, err := repo.Apply(ctx, &service.UsageBillingCommand{
+				RequestID:   uuid.NewString(),
+				APIKeyID:    apiKey.ID,
+				UserID:      user.ID,
+				BalanceCost: actualCost,
+			})
+			results <- result
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	for result := range results {
+		require.NotNil(t, result)
+		require.True(t, result.Applied)
+		require.True(t, result.BalanceOverdrafted)
+	}
+
+	var balance float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
+	require.InDelta(t, -0.00205191, balance, 0.000000001)
 }
 
 func TestUsageBillingRepositoryApply_DeduplicatesSubscriptionBilling(t *testing.T) {
@@ -166,6 +389,7 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 	ctx := context.Background()
 	client := testEntClient(t)
 	repo := NewUsageBillingRepository(client, integrationDB)
+	atomicRepo := repo.(service.AtomicUsageBillingRepository)
 
 	user := mustCreateUser(t, client, &service.User{
 		Email:        fmt.Sprintf("usage-billing-deleted-key-user-%d@example.com", time.Now().UnixNano()),
@@ -188,7 +412,7 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 	require.NoError(t, err)
 
 	requestID := uuid.NewString()
-	result, err := repo.Apply(ctx, &service.UsageBillingCommand{
+	cmd := &service.UsageBillingCommand{
 		RequestID:           requestID,
 		APIKeyID:            apiKey.ID,
 		UserID:              user.ID,
@@ -197,11 +421,28 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 		BalanceCost:         1.25,
 		APIKeyQuotaCost:     1.25,
 		APIKeyRateLimitCost: 1.25,
-	})
+	}
+	usage := &service.UsageLog{
+		RequestID:   requestID,
+		APIKeyID:    apiKey.ID,
+		UserID:      user.ID,
+		AccountID:   account.ID,
+		Model:       "gpt-billing-deleted-key",
+		TotalCost:   1.25,
+		ActualCost:  1.25,
+		BillingType: service.BillingTypeBalance,
+		CreatedAt:   time.Now().UTC(),
+	}
+	result, err := atomicRepo.ApplyWithUsageLog(ctx, cmd, usage)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.Applied)
 	require.False(t, result.APIKeyQuotaExhausted)
+	require.Positive(t, usage.ID)
+
+	result, err = atomicRepo.ApplyWithUsageLog(ctx, cmd, usage)
+	require.NoError(t, err)
+	require.False(t, result.Applied)
 
 	var balance float64
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT balance FROM users WHERE id = $1", user.ID).Scan(&balance))
@@ -215,6 +456,11 @@ func TestUsageBillingRepositoryApply_DeletedAPIKeyStillBillsBalance(t *testing.T
 	var dedupCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_billing_dedup WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&dedupCount))
 	require.Equal(t, 1, dedupCount)
+	var usageCount, ledgerCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_logs WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&usageCount))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM billing_usage_entries WHERE usage_log_id = $1", usage.ID).Scan(&ledgerCount))
+	require.Equal(t, 1, usageCount)
+	require.Equal(t, 1, ledgerCount)
 }
 
 func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {

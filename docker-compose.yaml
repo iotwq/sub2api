@@ -25,7 +25,7 @@ services:
   # ===========================================================================
   sub2api:
     #image: weishaw/sub2api:latest
-    image: iotwq/china-api:latest-amd64
+    image: iotwq/china-api:latest
     container_name: sub2api
     restart: unless-stopped
     ulimits:
@@ -41,6 +41,8 @@ services:
       # Copy config.example.yaml to config.yaml, modify it, then uncomment:
       # - ./config.yaml:/app/data/config.yaml
     environment:
+      - IMAGE_WORKSPACE_URL=${IMAGE_WORKSPACE_URL:-https://image.iotwq.top/}
+
       # =======================================================================
       # Auto Setup (REQUIRED for Docker deployment)
       # =======================================================================

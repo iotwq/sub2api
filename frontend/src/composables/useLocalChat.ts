@@ -25,6 +25,7 @@ export interface LocalChatSession {
   title: string
   model: string
   deepThinkingEnabled?: boolean
+  webSearchEnabled?: boolean
   apiKey?: string
   baseUrl?: string
   apiKeyHint: string
@@ -39,6 +40,7 @@ export interface LocalChatDraftConfig {
   model?: string
   sessionTitle?: string
   deepThinkingEnabled?: boolean
+  webSearchEnabled?: boolean
 }
 
 const CHAT_SESSIONS_KEY = 'local_chat_sessions_v1'
@@ -96,7 +98,7 @@ export function useLocalChat() {
   })
 
   function createSession(
-    input?: Partial<Pick<LocalChatSession, 'title' | 'model' | 'deepThinkingEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint'>>
+    input?: Partial<Pick<LocalChatSession, 'title' | 'model' | 'deepThinkingEnabled' | 'webSearchEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint'>>
   ) {
     const now = new Date().toISOString()
     const session: LocalChatSession = {
@@ -104,6 +106,7 @@ export function useLocalChat() {
       title: input?.title?.trim() || 'New Chat',
       model: input?.model?.trim() || '',
       deepThinkingEnabled: input?.deepThinkingEnabled ?? false,
+      webSearchEnabled: input?.webSearchEnabled ?? false,
       apiKey: input?.apiKey?.trim() || '',
       baseUrl: input?.baseUrl?.trim() || '',
       apiKeyHint: input?.apiKeyHint?.trim() || '',
@@ -176,6 +179,14 @@ export function useLocalChat() {
     persistSessions()
   }
 
+  function deleteMessage(sessionId: string, messageId: string) {
+    const session = sessionsState.value.find((item) => item.id === sessionId)
+    if (!session) return
+    session.messages = session.messages.filter((message) => message.id !== messageId)
+    session.updatedAt = new Date().toISOString()
+    persistSessions()
+  }
+
   function clearAllSessions() {
     sessionsState.value = []
     activeSessionIdState.value = null
@@ -206,6 +217,7 @@ export function useLocalChat() {
     deleteSession,
     appendMessage,
     updateMessage,
+    deleteMessage,
     clearAllSessions,
     saveDraftConfig,
     consumeDraftConfig,

@@ -21,7 +21,6 @@ const compactProbeSSESuccessBody = "data: {\"type\":\"response.output_item.done\
 	"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_probe\",\"output\":[]}}\n\n"
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersistsSupport(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	updateCalls := make(chan map[string]any, 1)
 	account := Account{
@@ -83,7 +82,6 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsupported(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	updateCalls := make(chan map[string]any, 1)
 	account := Account{
@@ -127,7 +125,6 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesNativeResponsesPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	updateCalls := make(chan map[string]any, 1)
 	account := Account{
@@ -178,7 +175,6 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesNativeR
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyDefaultBaseURLUsesResponsesPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	updateCalls := make(chan map[string]any, 1)
 	account := Account{

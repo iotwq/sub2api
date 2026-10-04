@@ -48,6 +48,32 @@ func TestBillingErrorDetails_BillingServiceUnavailableMapsTo503(t *testing.T) {
 	require.Equal(t, 0, retryAfter, "non-RPM errors should not set Retry-After")
 }
 
+func TestPricingPreflightErrorDetails_MissingPriceMapsToActionable400(t *testing.T) {
+	status, code, message := pricingPreflightErrorDetails("MiniMax-H3", service.ErrModelPricingUnavailable)
+
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, "invalid_request_error", code)
+	require.Equal(t, `Model "MiniMax-H3" is not priced and cannot be used. Please contact the administrator to configure pricing.`, message)
+}
+
+func TestPricingPreflightErrorDetails_InfrastructureFailureStays503(t *testing.T) {
+	status, code, message := pricingPreflightErrorDetails("MiniMax-H3", errors.New("pricing database unavailable"))
+
+	require.Equal(t, http.StatusServiceUnavailable, status)
+	require.Equal(t, "billing_service_error", code)
+	require.Equal(t, service.ErrBillingServiceUnavailable.Message, message)
+}
+
+func TestPricingPreflightErrorDetails_VideoMediaValidationMapsToActionable400(t *testing.T) {
+	status, code, message := pricingPreflightErrorDetails("MiniMax-H3", &service.OpenAIVideoBillingInputError{
+		Message: "MiniMax-H3 paid reference videos must be uploaded through this service's /pg/assets endpoint",
+	})
+
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, "invalid_request_error", code)
+	require.Contains(t, message, "/pg/assets")
+}
+
 func TestBillingErrorDetails_UnknownErrorFallsBackTo403(t *testing.T) {
 	status, code, msg, _ := billingErrorDetails(service.ErrInsufficientBalance)
 	require.Equal(t, http.StatusForbidden, status)

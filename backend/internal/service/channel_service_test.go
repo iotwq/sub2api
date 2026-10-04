@@ -2486,6 +2486,100 @@ func TestValidatePricingBillingMode(t *testing.T) {
 			errMsg:  "per-request price or intervals required",
 		},
 		{
+			name: "MiniMax-H3 video tiers - valid",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"MiniMax-H3"},
+				BillingMode: BillingModeVideo,
+				Intervals: []PricingInterval{
+					{TierLabel: "768P", PerRequestPrice: testPtrFloat64(0.08)},
+					{TierLabel: "2K", PerRequestPrice: testPtrFloat64(0.20)},
+				},
+			}},
+		},
+		{
+			name: "SD2 standard video resolution tiers - valid",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"firefly-video-v2"},
+				BillingMode: BillingModeVideo,
+				Intervals: []PricingInterval{
+					{TierLabel: "480p", PerRequestPrice: testPtrFloat64(0.17)},
+					{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.24)},
+					{TierLabel: "1080p", PerRequestPrice: testPtrFloat64(0.54)},
+				},
+			}},
+		},
+		{
+			name: "SD2 fast video resolution tiers - valid",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"firefly-video-v2-fast"},
+				BillingMode: BillingModeVideo,
+				Intervals: []PricingInterval{
+					{TierLabel: "480p", PerRequestPrice: testPtrFloat64(0.15)},
+					{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.17)},
+				},
+			}},
+		},
+		{
+			name: "SD2 models require standalone pricing rules",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"firefly-video-v2", "firefly-video-v2-fast"},
+				BillingMode: BillingModeVideo,
+				Intervals: []PricingInterval{
+					{TierLabel: "480p", PerRequestPrice: testPtrFloat64(0.17)},
+					{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.24)},
+					{TierLabel: "1080p", PerRequestPrice: testPtrFloat64(0.54)},
+				},
+			}},
+			wantErr: true,
+			errMsg:  "must use a standalone exact-model pricing rule",
+		},
+		{
+			name: "SD2 standard video requires all resolution tiers",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"firefly-video-v2"},
+				BillingMode: BillingModeVideo,
+				Intervals: []PricingInterval{
+					{TierLabel: "480p", PerRequestPrice: testPtrFloat64(0.17)},
+					{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.24)},
+				},
+			}},
+			wantErr: true,
+			errMsg:  "requires exactly three per-second tiers",
+		},
+		{
+			name: "SD2 video resolution price must be positive",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"firefly-video-v2-fast"},
+				BillingMode: BillingModeVideo,
+				Intervals: []PricingInterval{
+					{TierLabel: "480p", PerRequestPrice: testPtrFloat64(0)},
+					{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.17)},
+				},
+			}},
+			wantErr: true,
+			errMsg:  "per-second price must be greater than 0",
+		},
+		{
+			name: "MiniMax-H3 cannot share a generic video rule",
+			pricing: []ChannelModelPricing{{
+				Models:          []string{"MiniMax-H3", "firefly-video-v2"},
+				BillingMode:     BillingModeVideo,
+				PerRequestPrice: testPtrFloat64(0.17),
+			}},
+			wantErr: true,
+			errMsg:  "must use a standalone exact-model pricing rule",
+		},
+		{
+			name: "MiniMax-H3 video mode requires both tiers",
+			pricing: []ChannelModelPricing{{
+				Models:      []string{"MiniMax-H3"},
+				BillingMode: BillingModeVideo,
+				Intervals:   []PricingInterval{{TierLabel: "2K", PerRequestPrice: testPtrFloat64(0.20)}},
+			}},
+			wantErr: true,
+			errMsg:  "requires exactly two per-second tiers",
+		},
+		{
 			name:    "empty list - valid",
 			pricing: []ChannelModelPricing{},
 		},

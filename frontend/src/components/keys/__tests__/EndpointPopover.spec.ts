@@ -4,7 +4,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 const copyToClipboard = vi.fn().mockResolvedValue(true)
 
 const messages: Record<string, string> = {
-  'keys.endpoints.title': 'API 端点',
+  'keys.endpoints.title': '直连地址',
+  'keys.endpoints.optimized': '国内优化地址',
   'keys.endpoints.default': '默认',
   'keys.endpoints.copied': '已复制',
   'keys.endpoints.copiedHint': '已复制到剪贴板',
@@ -65,5 +66,27 @@ describe('EndpointPopover', () => {
     expect(copyToClipboard).toHaveBeenCalledWith('https://default.example.com/v1', '已复制')
     expect(wrapper.text()).toContain('已复制到剪贴板')
     expect(wrapper.find('button[aria-label="已复制到剪贴板"]').exists()).toBe(true)
+  })
+
+  it('分别展示直连和国内优化地址，且仅直连地址标记为默认', () => {
+    const wrapper = mount(EndpointPopover, {
+      props: {
+        apiBaseUrl: 'https://direct.example.com',
+        optimizedApiBaseUrl: 'https://optimized.example.com',
+        customEndpoints: [],
+      },
+    })
+
+    expect(wrapper.text()).toContain('直连地址')
+    expect(wrapper.text()).toContain('https://direct.example.com')
+    expect(wrapper.text()).toContain('国内优化地址')
+    expect(wrapper.text()).toContain('https://optimized.example.com')
+    expect(wrapper.findAll('span').filter((node) => node.text() === '默认')).toHaveLength(1)
+
+    const optimizedSpeedTest = wrapper.findAll('a').find(
+      (node) => node.attributes('href') ===
+        `https://www.tcptest.cn/http/${encodeURIComponent('https://optimized.example.com')}`,
+    )
+    expect(optimizedSpeedTest).toBeDefined()
   })
 })

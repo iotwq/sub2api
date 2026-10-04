@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +31,11 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	if originalModel == "" {
 		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
+	}
+	estimatedInputTokens, err := EstimateOpenAIEmbeddingsInputTokens(body, originalModel)
+	if err != nil {
+		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "input must be a valid embedding input")
+		return nil, err
 	}
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
@@ -163,16 +169,61 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 
 	writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
 
+	usage := extractOpenAIEmbeddingsUsage(respBody)
+	if usage.InputTokens <= 0 {
+		usage.InputTokens = estimatedInputTokens
+	}
 	return &OpenAIForwardResult{
 		RequestID:       firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
 		UpstreamHeaders: resp.Header,
-		Usage:           extractOpenAIEmbeddingsUsage(respBody),
+		Usage:           usage,
 		Model:           originalModel,
 		BillingModel:    billingModel,
 		UpstreamModel:   upstreamModel,
 		Stream:          false,
 		Duration:        time.Since(startTime),
 	}, nil
+}
+
+func EstimateOpenAIEmbeddingsInputTokens(body []byte, model string) (int, error) {
+	var payload struct {
+		Input json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || len(bytes.TrimSpace(payload.Input)) == 0 {
+		return 0, fmt.Errorf("embedding input is required")
+	}
+	codec, err := openAIInputTokensCodecForModel(model)
+	if err != nil {
+		return 0, fmt.Errorf("load embedding tokenizer: %w", err)
+	}
+	var input any
+	decoder := json.NewDecoder(bytes.NewReader(payload.Input))
+	decoder.UseNumber()
+	if err := decoder.Decode(&input); err != nil {
+		return 0, fmt.Errorf("decode embedding input: %w", err)
+	}
+	var countValue func(any) (int, error)
+	countValue = func(value any) (int, error) {
+		switch typed := value.(type) {
+		case string:
+			return codec.Count(typed)
+		case json.Number:
+			return 1, nil
+		case []any:
+			total := 0
+			for _, item := range typed {
+				count, err := countValue(item)
+				if err != nil {
+					return 0, err
+				}
+				total += count
+			}
+			return total, nil
+		default:
+			return 0, fmt.Errorf("unsupported embedding input type %T", value)
+		}
+	}
+	return countValue(input)
 }
 
 func writeOpenAIEmbeddingsUpstreamResponse(c *gin.Context, resp *http.Response, body []byte, filter *responseheaders.CompiledHeaderFilter) {

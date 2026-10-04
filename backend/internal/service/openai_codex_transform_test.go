@@ -866,7 +866,7 @@ func TestEnsureOpenAIResponsesImageGenerationTool_SkipsSpark(t *testing.T) {
 	require.NotContains(t, reqBody, "tools")
 }
 
-func TestEnsureOpenAIResponsesImageGenerationTool_AppendsToExistingTools(t *testing.T) {
+func TestEnsureOpenAIResponsesImageGenerationTool_AppendsToWebSearchTools(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.4",
 		"tools": []any{
@@ -887,6 +887,25 @@ func TestEnsureOpenAIResponsesImageGenerationTool_AppendsToExistingTools(t *test
 	require.True(t, ok)
 	require.Equal(t, "image_generation", second["type"])
 	require.Equal(t, "png", second["output_format"])
+}
+
+func TestEnsureOpenAIResponsesImageGenerationTool_SkipsCustomFunctionTools(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.4",
+		"tools": []any{
+			map[string]any{"type": "function", "name": "generate_image_batch"},
+		},
+	}
+
+	modified := ensureOpenAIResponsesImageGenerationTool(reqBody)
+	require.False(t, modified)
+
+	tools, ok := reqBody["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 1)
+	first, ok := tools[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "generate_image_batch", first["name"])
 }
 
 func TestEnsureOpenAIResponsesImageGenerationTool_PreservesExistingImageTool(t *testing.T) {
@@ -973,6 +992,7 @@ func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing
 		name       string
 		reqBody    map[string]any
 		wantClient bool
+		wantBridge bool
 	}{
 		{
 			name: "flat image_gen function",
@@ -984,6 +1004,7 @@ func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing
 				},
 			},
 			wantClient: true,
+			wantBridge: false,
 		},
 		{
 			name: "nested image_gen function",
@@ -1000,6 +1021,7 @@ func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing
 				},
 			},
 			wantClient: true,
+			wantBridge: false,
 		},
 		{
 			name: "similar function name still receives hosted bridge",
@@ -1011,6 +1033,7 @@ func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing
 				},
 			},
 			wantClient: false,
+			wantBridge: false,
 		},
 	}
 
@@ -1023,9 +1046,9 @@ func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing
 			choiceModified := ensureOpenAIResponsesImageGenerationToolChoiceAuto(tt.reqBody)
 			instructionsModified := applyCodexImageGenerationBridgeInstructions(tt.reqBody)
 
-			require.Equal(t, !tt.wantClient, toolModified)
-			require.Equal(t, !tt.wantClient, choiceModified)
-			require.Equal(t, !tt.wantClient, instructionsModified)
+			require.Equal(t, tt.wantBridge, toolModified)
+			require.Equal(t, tt.wantBridge, choiceModified)
+			require.Equal(t, tt.wantBridge, instructionsModified)
 
 			hasHostedTool := false
 			tools, _ := tt.reqBody["tools"].([]any)
@@ -1035,14 +1058,14 @@ func TestCodexImageGenerationBridge_PreservesClientImageFunctionTools(t *testing
 					hasHostedTool = true
 				}
 			}
-			require.Equal(t, !tt.wantClient, hasHostedTool)
+			require.Equal(t, tt.wantBridge, hasHostedTool)
 
-			if tt.wantClient {
-				require.NotContains(t, tt.reqBody, "tool_choice")
-				require.Equal(t, "existing instructions", tt.reqBody["instructions"])
-			} else {
+			if tt.wantBridge {
 				require.Equal(t, "auto", tt.reqBody["tool_choice"])
 				require.Contains(t, tt.reqBody["instructions"], codexImageGenerationBridgeMarker)
+			} else {
+				require.NotContains(t, tt.reqBody, "tool_choice")
+				require.Equal(t, "existing instructions", tt.reqBody["instructions"])
 			}
 		})
 	}

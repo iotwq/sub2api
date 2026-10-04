@@ -59,6 +59,15 @@ func newGeminiClientCancelFixture(t *testing.T) *geminiClientCancelFixture {
 	}
 	h, cleanup := newTestGatewayHandler(t, group, []*service.Account{account})
 	t.Cleanup(cleanup)
+	// Keep the local pricing preflight active so cancellation is exercised only
+	// after a valid, priced request reaches the simulated upstream.
+	cfg := &config.Config{}
+	h.gatewayService = service.NewGatewayService(
+		nil, &fakeGroupRepo{group: group}, nil, nil, nil, nil, nil, nil, cfg,
+		service.NewSchedulerSnapshotService(&fakeSchedulerCache{accounts: []*service.Account{account}}, nil, nil, nil, nil),
+		nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -100,7 +109,7 @@ func TestGeminiV1BetaModels_ClientCancelBeforeUpstreamResponseMarks499(t *testin
 
 	rec, opsQueued := f.serve(t,
 		"/v1beta/models/*modelAction",
-		"/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+		"/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
 		`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`,
 		f.handler.GeminiV1BetaModels,
 	)
@@ -119,7 +128,7 @@ func TestGatewayChatCompletions_GeminiClientCancelBeforeUpstreamResponseMarks499
 	rec, opsQueued := f.serve(t,
 		"/v1/chat/completions",
 		"/v1/chat/completions",
-		`{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`,
+		`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`,
 		f.handler.ChatCompletions,
 	)
 

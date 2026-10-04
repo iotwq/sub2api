@@ -889,6 +889,106 @@ func TestFetchUpstreamSupportedModelsUsesConfiguredBodyLimit(t *testing.T) {
 	require.Contains(t, err.Error(), "response exceeds 8 bytes")
 }
 
+func TestFetchUpstreamSupportedModelsReturnsMiniMaxH3WithoutModelsRequest(t *testing.T) {
+	t.Parallel()
+
+	upstream := &httpUpstreamRecorder{}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          upstreamModelSyncTestConfig(),
+	}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+		ID:       8,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":             "minimax-key",
+			"base_url":            "https://metaso.example/api/minimax",
+			"openai_capabilities": []any{"minimax_video"},
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"MiniMax-H3"}, models)
+	require.Nil(t, upstream.lastReq)
+}
+
+func TestFetchUpstreamSupportedModelsParsesGrokAPIKeyResponse(t *testing.T) {
+	t.Parallel()
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"grok-4.5"},{"id":"grok-4.5"},{"id":"grok-imagine"}]}`)),
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+		ID: 9, Platform: PlatformGrok, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "xai-key", "base_url": "https://xai.example.com/v1"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"grok-4.5", "grok-imagine"}, models)
+	require.Equal(t, "https://xai.example.com/v1/models", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer xai-key", upstream.lastReq.Header.Get("Authorization"))
+}
+
+func TestFetchUpstreamSupportedModelsParsesGrokOAuthResponse(t *testing.T) {
+	t.Parallel()
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"model":"grok-4.5"},{"model":"grok-4.5"},{"modelId":"grok-build-0.1"}]}`)),
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig(), grokTokenProvider: NewGrokTokenProvider(nil, nil)}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), grokOAuthModelSyncTestAccount(""))
+	require.NoError(t, err)
+	require.Equal(t, []string{"grok-4.5", "grok-build-0.1"}, models)
+	require.Equal(t, "https://cli-chat-proxy.grok.com/v1/models", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer oauth-access-token", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, grokCLIVersion, upstream.lastReq.Header.Get("X-Grok-Client-Version"))
+	require.Equal(t, "interactive", upstream.lastReq.Header.Get("X-Grok-Client-Mode"))
+	require.Equal(t, "grok-user-id", upstream.lastReq.Header.Get("X-UserID"))
+	require.Equal(t, "grok-user@example.com", upstream.lastReq.Header.Get("X-Email"))
+}
+
+func TestBuildUpstreamModelsRequestGrokOAuthDoesNotSendIdentityToCustomBase(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig(), grokTokenProvider: NewGrokTokenProvider(nil, nil)}
+	req, err := svc.buildUpstreamModelsRequest(context.Background(), grokOAuthModelSyncTestAccount("https://relay.example/v1"))
+	require.NoError(t, err)
+	require.Equal(t, "https://relay.example/v1/models", req.URL.String())
+	require.Empty(t, req.Header.Get("X-UserID"))
+	require.Empty(t, req.Header.Get("X-Email"))
+}
+
+func TestFetchUpstreamSupportedModelsDoesNotExposeUpstreamBody(t *testing.T) {
+	t.Parallel()
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":"SECRET_TOKEN should not be exposed"}`)),
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+
+	_, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+		ID: 8, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "openai-key", "base_url": "https://openai.example.com/v1"},
+	})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "SECRET_TOKEN")
+	var syncErr *UpstreamModelSyncError
+	require.True(t, errors.As(err, &syncErr))
+	require.Equal(t, UpstreamModelSyncErrorUpstream, syncErr.Kind)
+	require.NotContains(t, syncErr.SafeMessage(), "SECRET_TOKEN")
+	require.Contains(t, syncErr.SafeMessage(), "HTTP 502")
+}
+
 func TestMatchModelsDevProviderFallsBackToOpenAIProviderWithoutAPIField(t *testing.T) {
 	t.Parallel()
 
@@ -1053,6 +1153,48 @@ func TestSyncUpstreamModelCatalogPersistsCompleteModelsWhenSomeRemainIncomplete(
 	require.Contains(t, snapshot.Models, "complete-model")
 	require.NotContains(t, snapshot.Models, "incomplete-model")
 	require.Equal(t, []string{"low", "high"}, snapshot.Models["complete-model"].SupportedReasoningLevels)
+}
+
+func TestSyncUpstreamModelCatalogPreviewReportsMetadataCompletenessWithoutPersistence(t *testing.T) {
+	const completeModel = `{"id":"complete-model","reasoning":false,"input_modalities":["text"],"context_window":64000}`
+	const incompleteModel = `{"id":"incomplete-model","display_name":"Incomplete"}`
+	for _, tt := range []struct {
+		name    string
+		models  string
+		warning string
+	}{
+		{name: "complete", models: completeModel},
+		{name: "partial", models: completeModel + "," + incompleteModel, warning: UpstreamModelMetadataPartialCode},
+		{name: "incomplete", models: incompleteModel, warning: UpstreamModelMetadataIncompleteCode},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{
+				{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[` + tt.models + `]}`))},
+				{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))},
+			}}
+			repo := &upstreamModelMetadataRepoStub{}
+			svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+			account := &Account{
+				Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "key", "base_url": "https://provider.example/v1"},
+			}
+
+			catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
+			require.NoError(t, err)
+			require.Nil(t, repo.updates, "preview must not persist an unsaved account")
+			require.Nil(t, account.GetUpstreamModelMetadataSnapshot())
+			if tt.warning == "" {
+				require.Empty(t, catalog.Warnings)
+			} else {
+				require.Len(t, catalog.Warnings, 1)
+				require.Equal(t, tt.warning, catalog.Warnings[0].Code)
+				require.NotContains(t, catalog.Warnings[0].Message, "saved")
+			}
+			if tt.name != "incomplete" {
+				require.Equal(t, int64(64000), catalog.Metadata["complete-model"].ContextWindow)
+			}
+		})
+	}
 }
 
 // Scenario: 上游清单未包含管理员 mapping 目标时，仍按 mapping 补齐并写入快照。

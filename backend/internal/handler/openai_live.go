@@ -44,6 +44,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	model := strings.TrimSpace(gjson.GetBytes(request.Session, "model").String())
+	if model == "" {
+		model = "gpt-live"
+	}
 	if !compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live only supports OpenAI models for Composite groups")
 		return
@@ -81,6 +84,28 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Billing service unavailable")
 		return
 	}
+	estimatedCost, err := h.gatewayService.EstimateOpenAIPerRequestCost(
+		c.Request.Context(),
+		apiKey,
+		apiKey.User,
+		model,
+		"",
+		service.BillingModelSourceRequested,
+		"",
+	)
+	if err != nil || estimatedCost == nil || estimatedCost.ActualCost <= 0 {
+		status, errType, message := pricingPreflightErrorDetails(model, err)
+		h.errorResponse(c, status, errType, message)
+		return
+	}
+	if err := h.billingCacheService.CheckEstimatedCostCoverage(c.Request.Context(), apiKey.User, apiKey.Group, subscription, estimatedCost.ActualCost); err != nil {
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.errorResponse(c, status, code, message)
+		return
+	}
 	if err := h.billingCacheService.CheckBillingEligibility(
 		c.Request.Context(),
 		apiKey.User,
@@ -116,6 +141,39 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 	created, err := h.gatewayService.CreateLiveCall(c.Request.Context(), request, identity, subject.Concurrency)
 	if err != nil {
 		h.writeLiveCreateError(c, err)
+		return
+	}
+	if created.Account == nil {
+		h.gatewayService.AbortCreatedLiveCall(created)
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Live billing account is unavailable")
+		return
+	}
+	result := &service.OpenAIForwardResult{
+		RequestID:          service.LiveCallUsageRequestID(created.CallID),
+		Model:              model,
+		UpstreamModel:      created.Account.GetMappedModel(model),
+		RequestCount:       1,
+		MediaType:          "live",
+		UseResultRequestID: true,
+	}
+	if err := h.gatewayService.RecordUsage(c.Request.Context(), &service.OpenAIRecordUsageInput{
+		Result:             result,
+		APIKey:             apiKey,
+		User:               apiKey.User,
+		Account:            created.Account,
+		Subscription:       subscription,
+		InboundEndpoint:    GetInboundEndpoint(c),
+		UpstreamEndpoint:   "/backend-api/codex/realtime/calls",
+		UserAgent:          c.GetHeader("User-Agent"),
+		IPAddress:          ip.GetClientIP(c),
+		RequestPayloadHash: service.HashUsageRequestPayload(request.Session),
+		APIKeyService:      h.apiKeyService,
+		QuotaPlatform:      service.QuotaPlatform(c.Request.Context(), apiKey),
+		ChannelUsageFields: service.ChannelUsageFields{BillingModelSource: service.BillingModelSourceRequested},
+	}); err != nil {
+		h.gatewayService.AbortCreatedLiveCall(created)
+		reqLog.Error("openai.live.record_usage_failed", zap.Error(err), zap.String("call_id_hash", result.RequestID))
+		h.errorResponse(c, http.StatusServiceUnavailable, "billing_service_error", "Usage billing failed")
 		return
 	}
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))

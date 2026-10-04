@@ -49,6 +49,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 }
 
 func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel, reasoningEffort string) (*openaiStreamingResult, error) {
+	cacheCreationAsInput := openAIBasispointsCacheCreationAsInput(account, GetActualOpenAIUpstreamEndpoint(c))
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -253,7 +254,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
-	codexFailureTerminal := account != nil && account.IsOpenAIOAuthLike()
+	basispointsResponse := GetActualOpenAIUpstreamEndpoint(c) == "/basispoints/api/responses"
+	codexFailureTerminal := !basispointsResponse && account != nil && account.IsOpenAIOAuthLike()
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	var streamEarlyErr error
 	terminalFailurePending := false
@@ -466,7 +468,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 		// 客户端已断开时，上游出错仅影响体验，不影响计费；返回已收集 usage
 		if clientDisconnected {
-			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", scanErr), true
+			return resultWithUsage(), nil, true
 		}
 		s.recordOpenAIProxyStreamDisconnect(account, scanErr, upstreamRequestID)
 		code, message := classifyOpenAIUpstreamStreamReadError(scanErr)
@@ -522,7 +524,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				capacityFailoverSuppressedLogged = true
 			}
 			cyberHit := false
-			if eventType == "response.failed" || eventType == "error" {
+			if eventType == "response.failed" || eventType == "error" || (basispointsResponse && eventType == "response.cancelled") {
 				if codexFailureTerminal && eventType == "error" {
 					sawBareError = true
 					bareErrorPayload = append(bareErrorPayload[:0], dataBytes...)
@@ -550,14 +552,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					})
 				}
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
-				if !outputStarted && !cyberHit {
+				if !outputStarted && !cyberHit && !basispointsResponse {
 					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
 						sawFailedEvent = true
 						streamEarlyErr = compactErr
 						return
 					}
 				}
-				if outputStarted && !cyberHit {
+				if outputStarted && !cyberHit && !basispointsResponse {
 					if codexFailureTerminal && eventType == "error" {
 						// OpenAI commonly follows a bare error with response.failed.
 						// Defer account health updates so the pair is applied once.
@@ -573,7 +575,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_failed", dataBytes, failedMessage)
 					}
 				}
-				if !outputStarted {
+				if !outputStarted && !basispointsResponse {
 					shouldFailover := false
 					if !cyberHit {
 						if eventType == "error" {
@@ -607,6 +609,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 					}
 				}
 				forceFlushFailedEvent = true
+				if basispointsResponse {
+					s.recordBasispointsTerminalFailure(c, account, resp, dataBytes, true)
+					MarkResponseCommitted(c)
+				}
 				sawFailedEvent = true
 				terminalFailurePending = !codexFailureTerminal || eventType == "response.failed"
 			}
@@ -666,6 +672,18 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				dataBytes = sanitizedData
 				data = string(sanitizedData)
 				line = "data: " + data
+			}
+			if cacheCreationAsInput {
+				// Rewrite only the outgoing line. dataBytes retains upstream usage
+				// for accounting, including after a downstream disconnect.
+				normalized, normalizeErr := normalizeOpenAIBasispointsUsage(dataBytes)
+				if normalizeErr != nil {
+					streamEarlyErr = fmt.Errorf("normalize Basispoints usage: %w", normalizeErr)
+					return
+				}
+				if !bytes.Equal(normalized, dataBytes) {
+					line = "data: " + string(normalized)
+				}
 			}
 			// Replace model in response if needed.
 			if needModelReplace {
@@ -1663,6 +1681,12 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		return nil, fmt.Errorf("restore OpenAI namespace response: %w", err)
 	}
 	body = restoreCodexToolNamesFromContext(c, body)
+	if openAIBasispointsCacheCreationAsInput(account, GetActualOpenAIUpstreamEndpoint(c)) {
+		body, err = normalizeOpenAIBasispointsUsage(body)
+		if err != nil {
+			return nil, fmt.Errorf("normalize Basispoints usage: %w", err)
+		}
+	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	// Codex 协议要求 /responses/compact JSON 响应携带 x-codex-turn-state
 	// （codex-api/src/endpoint/compact.rs 从响应头捕获），显式回传。
@@ -1713,6 +1737,10 @@ func bodyHasSSEFraming(body []byte) bool {
 func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	bodyText := string(body)
 	terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
+	if terminalOK && GetActualOpenAIUpstreamEndpoint(c) == "/basispoints/api/responses" &&
+		(terminalType == "response.failed" || terminalType == "error" || terminalType == "response.cancelled") {
+		return s.handleBasispointsTerminalFailure(c, account, resp, body, terminalPayload)
+	}
 	if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 		msg := extractOpenAISSEErrorMessage(terminalPayload)
 		if msg == "" {
@@ -1764,6 +1792,13 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		restoredBody = restoreCodexToolNamesFromContext(c, restoredBody)
 		body = restoredBody
+		if openAIBasispointsCacheCreationAsInput(account, GetActualOpenAIUpstreamEndpoint(c)) {
+			var normalizeErr error
+			body, normalizeErr = normalizeOpenAIBasispointsUsage(body)
+			if normalizeErr != nil {
+				return nil, fmt.Errorf("normalize Basispoints usage: %w", normalizeErr)
+			}
+		}
 	} else {
 		if originalModel != mappedModel {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)

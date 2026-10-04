@@ -11,6 +11,7 @@ import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
+import { LOCALE_CHANGED_EVENT } from '@/i18n'
 
 const router = useRouter()
 const route = useRoute()
@@ -137,10 +138,12 @@ router.afterEach(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
+  window.removeEventListener(LOCALE_CHANGED_EVENT, updateDocumentTitle)
 })
 
 onMounted(async () => {
   window.addEventListener('admin-compliance-required', onAdminComplianceRequired)
+  window.addEventListener(LOCALE_CHANGED_EVENT, updateDocumentTitle)
 
   // Start independent startup reads together so first paint is not gated by a
   // serial setup-status -> public-settings waterfall.

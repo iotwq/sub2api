@@ -1,10 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +91,95 @@ func TestOpenAIUpstreamAccessStateClassification(t *testing.T) {
 			require.False(t, err.RequestScopedTransient)
 			require.Equal(t, http.StatusBadGateway, err.ClientStatusCode)
 			require.Equal(t, openAIUpstreamAccessUnavailableClientMessage, err.ClientMessage)
+		})
+	}
+}
+
+func TestOpenAIOAuthPassthroughTransient5xxTriggersFailover(t *testing.T) {
+	for _, statusCode := range []int{http.StatusInternalServerError, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		t.Run(strconv.Itoa(statusCode), func(t *testing.T) {
+			account := &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+			}
+			require.True(t, shouldFailoverOpenAIPassthroughResponse(account, statusCode, []byte(`{"error":{"message":"temporary upstream failure"}}`)))
+		})
+	}
+
+	require.False(t, shouldFailoverOpenAIPassthroughResponse(
+		&Account{Platform: PlatformGemini, Type: AccountTypeOAuth},
+		http.StatusServiceUnavailable,
+		[]byte(`{"error":{"message":"temporary upstream failure"}}`),
+	))
+}
+
+func TestOpenAIOAuthPassthroughTransientFailuresRetrySameAccount(t *testing.T) {
+	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
+		for _, status := range []int{500, 502, 503, 504, 520, 521, 522, 523, 524} {
+			t.Run(accountType+"_"+strconv.Itoa(status), func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+				body := &passthroughCloseTrackingReadCloser{Reader: strings.NewReader(`{"error":{"message":"temporary upstream failure"}}`)}
+				svc := &OpenAIGatewayService{
+					cfg: &config.Config{},
+					httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+						StatusCode: status,
+						Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"oauth-retry"}},
+						Body:       body,
+					}},
+				}
+				account := &Account{
+					ID: 933, Platform: PlatformOpenAI, Type: accountType, Status: StatusActive, Schedulable: true,
+					Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-account"},
+					Extra:       map[string]any{"openai_passthrough": true},
+				}
+
+				result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.2","input":"hello","stream":false}`))
+				var failoverErr *UpstreamFailoverError
+				require.ErrorAs(t, err, &failoverErr)
+				require.Nil(t, result)
+				require.Equal(t, status, failoverErr.StatusCode)
+				require.Equal(t, "oauth-retry", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+				require.True(t, failoverErr.RetryableOnSameAccount)
+				require.True(t, failoverErr.SameAccountRetryDeadline.IsZero(), "5xx retries must be count bounded")
+				require.Equal(t, 3, account.GetPoolModeRetryCount())
+				require.False(t, c.Writer.Written())
+				require.False(t, IsResponseCommitted(c))
+				require.True(t, body.closed)
+				require.False(t, account.IsPoolMode(), "OAuth must keep its own auth and quota policies")
+			})
+		}
+	}
+}
+
+func TestOpenAIOAuthTransientRetryClassification(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		platform     string
+		status       int
+		body         string
+		disabled     bool
+		wantRetry    bool
+		wantDeadline bool
+	}{
+		{name: "generic_503", platform: PlatformOpenAI, status: 503, body: `{}`, wantRetry: true},
+		{name: "capacity_503", platform: PlatformOpenAI, status: 503, body: `{"error":{"code":"server_is_overloaded"}}`, wantRetry: true},
+		{name: "capacity_400", platform: PlatformOpenAI, status: 400, body: `{"error":{"code":"server_is_overloaded"}}`, wantRetry: true},
+		{name: "transient_429", platform: PlatformOpenAI, status: 429, body: `{"error":{"code":"rate_limit_exceeded"}}`, wantRetry: true, wantDeadline: true},
+		{name: "quota_429", platform: PlatformOpenAI, status: 429, body: `{"error":{"type":"usage_limit_reached","resets_at":4102444800}}`},
+		{name: "invalid_400", platform: PlatformOpenAI, status: 400, body: `{"error":{"code":"invalid_request_error"}}`},
+		{name: "invalid_token", platform: PlatformOpenAI, status: 401, body: `{}`},
+		{name: "permission_denied", platform: PlatformOpenAI, status: 403, body: `{}`},
+		{name: "disabled_workspace", platform: PlatformOpenAI, status: 503, body: `{"error":{"code":"deactivated_workspace"}}`},
+		{name: "custom_cooldown", platform: PlatformOpenAI, status: 503, body: `{}`, disabled: true},
+		{name: "gemini_unchanged", platform: PlatformGemini, status: 503, body: `{}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			account := &Account{ID: 934, Platform: tt.platform, Type: AccountTypeOAuth}
+			err := (&OpenAIGatewayService{}).newOpenAIAccountFailoverError(account, tt.status, nil, []byte(tt.body), "", tt.disabled, false)
+			require.Equal(t, tt.wantRetry, err.RetryableOnSameAccount)
+			require.Equal(t, tt.wantDeadline, !err.SameAccountRetryDeadline.IsZero())
 		})
 	}
 }

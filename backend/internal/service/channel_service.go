@@ -749,7 +749,8 @@ func validateAccountStatsPricingRules(rules []AccountStatsPricingRule) error {
 	return nil
 }
 
-// validatePricingBillingMode 校验计费模式配置：按次/图片模式必须配价格或区间，所有价格字段不能为负，区间至少有一个价格字段。
+// validatePricingBillingMode 校验计费模式配置：按次/图片模式必须配价格或区间，
+// 视频模式必须使用 MiniMax-H3 专用层级或通用每秒价，所有价格字段不能为负。
 func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 	for _, p := range pricing {
 		if err := checkBillingModeRequirements(p); err != nil {
@@ -773,6 +774,152 @@ func checkBillingModeRequirements(p ChannelModelPricing) error {
 				"per-request price or intervals required for per_request/image billing mode",
 			)
 		}
+	}
+	if p.BillingMode == BillingModeVideo {
+		return validateVideoPricing(p)
+	}
+	return nil
+}
+
+func validateVideoPricing(p ChannelModelPricing) error {
+	for _, model := range p.Models {
+		if IsMiniMaxH3VideoModel(model) {
+			return validateMiniMaxH3VideoPricing(p)
+		}
+		if IsFireflyV2VideoModel(model) {
+			return validateSD20VideoPricing(p)
+		}
+	}
+	if len(p.Models) == 0 {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_MODEL_REQUIRED",
+			"video billing mode requires at least one model",
+		)
+	}
+	if p.PerRequestPrice == nil {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_SECOND_PRICE_REQUIRED",
+			"generic video billing requires an output per-second price",
+		)
+	}
+	if len(p.Intervals) != 0 {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_TIERS_UNSUPPORTED",
+			"generic video billing uses one output per-second price and does not support pricing tiers",
+		)
+	}
+	return nil
+}
+
+func validateSD20VideoPricing(p ChannelModelPricing) error {
+	if len(p.Models) != 1 || !IsFireflyV2VideoModel(p.Models[0]) {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_MODEL_UNSUPPORTED",
+			"SD2.0 video billing must use a standalone exact-model pricing rule",
+		)
+	}
+	if p.PerRequestPrice != nil {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_DEFAULT_PRICE_UNSUPPORTED",
+			"SD2.0 video billing requires per-resolution prices; default price is not supported",
+		)
+	}
+
+	expectedResolutions := sd20VideoBillingResolutions(p.Models[0])
+	if len(p.Intervals) != len(expectedResolutions) {
+		tierCount := "two"
+		if len(expectedResolutions) == 3 {
+			tierCount = "three"
+		}
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_TIERS_REQUIRED",
+			fmt.Sprintf("SD2.0 model %s requires exactly %s per-second tiers: %s", p.Models[0], tierCount, strings.Join(expectedResolutions, ", ")),
+		)
+	}
+
+	required := make(map[string]bool, len(expectedResolutions))
+	for _, resolution := range expectedResolutions {
+		required[resolution] = false
+	}
+	for _, iv := range p.Intervals {
+		resolution, ok := normalizeSD20VideoResolution(iv.TierLabel)
+		if !ok {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_INVALID",
+				fmt.Sprintf("unsupported SD2.0 video pricing tier %q for model %s; expected %s", iv.TierLabel, p.Models[0], strings.Join(expectedResolutions, ", ")),
+			)
+		}
+		if _, supported := required[resolution]; !supported {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_INVALID",
+				fmt.Sprintf("unsupported SD2.0 video pricing tier %q for model %s; expected %s", iv.TierLabel, p.Models[0], strings.Join(expectedResolutions, ", ")),
+			)
+		}
+		if required[resolution] {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_DUPLICATE",
+				fmt.Sprintf("duplicate SD2.0 video pricing tier %s", resolution),
+			)
+		}
+		if iv.PerRequestPrice == nil {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_PRICE_REQUIRED",
+				fmt.Sprintf("SD2.0 %s %s per-second price is required", p.Models[0], resolution),
+			)
+		}
+		if *iv.PerRequestPrice <= 0 {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_PRICE_INVALID",
+				fmt.Sprintf("SD2.0 %s %s per-second price must be greater than 0", p.Models[0], resolution),
+			)
+		}
+		required[resolution] = true
+	}
+	return nil
+}
+
+func validateMiniMaxH3VideoPricing(p ChannelModelPricing) error {
+	if len(p.Models) != 1 || !IsMiniMaxH3VideoModel(p.Models[0]) {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_MODEL_UNSUPPORTED",
+			"MiniMax-H3 video billing must use a standalone exact-model pricing rule",
+		)
+	}
+	if p.PerRequestPrice != nil {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_DEFAULT_PRICE_UNSUPPORTED",
+			"MiniMax-H3 video billing requires 768P and 2K per-second tiers; default price is not supported",
+		)
+	}
+	if len(p.Intervals) != 2 {
+		return infraerrors.BadRequest(
+			"VIDEO_BILLING_TIERS_REQUIRED",
+			"MiniMax-H3 video billing requires exactly two per-second tiers: 768P and 2K",
+		)
+	}
+
+	required := map[string]bool{"768P": false, "2K": false}
+	for _, iv := range p.Intervals {
+		label, ok := normalizeMiniMaxH3VideoResolution(iv.TierLabel)
+		if !ok {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_INVALID",
+				fmt.Sprintf("unsupported MiniMax-H3 video pricing tier %q; expected 768P or 2K", iv.TierLabel),
+			)
+		}
+		if required[label] {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_DUPLICATE",
+				fmt.Sprintf("duplicate MiniMax-H3 video pricing tier %s", label),
+			)
+		}
+		if iv.PerRequestPrice == nil {
+			return infraerrors.BadRequest(
+				"VIDEO_BILLING_TIER_PRICE_REQUIRED",
+				fmt.Sprintf("MiniMax-H3 %s per-second price is required", label),
+			)
+		}
+		required[label] = true
 	}
 	return nil
 }

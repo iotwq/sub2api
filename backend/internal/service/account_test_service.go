@@ -152,6 +152,8 @@ type AccountTestService struct {
 	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
 	openaiGatewayService      *OpenAIGatewayService
+	bpsProbeMu                sync.Mutex
+	bpsProbeAccounts          map[int64]struct{}
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -253,6 +255,32 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			payload.Data = append(payload.Data, openai.Model{ID: publicID, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(publicID)})
 			seen[publicID] = true
 		}
+	}
+
+	// The picker submits the requested model ID, so configured mapping keys are
+	// valid test choices even when an upstream catalog only exposes their target
+	// model (or does not expose custom models at all). Wildcard keys cannot be
+	// selected as a concrete test model and are intentionally omitted.
+	seen := make(map[string]bool, len(payload.Data))
+	for _, model := range payload.Data {
+		seen[model.ID] = true
+	}
+	for requestedModel := range account.GetModelMapping() {
+		if account.Type != AccountTypeAPIKey || account.IsOpenAIPassthroughEnabled() {
+			continue
+		}
+		requestedModel = strings.TrimSpace(requestedModel)
+		if requestedModel == "" || strings.Contains(requestedModel, "*") || seen[requestedModel] {
+			continue
+		}
+		payload.Data = append(payload.Data, openai.Model{
+			ID:          requestedModel,
+			Object:      "model",
+			Type:        "model",
+			OwnedBy:     "openai",
+			DisplayName: openaiCodexDisplayName(requestedModel),
+		})
+		seen[requestedModel] = true
 	}
 	return payload.Data, nil
 }
@@ -787,11 +815,18 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
+	if mode == AccountTestModeBPSTools {
+		return s.testBasispointsToolRoundtrip(c, account, modelID)
+	}
 
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
 	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+		if account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityMiniMaxVideo) {
+			testModelID = openAIVideoModelMiniMaxH3Canonical
+		} else {
+			testModelID = openai.DefaultTestModel
+		}
 	}
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
@@ -799,6 +834,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
 	testModelID = account.GetMappedModel(testModelID)
+	if IsMiniMaxH3VideoModel(testModelID) {
+		return s.testOpenAIMiniMaxVideoConnection(c, account, testModelID)
+	}
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -813,6 +851,10 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.testOpenAIImageAPIKey(c, ctx, account, testModelID, imagePrompt)
 		}
 		return s.testOpenAIImageOAuth(c, ctx, account, testModelID, imagePrompt)
+	}
+
+	if openAIOAuthResponsesEndpointMode(account) == openAIOAuthResponsesEndpointBasis {
+		return s.testOpenAIBasispointsAccount(c, account, testModelID, prompt)
 	}
 
 	credentialAccount := account
@@ -977,18 +1019,76 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	return s.processOpenAIStream(c, resp.Body)
 }
 
+func (s *AccountTestService) testOpenAIMiniMaxVideoConnection(c *gin.Context, account *Account, modelID string) error {
+	if account.Type != AccountTypeAPIKey || !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityMiniMaxVideo) {
+		return s.sendErrorAndEnd(c, "MiniMax-H3 testing requires an OpenAI APIKey account with MiniMax H3 video capability")
+	}
+	authToken := account.GetOpenAIApiKey()
+	if authToken == "" {
+		return s.sendErrorAndEnd(c, "No API key available")
+	}
+	baseURL, err := s.validateUpstreamBaseURL(account.GetOpenAIBaseURL())
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+	}
+
+	apiURL := buildMiniMaxV2VideoEndpointURL(baseURL, OpenAIVideoEndpointList, "") + "?page_num=1&page_size=1"
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, apiURL, nil)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create request")
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	req.Header.Set("Accept", "application/json")
+	account.ApplyHeaderOverrides(req.Header)
+	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+		req.Header.Set("User-Agent", customUA)
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: canonicalOpenAIVideoModel(modelID)})
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+			_ = s.accountRepo.SetError(c.Request.Context(), account.ID, fmt.Sprintf("Authentication failed (401): %s", string(body)))
+		}
+		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
+	}
+	if !json.Valid(body) {
+		return s.sendErrorAndEnd(c, "MiniMax video task list returned invalid JSON")
+	}
+
+	s.sendEvent(c, TestEvent{Type: "content", Text: "MiniMax H3 video API is reachable."})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
 // then by selected model family for media. Standalone modes (search/tts/stt) never share
 // the text Responses path; image/video never hit Responses either.
 //
 // Modes:
-//   - default/text → Responses (optional model)
-//   - image → /v1/images/generations (model optional; defaults to grok-imagine-image)
-//   - video → /v1/videos/generations (model optional; defaults to grok-imagine-video)
-//   - search → standalone web-search probe (gateway /v1/web_search semantics)
-//   - tts → HTTP /v1/tts
-//   - stt → HTTP /v1/stt (synthetic tiny wav probe)
-//   - realtime → WS /v1/realtime dial + optional first server event
+//   - default/text -> Responses (optional model)
+//   - image -> /v1/images/generations (model optional; defaults to grok-imagine-image)
+//   - video -> /v1/videos/generations (model optional; defaults to grok-imagine-video)
+//   - search -> standalone web-search probe (gateway /v1/web_search semantics)
+//   - tts -> HTTP /v1/tts
+//   - stt -> HTTP /v1/stt (synthetic tiny wav probe)
+//   - realtime -> WS /v1/realtime dial + optional first server event
 //
 // When mode is default, image/video can still be inferred from model_id for backward compat.
 func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *Account, modelID, prompt, mode string, opts AccountTestOptions) error {
@@ -3283,7 +3383,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
-	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	ginCtx.Request = (&http.Request{Header: make(http.Header)}).WithContext(ctx)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
 

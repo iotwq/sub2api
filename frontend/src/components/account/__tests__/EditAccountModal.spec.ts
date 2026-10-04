@@ -325,6 +325,47 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it.each([buildOpenAIOAuthParentAccount, buildOpenAISetupTokenAccount])('saves opt-in Codex protection without changing unrelated extras', async (build) => {
+    const account = build()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    account.extra = { ...account.extra, preserved: 'keep' }
+    const wrapper = mountModal(account)
+    await wrapper.get('#codex-protection-enabled').trigger('click')
+    await wrapper.get('[data-testid="protection-concurrency"]').setValue(3)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await Promise.resolve()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      preserved: 'keep',
+      codex_fingerprint_mode: 'device',
+      openai_oauth_protection: { enabled: true, max_concurrency: 3, rpm: 60, burst: 5, wait_seconds: 30, tls_profile: 'standard', integrity_mode: 'observe' }
+    })
+    wrapper.unmount()
+  })
+
+  it('loads and disables protection while preserving advanced settings and explicit fingerprint off', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    account.extra = { codex_fingerprint_mode: 'off', openai_oauth_protection: { enabled: true, max_concurrency: 2, failure_threshold: 5 } }
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="protection-concurrency"]').element).toHaveProperty('value', '2')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await Promise.resolve()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra.codex_fingerprint_mode).toBe('off')
+    updateAccountMock.mockClear()
+    await wrapper.get('#codex-protection-enabled').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await Promise.resolve()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra.openai_oauth_protection).toMatchObject({ enabled: false, failure_threshold: 5 })
+    wrapper.unmount()
+  })
+
+  it.each([buildAccount, buildGrokOAuthAccount, buildOpenAISparkShadowAccount])('does not expose protection on other routes', (build) => {
+    const wrapper = mountModal(build())
+    expect(wrapper.find('[data-testid="codex-protection"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   beforeEach(() => {
     authIsSimpleMode.value = true
   })
@@ -795,6 +836,196 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it.each([buildOpenAIOAuthParentAccount, buildOpenAISetupTokenAccount])('saves the selected OAuth Responses upstream endpoint', async (build) => {
+    const account = build()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    const select = wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]')
+    expect((select.element as HTMLSelectElement).value).toBe('chatgpt_codex')
+    await select.setValue('basispoints')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_oauth_responses_endpoint).toBe('basispoints')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_cache_creation_as_input')
+    wrapper.unmount()
+  })
+
+  it.each([buildOpenAIOAuthParentAccount, buildOpenAISetupTokenAccount])('enables cache creation as input only under Basispoints', async (build) => {
+    const account = build()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    const selector = '[data-testid="edit-openai-basispoints-cache-creation-as-input"]'
+    expect(wrapper.find(selector).exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]').setValue('basispoints')
+    expect(wrapper.get(selector).attributes('aria-checked')).toBe('false')
+    await wrapper.get(selector).trigger('click')
+    expect(wrapper.get(selector).attributes('aria-checked')).toBe('true')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_basispoints_cache_creation_as_input).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('loads and disables the Basispoints cache conversion switch', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint: 'basispoints', openai_basispoints_cache_creation_as_input: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="edit-openai-basispoints-cache-creation-as-input"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_oauth_responses_endpoint).toBe('basispoints')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_cache_creation_as_input')
+    wrapper.unmount()
+  })
+
+  it('does not expose Basispoints cache conversion on API Key accounts', () => {
+    const wrapper = mountModal(buildAccount())
+    expect(wrapper.find('[data-testid="edit-openai-basispoints-cache-creation-as-input"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('resets Basispoints cache conversion when editing another account', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint: 'basispoints', openai_basispoints_cache_creation_as_input: true }
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="edit-openai-basispoints-cache-creation-as-input"]').attributes('aria-checked')).toBe('true')
+
+    const nextAccount = buildOpenAISetupTokenAccount()
+    nextAccount.extra = { openai_oauth_responses_endpoint: 'basispoints' }
+    await wrapper.setProps({ account: nextAccount })
+    expect(wrapper.get('[data-testid="edit-openai-basispoints-cache-creation-as-input"]').attributes('aria-checked')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it.each([buildOpenAIOAuthParentAccount, buildOpenAISetupTokenAccount])('enables automatic 403 fallback only under Basispoints', async (build) => {
+    const account = build()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    const selector = '[data-testid="edit-openai-basispoints-auto-disable-on-403"]'
+    expect(wrapper.find(selector).exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]').setValue('basispoints')
+    expect(wrapper.get(selector).attributes('aria-checked')).toBe('false')
+    await wrapper.get(selector).trigger('click')
+    expect(wrapper.get(selector).attributes('aria-checked')).toBe('true')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_basispoints_auto_disable_on_403).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('loads and disables the Basispoints automatic 403 fallback switch', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint: 'basispoints', openai_basispoints_auto_disable_on_403: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="edit-openai-basispoints-auto-disable-on-403"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_oauth_responses_endpoint).toBe('basispoints')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_auto_disable_on_403')
+    wrapper.unmount()
+  })
+
+  it('does not expose Basispoints automatic 403 fallback on API Key accounts', () => {
+    const wrapper = mountModal(buildAccount())
+    expect(wrapper.find('[data-testid="edit-openai-basispoints-auto-disable-on-403"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('resets Basispoints automatic 403 fallback when editing another account', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint: 'basispoints', openai_basispoints_auto_disable_on_403: true }
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="edit-openai-basispoints-auto-disable-on-403"]').attributes('aria-checked')).toBe('true')
+
+    const nextAccount = buildOpenAISetupTokenAccount()
+    nextAccount.extra = { openai_oauth_responses_endpoint: 'basispoints' }
+    await wrapper.setProps({ account: nextAccount })
+    expect(wrapper.get('[data-testid="edit-openai-basispoints-auto-disable-on-403"]').attributes('aria-checked')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it.each([buildOpenAIOAuthParentAccount, buildOpenAISetupTokenAccount])('requires an explicit BPS 403 destination, including leave-all', async (build) => {
+    const account = build()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="edit-basispoints-move-403"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]').setValue('basispoints')
+    await wrapper.get('[data-testid="edit-basispoints-move-403"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    await wrapper.get('#edit-basispoints-403-group').setValue('0')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({ openai_basispoints_auto_move_on_403: true, openai_basispoints_403_target_group_id: 0 })
+    wrapper.unmount()
+  })
+
+  it('limits BPS destinations to compatible groups and resets the choice for another account', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint: 'basispoints', openai_basispoints_auto_move_on_403: true, openai_basispoints_403_target_group_id: 7 }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ groups: [{ id:7, name:'OpenAI', platform:'openai' }, { id:8, name:'Composite', platform:'composite' }, { id:9, name:'Claude', platform:'anthropic' }] as any })
+    expect(wrapper.get('#edit-basispoints-403-group').findAll('option').map(option=>option.attributes('value'))).toEqual([undefined, '0', '7', '8'])
+    await wrapper.get('#edit-basispoints-403-group').setValue('8')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_basispoints_403_target_group_id).toBe(8)
+    const next = buildOpenAISetupTokenAccount()
+    next.extra = { openai_oauth_responses_endpoint: 'basispoints' }
+    await wrapper.setProps({ account: next })
+    expect(wrapper.get('[data-testid="edit-basispoints-move-403"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('[data-testid="edit-basispoints-move-403"]').trigger('click')
+    expect((wrapper.get('#edit-basispoints-403-group').element as HTMLSelectElement).selectedIndex).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('clears BPS group actions when returning to Codex', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint:'basispoints', openai_basispoints_auto_move_on_403:true, openai_basispoints_403_target_group_id:7 }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk:false })
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]').setValue('chatgpt_codex')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_auto_move_on_403')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_403_target_group_id')
+    wrapper.unmount()
+  })
+
+  it('clears the OAuth Responses upstream endpoint when returning to the default', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_oauth_responses_endpoint: 'basispoints', openai_basispoints_cache_creation_as_input: true, openai_basispoints_auto_disable_on_403: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    const select = wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]')
+    expect((select.element as HTMLSelectElement).value).toBe('basispoints')
+    await select.setValue('chatgpt_codex')
+    expect(wrapper.find('[data-testid="edit-openai-basispoints-cache-creation-as-input"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_oauth_responses_endpoint')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_auto_disable_on_403')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_basispoints_cache_creation_as_input')
+    wrapper.unmount()
+  })
+
   it('loads and submits the per-account OpenAI long-context billing toggle', async () => {
     const account = buildAccount()
     account.extra = {
@@ -814,6 +1045,35 @@ describe('EditAccountModal', () => {
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('loads and clears the OpenAI API key image URL conversion switch', async () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_image_url_to_b64_json: true
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="edit-openai-image-url-to-base64-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+
+    await toggle.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty(
+      'openai_image_url_to_b64_json'
+    )
+  })
+
+  it('does not show image URL conversion for OpenAI OAuth accounts', () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="edit-openai-image-url-to-base64-toggle"]').exists()).toBe(false)
   })
 
   it('loads and clears the OAuth-only Codex namespace flatten toggle', async () => {
@@ -1287,6 +1547,46 @@ describe('EditAccountModal', () => {
     ])
   })
 
+  it('enables Gemini native passthrough capability for OpenAI APIKey accounts', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="openai-endpoint-capability-gemini_native"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.openai_capabilities).toEqual([
+      'chat_completions',
+      'embeddings',
+      'gemini_native'
+    ])
+  })
+
+  it('enables MiniMax H3 video capability for OpenAI APIKey accounts', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="openai-endpoint-capability-minimax_video"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.openai_capabilities).toEqual([
+      'chat_completions',
+      'embeddings',
+      'minimax_video'
+    ])
+  })
+
 	it('submits OpenAI quota auto-pause thresholds in extra', async () => {
 	  const account = buildAccount()
 	  account.extra = {
@@ -1341,6 +1641,26 @@ describe('EditAccountModal', () => {
     expect(wrapper.get<HTMLInputElement>('[data-testid="openai-endpoint-capability-seedance"]').element.checked).toBe(true)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.openai_capabilities).toEqual(['chat_completions', 'seedance'])
+  })
+
+  it.each([
+    ['gemini_native', 'seedance'],
+    ['minimax_video', 'seedance'],
+    ['chat_completions', 'embeddings', 'gemini_native', 'minimax_video', 'seedance']
+  ])('preserves mixed endpoint capabilities on edit: %j', async (...capabilities) => {
+    const account = buildAccount()
+    account.credentials.openai_capabilities = capabilities
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    for (const capability of capabilities) {
+      expect(wrapper.get<HTMLInputElement>(`[data-testid="openai-endpoint-capability-${capability}"]`).element.checked).toBe(true)
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.openai_capabilities).toEqual(capabilities)
   })
 
   it('keeps at least one OpenAI APIKey endpoint capability selected', async () => {
@@ -1475,6 +1795,28 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_image_generation_explicit_tool_policy).toBe('strip')
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('codex_image_generation_bridge')
+  })
+
+  it.each([buildOpenAIOAuthParentAccount, buildOpenAISetupTokenAccount])('keeps new BPS compatibility options opt-in and clears them on Codex', async (build) => {
+    const keys = ['openai_basispoints_ignore_images', 'openai_basispoints_ignore_encrypted_content']
+    const account = build()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    for (const key of keys) expect(wrapper.find('[data-testid="edit-' + key + '"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]').setValue('basispoints')
+    for (const key of keys) {
+      const toggle = wrapper.get('[data-testid="edit-' + key + '"]')
+      expect(toggle.attributes('aria-checked')).toBe('false')
+      await toggle.trigger('click')
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    for (const key of keys) expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.[key]).toBe(true)
+    updateAccountMock.mockClear()
+    await wrapper.get('[data-testid="edit-openai-oauth-responses-endpoint"]').setValue('chatgpt_codex')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    for (const key of keys) expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty(key)
+    wrapper.unmount()
   })
 
   it('loads strip policy as block mode and clears both keys when reset to inherit', async () => {
@@ -1671,6 +2013,7 @@ describe('EditAccountModal', () => {
     )
   })
 })
+
 
 describe('EditAccountModal OpenAI 自动使用重置卡', () => {
   beforeEach(() => {

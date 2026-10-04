@@ -89,6 +89,10 @@ type OpenAIEndpointCapability string
 
 const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
 
+// OpenAIImageURLToB64JSONExtraKey controls whether OpenAI API Key image
+// responses hide data[].url and expose only data[].b64_json.
+const OpenAIImageURLToB64JSONExtraKey = "openai_image_url_to_b64_json"
+
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
@@ -104,7 +108,10 @@ const (
 	// （openai_responses_supported / openai_responses_mode），而非
 	// credentials["openai_capabilities"] 配置集。仅用于生图意图的 /v1/responses
 	// 调度，避免把请求调度到会在 forward 阶段被降级为 Chat Completions 的账号（#4417）。
-	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
+	OpenAIEndpointCapabilityResponses    OpenAIEndpointCapability = "responses"
+	OpenAIEndpointCapabilityGeminiNative OpenAIEndpointCapability = "gemini_native"
+	OpenAIEndpointCapabilityAudio        OpenAIEndpointCapability = "audio"
+	OpenAIEndpointCapabilityMiniMaxVideo OpenAIEndpointCapability = "minimax_video"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -1915,11 +1922,29 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		if a.Type != AccountTypeAPIKey {
 			return false
 		}
+	case OpenAIEndpointCapabilityGeminiNative:
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
+	case OpenAIEndpointCapabilityAudio:
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
+		// OpenAI's audio endpoints are standard APIKey endpoints. Do not require
+		// an optional capability flag so existing API accounts remain compatible.
+		return true
+	case OpenAIEndpointCapabilityMiniMaxVideo:
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
 	default:
 		return false
 	}
 
 	configured, found := a.openAIEndpointCapabilitySet()
+	if capability == OpenAIEndpointCapabilityGeminiNative || capability == OpenAIEndpointCapabilityMiniMaxVideo {
+		return found && configured[string(capability)]
+	}
 	if !found {
 		return true
 	}
@@ -2053,7 +2078,13 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 	switch capability {
 	case OpenAIImagesCapabilityAPIKey:
 		return a.Type == AccountTypeAPIKey
-	case OpenAIImagesCapabilityBasic, OpenAIImagesCapabilityNative:
+	case OpenAIImagesCapabilityNative:
+		// Native Images means the upstream account can accept the standard
+		// /v1/images/* endpoints directly. OAuth accounts are bridged through
+		// /responses + image_generation and must not satisfy native routing;
+		// SetupToken and API-key accounts use the native path.
+		return a.Type == AccountTypeSetupToken || a.Type == AccountTypeAPIKey
+	case OpenAIImagesCapabilityBasic:
 		return a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken || a.Type == AccountTypeAPIKey
 	default:
 		return true
@@ -2138,6 +2169,17 @@ func (a *Account) IsOpenAIPassthroughEnabled() bool {
 		return enabled
 	}
 	return false
+}
+
+// ShouldConvertOpenAIImageURLsToBase64 reports whether this OpenAI API Key
+// account should normalize image response URLs to b64_json. Missing or invalid
+// values preserve the upstream response unchanged.
+func (a *Account) ShouldConvertOpenAIImageURLsToBase64() bool {
+	if a == nil || !a.IsOpenAI() || a.Type != AccountTypeAPIKey || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra[OpenAIImageURLToB64JSONExtraKey].(bool)
+	return ok && enabled
 }
 
 // IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。

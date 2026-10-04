@@ -63,6 +63,37 @@ func TestCheckBillingEligibility_AllowsBalanceAtMinimumReserve(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCheckEstimatedCostCoverage_RejectsBalanceBelowEstimatedCost(t *testing.T) {
+	cache := &balanceEligibilityCacheStub{balance: 1}
+	cfg := &config.Config{}
+	svc := NewBillingCacheService(cache, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(svc.Stop)
+
+	err := svc.CheckEstimatedCostCoverage(context.Background(), &User{ID: 1}, nil, nil, 30)
+	require.ErrorIs(t, err, ErrInsufficientBalance)
+}
+
+func TestCheckEstimatedCostCoverage_AllowsBalanceEqualToEstimatedCost(t *testing.T) {
+	cache := &balanceEligibilityCacheStub{balance: 30}
+	cfg := &config.Config{}
+	svc := NewBillingCacheService(cache, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(svc.Stop)
+
+	err := svc.CheckEstimatedCostCoverage(context.Background(), &User{ID: 1}, nil, nil, 30)
+	require.NoError(t, err)
+}
+
+func TestCheckEstimatedCostCoverage_RejectsWhenReserveWouldBeConsumed(t *testing.T) {
+	cache := &balanceEligibilityCacheStub{balance: 30.5}
+	cfg := &config.Config{}
+	cfg.Billing.MinimumBalanceReserve = 1
+	svc := NewBillingCacheService(cache, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(svc.Stop)
+
+	err := svc.CheckEstimatedCostCoverage(context.Background(), &User{ID: 1}, nil, nil, 30)
+	require.ErrorIs(t, err, ErrInsufficientBalance)
+}
+
 func TestSyncBalanceCacheAfterDeduction_InvalidatesExhaustedBalance(t *testing.T) {
 	cache := &balanceEligibilityCacheStub{
 		balance:                  0.50,

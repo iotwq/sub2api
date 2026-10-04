@@ -229,6 +229,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/api-docs',
+    name: 'ApiDocs',
+    component: () => import('@/views/user/ApiDocsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'API Documentation',
+      titleKey: 'apiDocs.title',
+      descriptionKey: 'apiDocs.description'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),
@@ -298,6 +310,30 @@ const routes: RouteRecordRaw[] = [
       title: 'Chat',
       titleKey: 'chat.title',
       descriptionKey: 'chat.description'
+    }
+  },
+  {
+    path: '/community-chat',
+    name: 'CommunityChat',
+    component: () => import('@/views/user/CommunityChatView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Community Chat',
+      titleKey: 'communityChat.title',
+      descriptionKey: 'communityChat.description'
+    }
+  },
+  {
+    path: '/image',
+    name: 'ImageBridge',
+    component: () => import('@/views/user/ImageBridgeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Generation',
+      titleKey: 'imageBridge.title',
+      descriptionKey: 'imageBridge.description'
     }
   },
   {

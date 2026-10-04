@@ -28,6 +28,8 @@ type Application struct {
 	Server        *http.Server
 	PromptAudit   *securityaudit.PromptService
 	PluginManager *service.PluginManager
+	OpenAIGateway *service.OpenAIGatewayService
+	APIKeyService *service.APIKeyService
 	Cleanup       func()
 }
 
@@ -58,7 +60,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "OpenAIGateway", "APIKeyService", "Cleanup"),
 	)
 	return nil, nil
 }
@@ -151,6 +153,12 @@ func provideCleanup(
 			{"OpenAIQuotaAutoResetService", func() error {
 				if openAIAutoReset != nil {
 					openAIAutoReset.Stop()
+				}
+				return nil
+			}},
+			{"OpenAIVideoFailureCompensator", func() error {
+				if openAIGateway != nil {
+					openAIGateway.StopOpenAIVideoFailureCompensator()
 				}
 				return nil
 			}},
@@ -338,9 +346,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"OpenAICodexTicketHarvester", func() error {
+			{"BasispointsImageRelay", func() error {
 				if openAIGateway != nil {
-					openAIGateway.StopOpenAICodexTicketHarvester()
+					return openAIGateway.CloseExcelBPSImages()
 				}
 				return nil
 			}},

@@ -484,6 +484,12 @@ func ProvideUserMessageQueueService(cache UserMsgQueueCache, rpmCache RPMCache, 
 	return svc
 }
 
+func ProvideCommunityChatService(repo CommunityChatRepository, userRepo UserRepository, redisClient *redis.Client) *CommunityChatService {
+	svc := NewCommunityChatService(repo, userRepo, redisClient)
+	svc.Start()
+	return svc
+}
+
 // ProvideSchedulerSnapshotService creates and starts SchedulerSnapshotService.
 func ProvideSchedulerSnapshotService(
 	cache SchedulerCache,
@@ -851,6 +857,7 @@ func ProvideAPIKeyService(
 var ProviderSet = wire.NewSet(
 	// Core services
 	ProvideAuthService,
+	NewNewAPIBalanceAccessTokenService,
 	NewPasskeyService,
 	NewUserService,
 	ProvideAPIKeyService,
@@ -868,6 +875,7 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
+	ProvideCommunityChatService,
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,

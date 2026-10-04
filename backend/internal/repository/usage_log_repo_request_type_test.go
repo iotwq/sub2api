@@ -39,7 +39,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 		CreatedAt:      createdAt,
 	}
 
-	mock.ExpectQuery("INSERT INTO usage_logs").
+	mock.ExpectQuery("(?s)INSERT INTO usage_logs.*\\$61, \\$62, \\$63, \\$64").
 		WithArgs(
 			log.UserID,
 			log.APIKeyID,
@@ -87,6 +87,9 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // video_count
 			sqlmock.AnyArg(), // video_resolution
 			sqlmock.AnyArg(), // video_duration_seconds
+			sqlmock.AnyArg(), // video_input_duration_seconds
+			sqlmock.AnyArg(), // video_output_cost
+			sqlmock.AnyArg(), // video_input_cost
 			sqlmock.AnyArg(), // service_tier
 			sqlmock.AnyArg(), // reasoning_effort
 			sqlmock.AnyArg(), // requested_reasoning_effort
@@ -134,7 +137,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 		CreatedAt:      createdAt,
 	}
 
-	mock.ExpectQuery("INSERT INTO usage_logs").
+	mock.ExpectQuery("(?s)INSERT INTO usage_logs.*\\$61, \\$62, \\$63, \\$64").
 		WithArgs(
 			log.UserID,
 			log.APIKeyID,
@@ -182,6 +185,9 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // video_count
 			sqlmock.AnyArg(), // video_resolution
 			sqlmock.AnyArg(), // video_duration_seconds
+			sqlmock.AnyArg(), // video_input_duration_seconds
+			sqlmock.AnyArg(), // video_output_cost
+			sqlmock.AnyArg(), // video_input_cost
 			serviceTier,
 			sqlmock.AnyArg(), // reasoning_effort
 			sqlmock.AnyArg(), // requested_reasoning_effort
@@ -239,7 +245,7 @@ func TestExecUsageLogInsertNoResult_PersistsRequestedModel(t *testing.T) {
 		CreatedAt:      time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC),
 	})
 
-	mock.ExpectExec("INSERT INTO usage_logs").
+	mock.ExpectExec("(?s)INSERT INTO usage_logs.*\\$61, \\$62, \\$63, \\$64").
 		WithArgs(anySliceToDriverValues(prepared.args)...).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -945,6 +951,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                // video_count
 			sql.NullString{}, // video_resolution
 			sql.NullInt64{},  // video_duration_seconds
+			0.0,              // video_input_duration_seconds
+			0.0,              // video_output_cost
+			0.0,              // video_input_cost
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullString{},
@@ -1025,6 +1034,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                // video_count
 			sql.NullString{}, // video_resolution
 			sql.NullInt64{},  // video_duration_seconds
+			0.0,              // video_input_duration_seconds
+			0.0,              // video_output_cost
+			0.0,              // video_input_cost
 			sql.NullString{Valid: true, String: "priority"},
 			sql.NullString{},
 			sql.NullString{},
@@ -1088,6 +1100,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                // video_count
 			sql.NullString{}, // video_resolution
 			sql.NullInt64{},  // video_duration_seconds
+			0.0,              // video_input_duration_seconds
+			0.0,              // video_output_cost
+			0.0,              // video_input_cost
 			sql.NullString{Valid: true, String: "flex"},
 			sql.NullString{},
 			sql.NullString{},
@@ -1152,6 +1167,9 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			0,                // video_count
 			sql.NullString{}, // video_resolution
 			sql.NullInt64{},  // video_duration_seconds
+			0.0,              // video_input_duration_seconds
+			0.0,              // video_output_cost
+			0.0,              // video_input_cost
 			sql.NullString{Valid: true, String: "priority"},
 			sql.NullString{},
 			sql.NullString{},

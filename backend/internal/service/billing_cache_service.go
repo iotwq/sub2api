@@ -809,6 +809,82 @@ func (s *BillingCacheService) checkSimpleModeAPIKeyRateLimits(ctx context.Contex
 	return nil
 }
 
+// CheckEstimatedCostCoverage checks whether the current balance/subscription
+// budget can cover a known per-request cost before dispatching expensive async
+// work. It intentionally does not update RPM or API-key rate windows; callers
+// should run CheckBillingEligibility first for the normal request gates.
+func (s *BillingCacheService) CheckEstimatedCostCoverage(ctx context.Context, user *User, group *Group, subscription *UserSubscription, estimatedCost float64) error {
+	if s == nil || estimatedCost <= 0 {
+		return nil
+	}
+	if s.cfg.RunMode == config.RunModeSimple {
+		return nil
+	}
+	if user == nil || user.ID <= 0 {
+		return ErrUserNotFound
+	}
+
+	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
+	if isSubscriptionMode {
+		return s.checkSubscriptionCostCoverage(ctx, user.ID, group, estimatedCost)
+	}
+	return s.checkBalanceCostCoverage(ctx, user.ID, estimatedCost)
+}
+
+func (s *BillingCacheService) checkBalanceCostCoverage(ctx context.Context, userID int64, estimatedCost float64) error {
+	balance, err := s.GetUserBalance(ctx, userID)
+	if err != nil {
+		if s.circuitBreaker != nil {
+			s.circuitBreaker.OnFailure(err)
+		}
+		logger.LegacyPrintf("service.billing_cache", "ALERT: billing estimated cost check failed for user %d: %v", userID, err)
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if s.circuitBreaker != nil {
+		s.circuitBreaker.OnSuccess()
+	}
+
+	required := estimatedCost
+	if reserve := s.minimumBalanceReserve(); reserve > 0 {
+		required += reserve
+	}
+	if balance < required {
+		return ErrInsufficientBalance
+	}
+	return nil
+}
+
+func (s *BillingCacheService) checkSubscriptionCostCoverage(ctx context.Context, userID int64, group *Group, estimatedCost float64) error {
+	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
+	if err != nil {
+		if s.circuitBreaker != nil {
+			s.circuitBreaker.OnFailure(err)
+		}
+		logger.LegacyPrintf("service.billing_cache", "ALERT: billing subscription estimated cost check failed for user %d group %d: %v", userID, group.ID, err)
+		return ErrBillingServiceUnavailable.WithCause(err)
+	}
+	if s.circuitBreaker != nil {
+		s.circuitBreaker.OnSuccess()
+	}
+
+	if subData.Status != SubscriptionStatusActive {
+		return ErrSubscriptionInvalid
+	}
+	if time.Now().After(subData.ExpiresAt) {
+		return ErrSubscriptionInvalid
+	}
+	if group.HasDailyLimit() && subData.DailyUsage+estimatedCost > *group.DailyLimitUSD {
+		return ErrDailyLimitExceeded
+	}
+	if group.HasWeeklyLimit() && subData.WeeklyUsage+estimatedCost > *group.WeeklyLimitUSD {
+		return ErrWeeklyLimitExceeded
+	}
+	if group.HasMonthlyLimit() && subData.MonthlyUsage+estimatedCost > *group.MonthlyLimitUSD {
+		return ErrMonthlyLimitExceeded
+	}
+	return nil
+}
+
 // checkRPM 执行并行 RPM 限流，所有适用的限制同时生效，任一超限即拒绝：
 //
 //  1. (用户, 分组) rpm_override       — 最细粒度：管理员为特定用户在特定分组设定的专属限额。

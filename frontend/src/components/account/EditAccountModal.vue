@@ -1769,6 +1769,102 @@
         </div>
       </div>
 
+      <!-- OpenAI OAuth Responses upstream endpoint -->
+      <div
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.oauthResponsesEndpoint') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.oauthResponsesEndpointDesc') }}
+            </p>
+          </div>
+          <div class="w-52 flex-shrink-0">
+            <Select
+              v-model="openAIOAuthResponsesEndpointMode"
+              data-testid="edit-openai-oauth-responses-endpoint"
+              :options="openAIOAuthResponsesEndpointOptions"
+            />
+          </div>
+        </div>
+        <div v-if="openAIOAuthResponsesEndpointMode === 'basispoints'" class="mt-4 space-y-3">
+          <div v-for="option in bpsCompatibilityOptions" :key="option.key" class="flex items-center justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-dark-700">
+            <div class="min-w-0">
+              <label class="input-label mb-0">{{ t('admin.accounts.openai.' + option.label) }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.' + option.label + 'Desc') }}</p>
+            </div>
+            <Toggle v-model="bpsCompatibility[option.key]" :data-testid="'edit-' + option.key" :aria-label="t('admin.accounts.openai.' + option.label)" />
+          </div>
+        </div>
+        <div
+          v-if="openAIOAuthResponsesEndpointMode === 'basispoints'"
+          class="mt-4 flex items-center justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-dark-700"
+        >
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.basispointsCacheCreationAsInput') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.basispointsCacheCreationAsInputDesc') }}
+            </p>
+          </div>
+          <Toggle
+            v-model="openAIBasispointsCacheCreationAsInputEnabled"
+            data-testid="edit-openai-basispoints-cache-creation-as-input"
+            :aria-label="t('admin.accounts.openai.basispointsCacheCreationAsInput')"
+          />
+        </div>
+        <div
+          v-if="openAIOAuthResponsesEndpointMode === 'basispoints' && !account?.parent_account_id"
+          class="mt-4 flex items-center justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-dark-700"
+        >
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.basispointsAutoDisableOn403') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.basispointsAutoDisableOn403Desc') }}</p>
+          </div>
+          <Toggle
+            v-model="openAIBasispointsAutoDisableOn403"
+            data-testid="edit-openai-basispoints-auto-disable-on-403"
+            :aria-label="t('admin.accounts.openai.basispointsAutoDisableOn403')"
+          />
+        </div>
+        <div v-if="openAIOAuthResponsesEndpointMode === 'basispoints' && !account?.parent_account_id" class="mt-4 space-y-3 rounded-lg bg-gray-50 p-3 dark:bg-dark-700">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.openai.basispointsMoveOn403') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.basispointsMoveOn403Desc') }}</p>
+            </div>
+            <Toggle v-model="openAIBasispointsMoveOn403" data-testid="edit-basispoints-move-403" :aria-label="t('admin.accounts.openai.basispointsMoveOn403')" />
+          </div>
+          <div v-if="openAIBasispointsMoveOn403">
+            <label for="edit-basispoints-403-group" class="input-label">{{ t('admin.accounts.openai.basispoints403Target') }}</label>
+            <select id="edit-basispoints-403-group" v-model.number="openAIBasispoints403Target" class="input" required>
+              <option :value="null" disabled>{{ t('admin.accounts.openai.basispoints403Choose') }}</option>
+              <option :value="0">{{ t('admin.accounts.openai.basispoints403LeaveAll') }}</option>
+              <option v-for="group in selectableGroups.filter(g => g.platform === 'openai' || g.platform === 'composite')" :key="group.id" :value="group.id">{{ group.name }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- OpenAI API Key 图片 URL 转 Base64 -->
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.openai.imageURLToBase64') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.imageURLToBase64Desc') }}
+          </p>
+        </div>
+        <Toggle
+          v-model="openaiImageURLToBase64Enabled"
+          data-testid="edit-openai-image-url-to-base64-toggle"
+          :aria-label="t('admin.accounts.openai.imageURLToBase64')"
+        />
+      </div>
+
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
@@ -2336,32 +2432,17 @@
         </div>
       </div>
 
-      <!-- Codex 292 门票状态（仅 OpenAI OAuth） -->
-      <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && codexTurnTickets.length"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <label class="input-label mb-0">{{ t('admin.accounts.openai.codexTurnTicket') }}</label>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {{ t('admin.accounts.openai.codexTurnTicketDesc') }}
-        </p>
-        <div class="mt-3 space-y-1.5">
-          <div v-for="ticket in codexTurnTickets" :key="ticket.model" class="flex items-center justify-between text-sm">
-            <span class="font-medium">{{ ticket.model }}</span>
-            <span v-if="ticket.ready" class="text-emerald-600 dark:text-emerald-400">
-              {{ t('admin.accounts.openai.codexTurnTicketReady', { time: formatCodexTicketRemaining(ticket.remaining_seconds) }) }}
-            </span>
-            <span v-else-if="ticket.blocked" class="text-amber-600 dark:text-amber-400">
-              {{ t('admin.accounts.openai.codexTurnTicketPaused') }}
-            </span>
-            <span v-else class="text-gray-500">{{ t('admin.accounts.openai.codexTurnTicketMissing') }}</span>
-          </div>
-        </div>
-      </div>
+      <CodexSignalBadge v-if="account" :account="account" class="my-3" />
 
-      <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
+      <OpenAIOAuthProtectionFields
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && !isSparkShadow"
+        :model-value="openAIOAuthProtection"
+        @update:model-value="updateOpenAIOAuthProtection"
+      />
+
+      <!-- Codex 指纹收敛模式 -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3127,6 +3208,7 @@
 </template>
 
 <script setup lang="ts">
+import CodexSignalBadge from './CodexSignalBadge.vue'
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -3154,6 +3236,8 @@ import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import OpenAIOAuthProtectionFields from './OpenAIOAuthProtectionFields.vue'
+import { readOpenAIOAuthProtection, type OpenAIOAuthProtection } from './openAIOAuthProtection'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
@@ -3255,15 +3339,6 @@ const selectableGroups = computed(() => {
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
 const isSparkShadow = computed(() => props.account?.parent_account_id != null)
-
-const codexTurnTickets = computed(() => props.account?.codex_turn_tickets ?? [])
-
-function formatCodexTicketRemaining(seconds: number) {
-  const total = Math.max(0, Math.floor(seconds || 0))
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}m${String(s).padStart(2, '0')}s`
-}
 
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
@@ -3714,6 +3789,18 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+type OpenAIOAuthResponsesEndpointMode = 'chatgpt_codex' | 'basispoints'
+const openAIOAuthResponsesEndpointMode = ref<OpenAIOAuthResponsesEndpointMode>('chatgpt_codex')
+const openAIBasispointsCacheCreationAsInputEnabled = ref(false)
+const openAIBasispointsMoveOn403 = ref(false)
+const openAIBasispoints403Target = ref<number | null>(null)
+const openAIBasispointsAutoDisableOn403 = ref(false)
+const bpsCompatibilityOptions = [
+  { key: 'openai_basispoints_ignore_images', label: 'basispointsIgnoreImages' },
+  { key: 'openai_basispoints_ignore_encrypted_content', label: 'basispointsIgnoreEncryptedContent' }
+] as const
+const bpsCompatibility = reactive<Record<string, boolean>>({})
+const openaiImageURLToBase64Enabled = ref(false)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -3731,6 +3818,13 @@ const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
 const codexFingerprintMode = ref<CodexFingerprintMode>('off')
+const openAIOAuthProtection = ref(readOpenAIOAuthProtection())
+function updateOpenAIOAuthProtection(value: OpenAIOAuthProtection) {
+  if (value.enabled && !openAIOAuthProtection.value.enabled && codexFingerprintMode.value === 'off') {
+    codexFingerprintMode.value = 'device'
+  }
+  openAIOAuthProtection.value = value
+}
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
@@ -3767,6 +3861,10 @@ const codexFingerprintModeOptions = computed(() => [
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
   { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
+])
+const openAIOAuthResponsesEndpointOptions = computed(() => [
+  { value: 'chatgpt_codex' as OpenAIOAuthResponsesEndpointMode, label: t('admin.accounts.openai.oauthResponsesEndpointChatGPT') },
+  { value: 'basispoints' as OpenAIOAuthResponsesEndpointMode, label: t('admin.accounts.openai.oauthResponsesEndpointBasispoints') }
 ])
 
 const openAIWSModeOptions = computed(() => [
@@ -3886,16 +3984,18 @@ const openAITextEndpointCapabilityLabel = computed(() => {
 const openAIEndpointCapabilityOptions = computed<{ value: OpenAIEndpointCapability; label: string }[]>(() => [
   { value: 'chat_completions', label: openAITextEndpointCapabilityLabel.value },
   { value: 'embeddings', label: t('admin.accounts.openai.capabilityEmbeddings') },
+  { value: 'gemini_native', label: t('admin.accounts.openai.capabilityGeminiNative') },
+  { value: 'minimax_video', label: t('admin.accounts.openai.capabilityMiniMaxVideo') },
   { value: 'seedance', label: 'Seedance (Ark)' }
 ])
 const openAITextGenerationCapabilityEnabled = computed(() =>
   openAIEndpointCapabilities.value.includes('chat_completions')
 )
 
-const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
-  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'seedance']
+const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]): OpenAIEndpointCapability[] => {
+  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'gemini_native', 'minimax_video', 'seedance']
   const selected = allowed.filter((value) => values.includes(value))
-  return selected.length > 0 ? selected : ['chat_completions', 'embeddings'] as OpenAIEndpointCapability[]
+  return selected.length > 0 ? selected : (['chat_completions', 'embeddings'] as OpenAIEndpointCapability[])
 }
 
 const readOpenAIEndpointCapabilities = (credentials?: Record<string, unknown>): OpenAIEndpointCapability[] => {
@@ -3903,7 +4003,7 @@ const readOpenAIEndpointCapabilities = (credentials?: Record<string, unknown>): 
   if (Array.isArray(raw)) {
     return normalizeOpenAIEndpointCapabilities(
       raw.filter((value): value is OpenAIEndpointCapability =>
-        value === 'chat_completions' || value === 'embeddings' || value === 'seedance'
+        value === 'chat_completions' || value === 'embeddings' || value === 'gemini_native' || value === 'minimax_video' || value === 'seedance'
       )
     )
   }
@@ -3941,7 +4041,7 @@ const toggleOpenAIEndpointCapability = (capability: OpenAIEndpointCapability, ev
 
 const applyOpenAIEndpointCapabilities = (credentials: Record<string, unknown>) => {
   const capabilities = normalizeOpenAIEndpointCapabilities(openAIEndpointCapabilities.value)
-  if (capabilities.length === 2 && !capabilities.includes('seedance')) {
+  if (capabilities.length === 2 && capabilities.includes('chat_completions') && capabilities.includes('embeddings')) {
     delete credentials.openai_capabilities
     return
   }
@@ -4139,6 +4239,12 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
   }
 }
 
+const applyGrokExtra = (base?: Record<string, unknown>): Record<string, unknown> => {
+  const extra: Record<string, unknown> = { ...(base || {}) }
+  delete extra.grok_video_15_text_fallback_enabled
+  return extra
+}
+
 const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
@@ -4203,6 +4309,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
+  openAIOAuthResponsesEndpointMode.value = 'chatgpt_codex'
+  openAIBasispointsCacheCreationAsInputEnabled.value = false
+  openAIBasispointsMoveOn403.value = false
+  openAIBasispoints403Target.value = null
+  openAIBasispointsAutoDisableOn403.value = false
+  for (const option of bpsCompatibilityOptions) bpsCompatibility[option.key] = false
+  openaiImageURLToBase64Enabled.value = false
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
@@ -4215,12 +4328,26 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
   codexFingerprintMode.value = 'off'
+  openAIOAuthProtection.value = readOpenAIOAuthProtection()
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
   webSearchEmulationMode.value = 'default'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+    openAIOAuthResponsesEndpointMode.value = extra?.openai_oauth_responses_endpoint === 'basispoints'
+      ? 'basispoints'
+      : 'chatgpt_codex'
+    openAIBasispointsCacheCreationAsInputEnabled.value =
+      openAIOAuthResponsesEndpointMode.value === 'basispoints' && extra?.openai_basispoints_cache_creation_as_input === true
+    openAIBasispointsMoveOn403.value = extra?.openai_basispoints_auto_move_on_403 === true
+    for (const option of bpsCompatibilityOptions) bpsCompatibility[option.key] = extra?.[option.key] === true
+    const bpsTarget = extra?.openai_basispoints_403_target_group_id
+    openAIBasispoints403Target.value = typeof bpsTarget === 'number' && Number.isSafeInteger(bpsTarget) && bpsTarget >= 0 ? bpsTarget : null
+    openAIBasispointsAutoDisableOn403.value =
+      openAIOAuthResponsesEndpointMode.value === 'basispoints' && extra?.openai_basispoints_auto_disable_on_403 === true
+    openaiImageURLToBase64Enabled.value =
+      newAccount.type === 'apikey' && extra?.openai_image_url_to_b64_json === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -4262,16 +4389,16 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       defaultMode: OPENAI_WS_MODE_OFF
     })
     if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
+      openAIOAuthProtection.value = readOpenAIOAuthProtection(extra?.openai_oauth_protection)
       codexCLIOnlyEnabled.value = extra?.codex_cli_only === true
       codexCLIOnlyAppServerEnabled.value =
         extra?.codex_cli_only_allow_app_server === true
     }
-    if (newAccount.type === 'oauth') {
+    if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
       const fpMode = extra?.codex_fingerprint_mode as string | undefined
-      // 缺省/非法值按 off 呈现，与后端 GetCodexFingerprintMode 的 opt-in 语义一致（#5610）
       codexFingerprintMode.value = (['off', 'device', 'session', 'full'].includes(fpMode || '')
         ? fpMode as CodexFingerprintMode
-        : 'off')
+        : openAIOAuthProtection.value.enabled ? 'device' : 'off')
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -5698,6 +5825,39 @@ const handleSubmit = async () => {
       const newExtra: Record<string, unknown> = { ...currentExtra }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
+        for (const option of bpsCompatibilityOptions) {
+          if (openAIOAuthResponsesEndpointMode.value === 'basispoints' && bpsCompatibility[option.key]) {
+            newExtra[option.key] = true
+          } else {
+            delete newExtra[option.key]
+          }
+        }
+        if (openAIOAuthResponsesEndpointMode.value === 'basispoints') {
+          newExtra.openai_oauth_responses_endpoint = 'basispoints'
+        } else {
+          delete newExtra.openai_oauth_responses_endpoint
+        }
+        if (openAIOAuthResponsesEndpointMode.value === 'basispoints' && openAIBasispointsCacheCreationAsInputEnabled.value) {
+          newExtra.openai_basispoints_cache_creation_as_input = true
+        } else {
+          delete newExtra.openai_basispoints_cache_creation_as_input
+        }
+        if (openAIOAuthResponsesEndpointMode.value === 'basispoints' && !props.account.parent_account_id && openAIBasispointsMoveOn403.value) {
+          if (openAIBasispoints403Target.value === null) {
+            appStore.showError(t('admin.accounts.openai.basispoints403Choose'))
+            return
+          }
+          newExtra.openai_basispoints_auto_move_on_403 = true
+          newExtra.openai_basispoints_403_target_group_id = openAIBasispoints403Target.value
+        } else {
+          delete newExtra.openai_basispoints_auto_move_on_403
+          delete newExtra.openai_basispoints_403_target_group_id
+        }
+        if (openAIOAuthResponsesEndpointMode.value === 'basispoints' && !props.account.parent_account_id && openAIBasispointsAutoDisableOn403.value) {
+          newExtra.openai_basispoints_auto_disable_on_403 = true
+        } else {
+          delete newExtra.openai_basispoints_auto_disable_on_403
+        }
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
         newExtra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
       } else if (props.account.type === 'apikey') {
@@ -5711,6 +5871,11 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.openai_passthrough
         delete newExtra.openai_oauth_passthrough
+      }
+      if (props.account.type === 'apikey' && openaiImageURLToBase64Enabled.value) {
+        newExtra.openai_image_url_to_b64_json = true
+      } else {
+        delete newExtra.openai_image_url_to_b64_json
       }
       // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
       if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {
@@ -5802,10 +5967,11 @@ const handleSubmit = async () => {
         }
       }
 
-      // 指纹收敛模式：默认 off（不写入）；device/session/full 是显式 opt-in，
-      // 必须落键，否则管理员的选择会被后端当作"未设置"而回落到 off（#5610）。
-      if (props.account.type === 'oauth') {
-        if (codexFingerprintMode.value !== 'off') {
+      if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
+        if (!isSparkShadow.value && (openAIOAuthProtection.value.enabled || currentExtra.openai_oauth_protection)) {
+          newExtra.openai_oauth_protection = { ...openAIOAuthProtection.value }
+        }
+        if (codexFingerprintMode.value !== 'off' || openAIOAuthProtection.value.enabled) {
           newExtra.codex_fingerprint_mode = codexFingerprintMode.value
         } else {
           delete newExtra.codex_fingerprint_mode
@@ -5886,6 +6052,13 @@ const handleSubmit = async () => {
         delete newExtra.upstream_request_id_header
       }
       updatePayload.extra = newExtra
+    }
+    if (props.account.platform === 'grok') {
+      updatePayload.extra = applyGrokExtra(
+        (updatePayload.extra as Record<string, unknown>) ||
+          (props.account.extra as Record<string, unknown>) ||
+          {}
+      )
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {

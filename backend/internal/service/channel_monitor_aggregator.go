@@ -36,7 +36,6 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 		slog.Warn("channel_monitor: batch compute availability failed", "error", err)
 		availMap = map[int64][]*ChannelMonitorAvailability{}
 	}
-
 	for _, id := range ids {
 		out[id] = buildStatusSummary(
 			indexLatestByModel(latestMap[id]),
@@ -149,11 +148,12 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 
 	models := mergeModelDetails(m, latest, availMap)
 	return &UserMonitorDetail{
-		ID:        m.ID,
-		Name:      m.Name,
-		Provider:  m.Provider,
-		GroupName: m.GroupName,
-		Models:    models,
+		ID:                  m.ID,
+		Name:                m.Name,
+		Provider:            m.Provider,
+		GroupName:           m.GroupName,
+		IntelligenceEnabled: m.IntelligenceEnabled,
+		Models:              models,
 	}, nil
 }
 
@@ -203,6 +203,7 @@ func buildStatusSummary(
 	if primary != "" {
 		if l, ok := latestByModel[primary]; ok {
 			summary.PrimaryStatus = l.Status
+			summary.Intelligence = l.Intelligence
 			summary.PrimaryLatencyMs = l.LatencyMs
 			// 配额快照只挂主模型行（quota 模式唯一行 / quota_probe 的主行）。
 			summary.LatestQuota = l.Quota
@@ -215,6 +216,7 @@ func buildStatusSummary(
 		entry := ExtraModelStatus{Model: model}
 		if l, ok := latestByModel[model]; ok {
 			entry.Status = l.Status
+			entry.Intelligence = l.Intelligence
 			entry.LatencyMs = l.LatencyMs
 		}
 		summary.ExtraModels = append(summary.ExtraModels, entry)
@@ -231,16 +233,18 @@ func buildUserViewFromSummary(
 	timelineEntries []*ChannelMonitorHistoryEntry,
 ) *UserMonitorView {
 	view := &UserMonitorView{
-		ID:               m.ID,
-		Name:             m.Name,
-		Provider:         m.Provider,
-		GroupName:        m.GroupName,
-		PrimaryModel:     m.PrimaryModel,
-		PrimaryStatus:    summary.PrimaryStatus,
-		PrimaryLatencyMs: summary.PrimaryLatencyMs,
-		Availability7d:   summary.Availability7d,
-		ExtraModels:      summary.ExtraModels,
-		Timeline:         buildTimelinePoints(timelineEntries),
+		ID:                  m.ID,
+		Name:                m.Name,
+		Provider:            m.Provider,
+		GroupName:           m.GroupName,
+		IntelligenceEnabled: m.IntelligenceEnabled,
+		Intelligence:        summary.Intelligence,
+		PrimaryModel:        m.PrimaryModel,
+		PrimaryStatus:       summary.PrimaryStatus,
+		PrimaryLatencyMs:    summary.PrimaryLatencyMs,
+		Availability7d:      summary.Availability7d,
+		ExtraModels:         summary.ExtraModels,
+		Timeline:            buildTimelinePoints(timelineEntries),
 	}
 	if primaryLatest != nil {
 		view.PrimaryPingLatencyMs = primaryLatest.PingLatencyMs
@@ -258,6 +262,7 @@ func buildTimelinePoints(entries []*ChannelMonitorHistoryEntry) []UserMonitorTim
 			LatencyMs:     e.LatencyMs,
 			PingLatencyMs: e.PingLatencyMs,
 			CheckedAt:     e.CheckedAt,
+			Intelligence:  e.Intelligence,
 		})
 	}
 	return out
@@ -277,6 +282,7 @@ func mergeModelDetails(
 		d := ModelDetail{Model: model}
 		if l, ok := latestByModel[model]; ok {
 			d.LatestStatus = l.Status
+			d.Intelligence = l.Intelligence
 			d.LatestLatencyMs = l.LatencyMs
 		}
 		if a, ok := availMap[monitorAvailability7Days][model]; ok {

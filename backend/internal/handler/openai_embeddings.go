@@ -182,6 +182,19 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		}
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
+		if err := h.gatewayService.ValidateOpenAITokenPricing(
+			c.Request.Context(),
+			apiKey,
+			reqModel,
+			channelMapping.MappedModel,
+			channelMapping.BillingModelSource,
+			account.GetMappedModel(reqModel),
+		); err != nil {
+			reqLog.Warn("openai_embeddings.pricing_unavailable", zap.Error(err))
+			status, errType, message := pricingPreflightErrorDetails(reqModel, err)
+			h.errorResponse(c, status, errType, message)
+			return
+		}
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, false, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {

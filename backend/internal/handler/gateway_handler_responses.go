@@ -272,6 +272,18 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+		if err := h.gatewayService.ValidateTokenPricing(
+			requestCtx, apiKey, reqModel, channelMapping.MappedModel,
+			channelMapping.BillingModelSource, account.GetMappedModel(reqModel),
+		); err != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			reqLog.Warn("gateway.responses.pricing_unavailable", zap.Error(err))
+			status, errType, message := pricingPreflightErrorDetails(reqModel, err)
+			h.responsesErrorResponse(c, status, errType, message)
+			return
+		}
 
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
@@ -299,7 +311,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			accountReleaseFunc()
 		}
 
-		if err != nil {
+		if err != nil && service.ForwardResultHasBillableUsage(result) {
+			reqLog.Warn("gateway.responses.forward_partial_error_with_billable_usage",
+				zap.Int64("account_id", account.ID),
+				zap.Error(err),
+			)
+		} else if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent
@@ -414,6 +431,19 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
 			writeResponsesFailedSSE(c, code, "", message)
 		}
+		return
+	}
+	if lastErr != nil && lastErr.Reason == service.ExcelBPSRateLimitedReason {
+		service.SetOpsUpstreamError(c, lastErr.StatusCode, lastErr.ClientMessage, "")
+		status := lastErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusTooManyRequests
+		}
+		message := strings.TrimSpace(lastErr.ClientMessage)
+		if message == "" {
+			message = "Excel BPS rate limit exceeded, please retry later"
+		}
+		h.handleStreamingAwareErrorWithCode(c, status, "rate_limit_error", string(service.ExcelBPSRateLimitedReason), message, streamStarted)
 		return
 	}
 	h.responsesErrorResponse(c, status, code, message)

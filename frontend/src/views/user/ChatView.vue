@@ -15,7 +15,7 @@
                   {{ t('chat.sidebarDescription') }}
                 </p>
               </div>
-              <button class="btn btn-primary shrink-0" @click="handleCreateSession">
+              <button class="btn btn-primary shrink-0" :disabled="isStreaming" @click="handleCreateSession">
                 <Icon name="plus" size="sm" class="mr-1.5" />
                 {{ t('chat.newChat') }}
               </button>
@@ -33,6 +33,7 @@
                   type="text"
                   class="input"
                   :placeholder="t('chat.baseUrlPlaceholder')"
+                  :disabled="isStreaming"
                 />
               </div>
 
@@ -46,6 +47,7 @@
                   autocomplete="off"
                   class="input"
                   :placeholder="t('chat.apiKeyPlaceholder')"
+                  :disabled="isStreaming"
                 />
               </div>
 
@@ -57,7 +59,7 @@
                   <button
                     type="button"
                     class="text-xs font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-                    :disabled="loadingModels"
+                    :disabled="loadingModels || isStreaming"
                     @click="loadModels"
                   >
                     {{ loadingModels ? t('chat.loadingModels') : t('chat.refreshModels') }}
@@ -67,34 +69,36 @@
                   :model-value="selectedModel || null"
                   :options="modelOptions"
                   :placeholder="t('chat.modelPlaceholder')"
+                  :disabled="isStreaming"
                   searchable
                   @update:model-value="handleModelChange"
                 />
               </div>
 
-              <div class="flex items-center justify-between gap-3 rounded-[1.35rem] border border-[#eadfcd] bg-[#faf7f1] px-3.5 py-3 dark:border-dark-600 dark:bg-dark-800/90">
-                <div class="min-w-0">
-                  <div class="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400">
+              <div class="rounded-[1.15rem] border border-[#eadfcd] bg-[#faf7f1] px-3.5 py-2.5 dark:border-dark-600 dark:bg-dark-800/90">
+                <div class="flex items-center justify-between gap-3 py-1">
+                  <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
                     {{ t('chat.deepThinking') }}
-                  </div>
-                  <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    {{ t('chat.deepThinkingHint') }}
-                  </p>
-                </div>
-
-                <div class="flex shrink-0 items-center gap-2">
-                  <span
-                    class="rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.2em]"
-                    :class="deepThinkingEnabled
-                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200'
-                      : 'bg-gray-200 text-gray-600 dark:bg-dark-700 dark:text-gray-300'"
-                  >
-                    {{ deepThinkingEnabled ? t('chat.deepThinkingStateOn') : t('chat.deepThinkingStateOff') }}
                   </span>
                   <Toggle
                     v-model="deepThinkingEnabled"
                     :aria-label="t('chat.deepThinking')"
+                    :disabled="isStreaming"
                     data-testid="chat-deep-thinking-toggle"
+                  />
+                </div>
+
+                <div class="my-1 h-px bg-[#eadfcd] dark:bg-dark-600"></div>
+
+                <div class="flex items-center justify-between gap-3 py-1">
+                  <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                    {{ t('chat.webSearch') }}
+                  </span>
+                  <Toggle
+                    v-model="webSearchEnabled"
+                    :aria-label="t('chat.webSearch')"
+                    :disabled="isStreaming"
+                    data-testid="chat-web-search-toggle"
                   />
                 </div>
               </div>
@@ -112,9 +116,13 @@
                 v-for="session in sessions"
                 :key="session.id"
                 class="group w-full rounded-[1.35rem] border p-3.5 text-left transition-all duration-200"
-                :class="session.id === activeSession?.id
-                  ? 'border-[#d8c3a1] bg-[#fbf6ee] shadow-[0_12px_28px_rgba(124,91,45,0.10)] dark:border-[#8a6a35] dark:bg-[#2a2117]'
-                  : 'border-transparent bg-white/75 hover:border-[#eadfcd] hover:bg-white dark:bg-dark-800/80 dark:hover:border-dark-500 dark:hover:bg-dark-800'"
+                :class="[
+                  session.id === activeSession?.id
+                    ? 'border-[#d8c3a1] bg-[#fbf6ee] shadow-[0_12px_28px_rgba(124,91,45,0.10)] dark:border-[#8a6a35] dark:bg-[#2a2117]'
+                    : 'border-transparent bg-white/75 hover:border-[#eadfcd] hover:bg-white dark:bg-dark-800/80 dark:hover:border-dark-500 dark:hover:bg-dark-800',
+                  isStreaming ? 'cursor-not-allowed opacity-70' : ''
+                ]"
+                :disabled="isStreaming"
                 @click="selectSession(session.id)"
               >
                 <div class="flex items-start justify-between gap-3">
@@ -133,6 +141,7 @@
                     type="button"
                     class="rounded-xl p-1 text-gray-400 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-900/20"
                     :title="t('common.delete')"
+                    :disabled="isStreaming"
                     @click.stop="removeSession(session.id)"
                   >
                     <Icon name="trash" size="sm" />
@@ -173,7 +182,9 @@
 
           <div
             ref="messagesContainerRef"
+            data-testid="chat-messages"
             class="min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(255,255,255,0.26)_0%,rgba(247,242,234,0.72)_100%)] px-4 py-5 dark:bg-[linear-gradient(180deg,rgba(30,27,25,0.12)_0%,rgba(11,13,17,0.34)_100%)] md:px-5 md:py-6"
+            @scroll.passive="handleMessagesScroll"
           >
             <div v-if="!activeSession" class="flex h-full items-center justify-center">
               <div class="max-w-xl rounded-[2rem] border border-dashed border-[#dfd3c0] bg-white/75 px-8 py-10 text-center shadow-[0_18px_48px_rgba(15,23,42,0.06)] dark:border-dark-600 dark:bg-dark-900/55">
@@ -297,6 +308,17 @@
                 </div>
               </div>
             </div>
+
+            <button
+              v-if="showScrollToLatest"
+              type="button"
+              data-testid="chat-scroll-to-latest"
+              class="sticky bottom-2 ml-auto mt-4 flex h-10 w-fit items-center gap-2 rounded-full border border-[#ded2c1] bg-white/95 px-3.5 text-sm font-medium text-gray-700 shadow-[0_10px_28px_rgba(15,23,42,0.14)] backdrop-blur transition-colors hover:border-primary-300 hover:text-primary-700 dark:border-dark-600 dark:bg-dark-800/95 dark:text-gray-200 dark:hover:border-primary-700 dark:hover:text-primary-300"
+              @click="scrollMessagesToBottom(true)"
+            >
+              <Icon name="chevronDown" size="sm" />
+              {{ t('chat.scrollToLatest') }}
+            </button>
           </div>
 
           <div class="border-t border-[#efe8dd] px-4 py-4 dark:border-dark-700 md:px-5">
@@ -343,7 +365,7 @@
                   :placeholder="t('chat.inputPlaceholder')"
                   :disabled="!activeSession || processingAttachments"
                   @input="resizeComposerTextarea"
-                  @keydown.enter.exact.prevent="handleComposerEnter"
+                  @keydown.enter.exact="handleComposerEnter"
                   @keydown.enter.shift.exact.stop
                 ></textarea>
 
@@ -450,8 +472,6 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import mammoth from 'mammoth'
-import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Select from '@/components/common/Select.vue'
@@ -461,11 +481,17 @@ import { useAppStore } from '@/stores'
 import { useClipboard } from '@/composables/useClipboard'
 import { useLocalChat } from '@/composables/useLocalChat'
 import type { OpenAIModel } from '@/types'
-import type { ChatCompletionContentPart, ChatCompletionMessage } from '@/api/chat'
+import type {
+  ChatCompletionContentPart,
+  ChatCompletionMessage,
+  ResponsesContentPart,
+  ResponsesInputItem,
+} from '@/api/chat'
 import type { LocalChatAttachment, LocalChatMessage } from '@/composables/useLocalChat'
 import type { TextItem } from 'pdfjs-dist/types/src/display/api'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 
-const DEFAULT_CHAT_MODEL = 'gpt-5.4'
+const DEFAULT_CHAT_MODEL = 'gpt-5.6-terra'
 const MAX_ATTACHMENTS = 5
 const MAX_ATTACHMENT_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const MAX_IMAGE_SIZE_BYTES = MAX_ATTACHMENT_FILE_SIZE_BYTES
@@ -478,9 +504,8 @@ const SUPPORTED_TEXT_FILE_EXTENSIONS = new Set([
   'sql', 'log', 'ini', 'conf', 'sh', 'bash'
 ])
 const FIXED_CHAT_MODELS: OpenAIModel[] = [
-  { id: 'gpt-5.5', display_name: 'GPT-5.5' },
-  { id: 'gpt-5.4', display_name: 'GPT-5.4' },
-  { id: 'gpt-5.4-mini', display_name: 'GPT-5.4 Mini' },
+  { id: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' },
+  { id: 'gpt-5.6-terra', display_name: 'GPT-5.6 Terra' },
 ]
 const attachmentFileAccept = [
   'image/*',
@@ -495,6 +520,12 @@ const PDF_PAGE_PREVIEW_LIMIT = 80
 const COPY_FEEDBACK_DURATION_MS = 1800
 const MIN_COMPOSER_HEIGHT_PX = 92
 const MAX_COMPOSER_HEIGHT_PX = 220
+const SCROLL_FOLLOW_THRESHOLD_PX = 120
+const LEGACY_CHAT_MODEL_MAP: Record<string, string> = {
+  'gpt-5.5': 'gpt-5.6-sol',
+  'gpt-5.4': 'gpt-5.6-terra',
+  'gpt-5.4-mini': 'gpt-5.6-terra',
+}
 
 interface AttachmentFeedback {
   id: string
@@ -516,6 +547,7 @@ const {
   deleteSession,
   appendMessage,
   updateMessage,
+  deleteMessage,
   clearAllSessions: clearLocalSessions,
   saveDraftConfig,
   consumeDraftConfig,
@@ -525,6 +557,7 @@ const baseUrl = ref('')
 const apiKey = ref('')
 const selectedModel = ref('')
 const deepThinkingEnabled = ref(false)
+const webSearchEnabled = ref(false)
 const models = ref<OpenAIModel[]>(createFixedModelOptions())
 const loadingModels = ref(false)
 const draftMessage = ref('')
@@ -541,7 +574,8 @@ const composerTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const isDragActive = ref(false)
 const dragDepth = ref(0)
 const copiedMessageId = ref<string | null>(null)
-const selectedReasoningEffort = computed(() => (deepThinkingEnabled.value ? 'xhigh' : 'medium'))
+const isNearMessagesBottom = ref(true)
+const selectedReasoningEffort = computed(() => (deepThinkingEnabled.value ? 'max' : 'medium'))
 
 const messageRenderer = new marked.Renderer()
 messageRenderer.code = ({ text, lang, escaped }) => {
@@ -567,6 +601,10 @@ const modelOptions = computed(() =>
     value: model.id,
     label: model.display_name || model.id,
   }))
+)
+
+const showScrollToLatest = computed(() =>
+  Boolean(activeSession.value?.messages.length && !isNearMessagesBottom.value)
 )
 
 const composerClass = computed(() => {
@@ -601,7 +639,7 @@ watch(
     draftMessage.value = ''
     draftAttachments.value = []
     syncActiveSessionConfig()
-    void scrollMessagesToBottom()
+    void scrollMessagesToBottom(true)
     void nextTick().then(() => resizeComposerTextarea())
   }
 )
@@ -617,13 +655,14 @@ watch(draftMessage, () => {
   void nextTick().then(() => resizeComposerTextarea())
 })
 
-watch([baseUrl, apiKey, selectedModel, deepThinkingEnabled], () => {
+watch([baseUrl, apiKey, selectedModel, deepThinkingEnabled, webSearchEnabled], () => {
   if (!activeSession.value) return
   updateSession(activeSession.value.id, {
     baseUrl: baseUrl.value.trim(),
     apiKey: apiKey.value.trim(),
     model: selectedModel.value.trim(),
     deepThinkingEnabled: deepThinkingEnabled.value,
+    webSearchEnabled: webSearchEnabled.value,
     apiKeyHint: maskKey(apiKey.value),
   })
 })
@@ -632,14 +671,15 @@ onMounted(async () => {
   await appStore.fetchPublicSettings()
 
   baseUrl.value = appStore.cachedPublicSettings?.api_base_url || `${window.location.origin}/v1`
-  selectedModel.value = selectedModel.value || DEFAULT_CHAT_MODEL
+  selectedModel.value = normalizeChatModel(selectedModel.value)
 
   const draft = consumeDraftConfig()
   if (draft) {
     baseUrl.value = draft.baseUrl || baseUrl.value
     apiKey.value = draft.apiKey || ''
-    selectedModel.value = draft.model || selectedModel.value || DEFAULT_CHAT_MODEL
+    selectedModel.value = normalizeChatModel(draft.model || selectedModel.value)
     deepThinkingEnabled.value = draft.deepThinkingEnabled ?? false
+    webSearchEnabled.value = draft.webSearchEnabled ?? false
   } else if (!activeSession.value && sessions.value[0]) {
     setActiveSession(sessions.value[0].id)
   }
@@ -659,10 +699,12 @@ onUnmounted(() => {
 })
 
 function handleCreateSession() {
+  if (isStreaming.value) return
   createSession({
     title: t('chat.defaultSessionTitle'),
-    model: selectedModel.value.trim() || DEFAULT_CHAT_MODEL,
+    model: normalizeChatModel(selectedModel.value),
     deepThinkingEnabled: deepThinkingEnabled.value,
+    webSearchEnabled: webSearchEnabled.value,
     apiKey: apiKey.value,
     baseUrl: baseUrl.value,
     apiKeyHint: maskKey(apiKey.value),
@@ -675,6 +717,7 @@ function handleCreateSession() {
 }
 
 function selectSession(id: string) {
+  if (isStreaming.value) return
   setActiveSession(id)
   draftMessage.value = ''
   draftAttachments.value = []
@@ -684,6 +727,7 @@ function selectSession(id: string) {
 }
 
 function removeSession(id: string) {
+  if (isStreaming.value) return
   deleteSession(id)
   errorMessage.value = ''
 }
@@ -711,23 +755,24 @@ function handlePrimaryAction() {
   void sendMessage()
 }
 
-function handleComposerEnter() {
-  if (isStreaming.value) {
+function handleComposerEnter(event: KeyboardEvent) {
+  if (event.isComposing || isStreaming.value) {
     return
   }
 
+  event.preventDefault()
   void sendMessage()
 }
 
 function handleModelChange(value: string | number | boolean | null) {
-  selectedModel.value = String(value ?? '').trim()
+  selectedModel.value = normalizeChatModel(String(value ?? ''))
 }
 
 async function loadModels() {
   const fallbackModels = createFixedModelOptions()
   if (!apiKey.value.trim() || !baseUrl.value.trim()) {
     models.value = fallbackModels
-    selectedModel.value = selectedModel.value || DEFAULT_CHAT_MODEL
+    selectedModel.value = normalizeChatModel(selectedModel.value)
     return
   }
 
@@ -741,9 +786,7 @@ async function loadModels() {
       ...fallbackModel,
       ...(byId.get(fallbackModel.id) || {}),
     }))
-    if (!selectedModel.value.trim()) {
-      selectedModel.value = DEFAULT_CHAT_MODEL
-    }
+    selectedModel.value = normalizeChatModel(selectedModel.value)
   } catch (error) {
     models.value = fallbackModels
     errorMessage.value = (error as Error).message || t('chat.errors.loadModelsFailed')
@@ -759,7 +802,7 @@ async function sendMessage() {
 
   const prompt = draftMessage.value.trim()
   const sessionId = activeSession.value.id
-  const model = selectedModel.value.trim() || DEFAULT_CHAT_MODEL
+  const model = normalizeChatModel(selectedModel.value)
   const attachments = draftAttachments.value.map((attachment) => ({ ...attachment }))
   errorMessage.value = ''
   attachmentFeedbackMessages.value = []
@@ -778,6 +821,7 @@ async function sendMessage() {
     baseUrl: baseUrl.value.trim(),
     model,
     deepThinkingEnabled: deepThinkingEnabled.value,
+    webSearchEnabled: webSearchEnabled.value,
     apiKeyHint: maskKey(apiKey.value),
   })
 
@@ -785,6 +829,7 @@ async function sendMessage() {
   if (!assistantMessage) {
     return
   }
+  void scrollMessagesToBottom(true)
 
   const history: ChatCompletionMessage[] = activeSession.value.messages
     .filter((message) => message.id !== assistantMessage.id)
@@ -795,6 +840,33 @@ async function sendMessage() {
   isStreaming.value = true
 
   try {
+    const streamOptions = {
+      signal: controller.signal,
+      onDelta: (delta: string) => {
+        const currentContent = getMessageContent(sessionId, assistantMessage.id)
+        updateMessage(sessionId, assistantMessage.id, currentContent + delta)
+        void scrollMessagesToBottom()
+      },
+    }
+
+    if (webSearchEnabled.value) {
+      await chatAPI.streamResponses(
+        baseUrl.value,
+        apiKey.value,
+        {
+          model,
+          input: history.map((message) => buildResponsesInputItem(message)),
+          reasoning: {
+            effort: selectedReasoningEffort.value,
+          },
+          tools: [{ type: 'web_search' }],
+          store: false,
+        },
+        streamOptions
+      )
+      return
+    }
+
     await chatAPI.streamChatCompletions(
       baseUrl.value,
       apiKey.value,
@@ -805,31 +877,59 @@ async function sendMessage() {
           effort: selectedReasoningEffort.value,
         },
       },
-      {
-        signal: controller.signal,
-        onDelta: (delta) => {
-          const currentContent = getMessageContent(sessionId, assistantMessage.id)
-          updateMessage(sessionId, assistantMessage.id, currentContent + delta)
-          void scrollMessagesToBottom()
-        },
-        onErrorEvent: (message) => {
-          errorMessage.value = message
-        },
-      }
+      streamOptions
     )
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
+      if (!getMessageContent(sessionId, assistantMessage.id).trim()) {
+        deleteMessage(sessionId, assistantMessage.id)
+      }
       return
     }
 
-    errorMessage.value = (error as Error).message || t('chat.errors.sendFailed')
+    const normalizedError = normalizeChatSendError(error)
+    errorMessage.value = normalizedError.message
     const currentContent = getMessageContent(sessionId, assistantMessage.id)
     if (!currentContent.trim()) {
-      updateMessage(sessionId, assistantMessage.id, t('chat.errors.emptyAssistantReply'))
+      updateMessage(
+        sessionId,
+        assistantMessage.id,
+        normalizedError.useAssistantErrorMessage ? normalizedError.message : t('chat.errors.emptyAssistantReply')
+      )
     }
   } finally {
     isStreaming.value = false
     activeAbortController.value = null
+  }
+}
+
+function normalizeChatSendError(error: unknown): { message: string; useAssistantErrorMessage: boolean } {
+  const rawMessage = error instanceof Error ? error.message : ''
+  const message = rawMessage || t('chat.errors.sendFailed')
+  const lowerMessage = message.toLowerCase()
+  const isNetworkError =
+    lowerMessage.includes('failed to fetch') ||
+    lowerMessage.includes('fetch failed') ||
+    lowerMessage.includes('networkerror') ||
+    lowerMessage.includes('network error') ||
+    lowerMessage.includes('network request failed') ||
+    lowerMessage.includes('load failed') ||
+    lowerMessage.includes('connection reset') ||
+    lowerMessage.includes('connection closed') ||
+    lowerMessage.includes('terminated') ||
+    lowerMessage.includes('unexpected end of stream') ||
+    lowerMessage.includes('body stream')
+
+  if (isNetworkError) {
+    return {
+      message: t('chat.errors.networkFailed'),
+      useAssistantErrorMessage: true,
+    }
+  }
+
+  return {
+    message,
+    useAssistantErrorMessage: false,
   }
 }
 
@@ -944,10 +1044,19 @@ function formatRelativeTime(value: string) {
   }).format(date)
 }
 
-async function scrollMessagesToBottom() {
+function handleMessagesScroll() {
+  const container = messagesContainerRef.value
+  if (!container) return
+  const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+  isNearMessagesBottom.value = distanceFromBottom <= SCROLL_FOLLOW_THRESHOLD_PX
+}
+
+async function scrollMessagesToBottom(force = false) {
+  if (!force && !isNearMessagesBottom.value) return
   await nextTick()
   if (!messagesContainerRef.value) return
   messagesContainerRef.value.scrollTop = messagesContainerRef.value.scrollHeight
+  isNearMessagesBottom.value = true
 }
 
 function resizeComposerTextarea() {
@@ -979,8 +1088,9 @@ function syncActiveSessionConfig() {
     appStore.cachedPublicSettings?.api_base_url ||
     `${window.location.origin}/v1`
   apiKey.value = activeSession.value.apiKey || apiKey.value
-  selectedModel.value = activeSession.value.model || selectedModel.value || DEFAULT_CHAT_MODEL
+  selectedModel.value = normalizeChatModel(activeSession.value.model || selectedModel.value)
   deepThinkingEnabled.value = activeSession.value.deepThinkingEnabled ?? false
+  webSearchEnabled.value = activeSession.value.webSearchEnabled ?? false
 }
 
 function isUntitledSession(title: string): boolean {
@@ -1074,6 +1184,41 @@ function buildUserMessageContent(message: LocalChatMessage): ChatCompletionMessa
   return parts
 }
 
+function buildResponsesInputItem(message: ChatCompletionMessage): ResponsesInputItem {
+  return {
+    role: message.role,
+    content: buildResponsesMessageContent(message),
+  }
+}
+
+function buildResponsesMessageContent(
+  message: ChatCompletionMessage
+): ResponsesInputItem['content'] {
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  const parts: ResponsesContentPart[] = []
+  for (const part of message.content) {
+    if (part.type === 'text' && part.text) {
+      parts.push({
+        type: message.role === 'assistant' ? 'output_text' : 'input_text',
+        text: part.text,
+      })
+      continue
+    }
+
+    if (part.type === 'image_url' && part.image_url.url) {
+      parts.push({
+        type: 'input_image',
+        image_url: part.image_url.url,
+      })
+    }
+  }
+
+  return parts.length ? parts : ''
+}
+
 function formatTextAttachmentForModel(attachment: LocalChatAttachment): string {
   return [
     `[Attached file: ${attachment.name}]`,
@@ -1084,6 +1229,11 @@ function formatTextAttachmentForModel(attachment: LocalChatAttachment): string {
 
 function createFixedModelOptions(): OpenAIModel[] {
   return FIXED_CHAT_MODELS.map((model) => ({ ...model }))
+}
+
+function normalizeChatModel(value?: string): string {
+  const model = value?.trim() || DEFAULT_CHAT_MODEL
+  return LEGACY_CHAT_MODEL_MAP[model] || model
 }
 
 function openAttachmentPicker() {
@@ -1245,6 +1395,10 @@ async function createPdfAttachment(file: File): Promise<LocalChatAttachment> {
   }
 
   try {
+    const pdfjsLib = await import('pdfjs-dist/build/pdf.mjs')
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+    }
     const arrayBuffer = await file.arrayBuffer()
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
@@ -1292,6 +1446,7 @@ async function createDocxAttachment(file: File): Promise<LocalChatAttachment> {
   }
 
   try {
+    const mammoth = (await import('mammoth')).default
     const arrayBuffer = await file.arrayBuffer()
     const result = await mammoth.extractRawText({ arrayBuffer })
     const textContent = (result.value || '').replace(/\n{3,}/g, '\n\n').trim()
@@ -1520,10 +1675,11 @@ function persistCurrentDraft() {
     model: selectedModel.value,
     sessionTitle: activeSession.value?.title || t('chat.defaultSessionTitle'),
     deepThinkingEnabled: deepThinkingEnabled.value,
+    webSearchEnabled: webSearchEnabled.value,
   })
 }
 
-watch([baseUrl, apiKey, selectedModel, deepThinkingEnabled], persistCurrentDraft)
+watch([baseUrl, apiKey, selectedModel, deepThinkingEnabled, webSearchEnabled], persistCurrentDraft)
 watch(() => router.currentRoute.value.fullPath, persistCurrentDraft)
 </script>
 

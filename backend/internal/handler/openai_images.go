@@ -124,6 +124,41 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
+	requestPayloadHash := service.HashUsageRequestPayload(body)
+	if parsed.Multipart {
+		requestPayloadHash = service.HashUsageRequestPayload([]byte(parsed.StickySessionSeed()))
+	}
+	estimatedCost, err := h.gatewayService.EstimateOpenAIImagesCost(
+		c.Request.Context(),
+		apiKey,
+		apiKey.User,
+		requestModel,
+		channelMapping.MappedModel,
+		channelMapping.BillingModelSource,
+		parsed.N,
+		parsed.SizeTier,
+	)
+	if err != nil {
+		reqLog.Warn("openai.images.estimate_cost_failed", zap.Error(err))
+		status, errType, message := pricingPreflightErrorDetails(requestModel, err)
+		h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+		return
+	}
+	if estimatedCost != nil && estimatedCost.ActualCost > 0 {
+		if err := h.billingCacheService.CheckEstimatedCostCoverage(c.Request.Context(), apiKey.User, apiKey.Group, subscription, estimatedCost.ActualCost); err != nil {
+			reqLog.Info("openai.images.estimated_cost_check_failed",
+				zap.Error(err),
+				zap.Float64("estimated_actual_cost", estimatedCost.ActualCost),
+				zap.Float64("estimated_total_cost", estimatedCost.TotalCost),
+			)
+			status, code, message, retryAfter := billingErrorDetails(err)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return
+		}
+	}
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -145,16 +180,45 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
+	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	var mediaHold *service.OpenAIMediaBalanceHold
+	if !isSubscriptionBilling && estimatedCost != nil && estimatedCost.ActualCost > 0 {
+		mediaHold, err = h.gatewayService.ReserveOpenAIMediaBalance(c.Request.Context(), apiKey, apiKey.User, estimatedCost.ActualCost, requestPayloadHash)
+		if err != nil {
+			reqLog.Info("openai.images.balance_hold_failed",
+				zap.Error(err),
+				zap.Float64("estimated_actual_cost", estimatedCost.ActualCost),
+			)
+			status, code, message, retryAfter := billingErrorDetails(err)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return
+		}
+	}
+	defer func() {
+		if mediaHold == nil {
+			return
+		}
+		if err := h.gatewayService.ReleaseOpenAIMediaBalance(context.Background(), mediaHold); err != nil {
+			reqLog.Error("openai.images.balance_hold_release_failed", zap.Error(err))
+		}
+	}()
 
 	// 余额模式在途预留（与计费同口径估算；计费任务扣减余额缓存后才释放）。
-	inflightDone, inflightErr := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, service.InflightEstimateRequest{Model: routingModel, BodyBytes: len(body), Kind: service.InflightEstimateImage, Units: parsed.N})
-	if inflightErr != nil {
-		status, code, message, retryAfter := billingErrorDetails(inflightErr)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	inflightDone := func() {}
+	if mediaHold == nil {
+		var inflightErr error
+		inflightDone, inflightErr = reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, service.InflightEstimateRequest{Model: routingModel, BodyBytes: len(body), Kind: service.InflightEstimateImage, Units: parsed.N})
+		if inflightErr != nil {
+			status, code, message, retryAfter := billingErrorDetails(inflightErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return
 		}
-		h.handleStreamingAwareError(c, status, code, message, streamStarted)
-		return
 	}
 	defer inflightDone()
 
@@ -395,10 +459,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
-		requestPayloadHash := service.HashUsageRequestPayload(body)
-		if parsed.Multipart {
-			requestPayloadHash = service.HashUsageRequestPayload([]byte(parsed.StickySessionSeed()))
-		}
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
@@ -407,34 +467,36 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if result != nil {
 			upstreamModel = result.UpstreamModel
 		}
-		sessionID := service.ExtractClientSessionID(c)
-		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
-			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
-				Account:            account,
-				Subscription:       subscription,
-				InboundEndpoint:    inboundEndpoint,
-				UpstreamEndpoint:   upstreamEndpoint,
-				UserAgent:          userAgent,
-				IPAddress:          clientIP,
-				RequestPayloadHash: requestPayloadHash,
-				APIKeyService:      h.apiKeyService,
-				QuotaPlatform:      quotaPlatform,
-				SessionID:          sessionID,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
-			}); err != nil {
-				logger.L().With(
-					zap.String("component", "handler.openai_gateway.images"),
-					zap.Int64("user_id", subject.UserID),
-					zap.Int64("api_key_id", apiKey.ID),
-					zap.Any("group_id", apiKey.GroupID),
-					zap.String("model", clientRequestModel),
-					zap.Int64("account_id", account.ID),
-				).Error("openai.images.record_usage_failed", zap.Error(err))
-			}
-		})
+		// Upstream work has completed. Settlement owns the reservation from here;
+		// a bookkeeping error must not turn a successful generation into free usage.
+		settlementHold := mediaHold
+		mediaHold = nil
+		if err := h.gatewayService.RecordUsage(c.Request.Context(), &service.OpenAIRecordUsageInput{
+			Result:             result,
+			APIKey:             apiKey,
+			User:               apiKey.User,
+			Account:            account,
+			Subscription:       subscription,
+			InboundEndpoint:    inboundEndpoint,
+			UpstreamEndpoint:   upstreamEndpoint,
+			UserAgent:          userAgent,
+			IPAddress:          clientIP,
+			RequestPayloadHash: requestPayloadHash,
+			APIKeyService:      h.apiKeyService,
+			QuotaPlatform:      quotaPlatform,
+			SessionID:          service.ExtractClientSessionID(c),
+			MediaBalanceHold:   settlementHold,
+			ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
+		}); err != nil {
+			logger.L().With(
+				zap.String("component", "handler.openai_gateway.images"),
+				zap.Int64("user_id", subject.UserID),
+				zap.Int64("api_key_id", apiKey.ID),
+				zap.Any("group_id", apiKey.GroupID),
+				zap.String("model", clientRequestModel),
+				zap.Int64("account_id", account.ID),
+			).Error("openai.images.record_usage_failed", zap.Error(err))
+		}
 
 		reqLog.Debug("openai.images.request_completed",
 			zap.Int64("account_id", account.ID),

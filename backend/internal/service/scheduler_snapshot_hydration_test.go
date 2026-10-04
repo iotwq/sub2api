@@ -136,6 +136,62 @@ func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedul
 	}
 }
 
+func TestOpenAISelectAccountForGeminiNativeWithLoadAwareness_UsesCapabilityFromSchedulerSnapshot(t *testing.T) {
+	const model = "gemini-3-pro-image-preview"
+	capabilities := []any{"chat_completions", "embeddings", "gemini_native"}
+	metadata := &Account{
+		ID:          2,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    1,
+		Credentials: map[string]any{
+			"openai_capabilities": capabilities,
+			"model_mapping":       map[string]any{model: model},
+		},
+	}
+	fullAccount := *metadata
+	fullAccount.Credentials = map[string]any{
+		"api_key":             "sk-live",
+		"openai_capabilities": capabilities,
+		"model_mapping":       map[string]any{model: model},
+	}
+	cache := &snapshotHydrationCache{
+		snapshot: []*Account{metadata},
+		accounts: map[int64]*Account{
+			fullAccount.ID: &fullAccount,
+		},
+	}
+	groupID := int64(2)
+	svc := &OpenAIGatewayService{
+		schedulerSnapshot:  NewSchedulerSnapshotService(cache, nil, nil, nil, nil),
+		cache:              &stubGatewayCache{},
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+		cfg: &config.Config{Gateway: config.GatewayConfig{Scheduling: config.GatewaySchedulingConfig{
+			LoadBatchEnabled: true,
+		}}},
+	}
+
+	selection, err := svc.SelectAccountForGeminiNativeWithLoadAwareness(context.Background(), &groupID, "", model, nil)
+	if err != nil {
+		t.Fatalf("SelectAccountForGeminiNativeWithLoadAwareness error: %v", err)
+	}
+	if selection == nil || selection.Account == nil {
+		t.Fatalf("expected selected account")
+	}
+	if selection.Account.ID != fullAccount.ID {
+		t.Fatalf("expected account %d, got %d", fullAccount.ID, selection.Account.ID)
+	}
+	if got := selection.Account.GetOpenAIApiKey(); got != "sk-live" {
+		t.Fatalf("expected hydrated api key, got %q", got)
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAINewAcquiredSelectionResult_ReleasesSlotWhenHydrationFails(t *testing.T) {
 	cache := &snapshotHydrationCache{
 		accounts: map[int64]*Account{},

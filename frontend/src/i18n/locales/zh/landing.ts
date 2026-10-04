@@ -15,99 +15,173 @@ export default {
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张
-    heroSubtitle: '一个密钥，畅用多个 AI 模型',
-    heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
+    heroSubtitle: 'AI技术 学习交流',
+    heroDescription: '一起探索大模型、Agent、Prompt 与 AI 应用实践，连接更多前沿想法',
+    agent: {
+      eyebrow: 'AI AGENT RESEARCH NETWORK',
+      headline: '研究真正能执行任务的 AI Agent',
+      explore: '查看研究方向',
+      sceneLabel: '实时 AI Agent 编排网络',
+      core: 'ORCHESTRATOR',
+      coreStatus: '自主循环运行中',
+      nodes: {
+        model: '推理模型',
+        modelDetail: '理解 · 规划 · 决策',
+        tools: '工具系统',
+        toolsDetail: '搜索 · 代码 · API',
+        memory: '长期记忆',
+        memoryDetail: '检索 · 上下文 · 经验',
+        evaluator: '结果评估',
+        evaluatorDetail: '验证 · 反思 · 修正'
+      },
+      traceEyebrow: 'LIVE AGENT TRACE',
+      traceTitle: '一次任务，四个可验证阶段',
+      steps: {
+        plan: '任务规划',
+        reason: '模型推理',
+        act: '工具执行',
+        verify: '结果校验'
+      },
+      metrics: {
+        tools: '可用工具',
+        context: '上下文',
+        active: '运行中'
+      },
+      researchEyebrow: 'RESEARCH TRACKS / 2026',
+      researchTitle: '从模型能力到可运行的智能体系统',
+      researchDescription: '关注真实能力边界、工程方法与可复现的 AI 前沿实践。',
+      tracks: {
+        systems: 'Agent 系统',
+        systemsDetail: '规划、记忆、协作与自主任务循环',
+        multimodal: '多模态智能',
+        multimodalDetail: '文本、图像、语音与视频的统一理解',
+        tooling: '工具与协议',
+        toolingDetail: 'MCP、函数调用、代码执行与工作流编排',
+        evaluation: '评估与对齐',
+        evaluationDetail: '用可验证指标复盘可靠性与真实效果'
+      }
+    },
+    heroPanel: {
+      eyebrow: 'AI Learning Lab',
+      title: '知识流正在同步',
+      live: '实时共创',
+      stream1Label: '模型理解',
+      stream1Value: '深度拆解',
+      stream2Label: 'Prompt 实验',
+      stream2Value: '灵感迭代',
+      stream3Label: 'Agent 实践',
+      stream3Value: '案例复盘',
+      footer: '学习节点已连接'
+    },
     tags: {
-      subscriptionToApi: '订阅转 API',
-      stickySession: '会话保持',
-      realtimeBilling: '按量计费'
+      aiFrontier: '前沿 AI 技术',
+      deepExchange: '深度交流',
+      promptLab: 'Prompt 实验场'
     },
     // 用户痛点区块
     painPoints: {
-      title: '你是否也遇到这些问题？',
+      title: 'AI 学习中，你是否也遇到这些问题？',
       items: {
         expensive: {
-          title: '订阅费用高',
-          desc: '每个 AI 服务都要单独订阅，每月支出越来越多'
+          title: '信息太碎片',
+          desc: '模型、Agent、Prompt 的新概念不断出现，很难快速抓住重点'
         },
         complex: {
-          title: '多账号难管理',
-          desc: '不同平台的账号、密钥分散各处，管理起来很麻烦'
+          title: '实践路径不清',
+          desc: '看过很多教程，却不知道怎样把方法落到自己的项目里'
         },
         unstable: {
-          title: '服务不稳定',
-          desc: '单一账号容易触发限制，影响正常使用'
+          title: '经验难复用',
+          desc: '一次调通的 Prompt 或工作流，换个场景又需要重新摸索'
         },
         noControl: {
-          title: '用量无法控制',
-          desc: '不知道钱花在哪了，也无法限制团队成员的使用'
+          title: '交流噪音高',
+          desc: '真正有启发的案例、复盘和技术讨论，常常被信息流淹没'
         }
       }
     },
     // 解决方案区块
     solutions: {
-      title: '我们帮你解决',
-      subtitle: '简单三步，开始省心使用 AI'
+      title: '一起把 AI 学明白、用起来',
+      subtitle: '围绕前沿技术、真实案例和可复用方法持续交流'
     },
     features: {
-      unifiedGateway: '一键接入',
-      unifiedGatewayDesc: '获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。',
-      multiAccount: '稳定可靠',
-      multiAccountDesc: '智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。',
-      balanceQuota: '用多少付多少',
-      balanceQuotaDesc: '按实际使用量计费，支持设置配额上限，团队用量一目了然。'
+      unifiedGateway: '知识入口',
+      unifiedGatewayDesc: '围绕大模型、Agent、Prompt 和 AI 应用实践，整理清晰的学习线索。',
+      multiAccount: '实践共创',
+      multiAccountDesc: '把真实问题、方案尝试和工具链经验放到同一个交流场里持续迭代。',
+      balanceQuota: '案例沉淀',
+      balanceQuotaDesc: '把有效的提示词、流程和复盘留下来，让下一次探索更快开始。',
+      frontierLearning: '前沿技术共学',
+      frontierLearningDesc: '聚焦大模型、生成式 AI、多模态和 Agent 最新进展，把复杂概念拆成可理解的知识路径。',
+      communityExchange: '高质量交流',
+      communityExchangeDesc: '围绕真实问题讨论思路、工具链和实践经验，让灵感在持续碰撞中变得更清晰。',
+      promptLab: 'Prompt 实验室',
+      promptLabDesc: '沉淀提示词、工作流和案例复盘，用可复制的方法提升 AI 应用和创作效率。'
     },
     // 优势对比
     comparison: {
-      title: '为什么选择我们？',
+      title: '为什么适合 AI 技术交流？',
       headers: {
         feature: '对比项',
-        official: '官方订阅',
-        us: '本平台'
+        official: '碎片自学',
+        us: 'ChinaAPI 共学'
       },
       items: {
         pricing: {
-          feature: '付费方式',
-          official: '固定月费，用不完也付',
-          us: '按量付费，用多少付多少'
+          feature: '学习路径',
+          official: '信息分散，难以串联',
+          us: '主题聚合，路径更清晰'
         },
         models: {
-          feature: '模型选择',
-          official: '单一服务商',
-          us: '多模型随意切换'
+          feature: '技术视野',
+          official: '跟着单点资料学习',
+          us: '覆盖模型、Agent 与应用案例'
         },
         management: {
-          feature: '账号管理',
-          official: '每个服务单独管理',
-          us: '统一密钥，一站管理'
+          feature: '实践沉淀',
+          official: '看完容易遗忘',
+          us: '复盘方法和可复用经验'
         },
         stability: {
-          feature: '服务稳定性',
-          official: '单账号易触发限制',
-          us: '多账号池，自动切换'
+          feature: '问题讨论',
+          official: '独自试错成本高',
+          us: '围绕真实场景共同拆解'
         },
         control: {
-          feature: '用量控制',
-          official: '无法限制',
-          us: '可设配额、查明细'
+          feature: '灵感来源',
+          official: '灵感零散不可追踪',
+          us: '案例、Prompt、工作流持续更新'
         }
       }
     },
     providers: {
-      title: '已支持的 AI 模型',
-      description: '一个 API，多种选择',
-      supported: '已支持',
-      soon: '即将推出',
-      claude: 'Claude',
-      gemini: 'Gemini',
-      antigravity: 'Antigravity',
-      more: '更多'
+      title: 'AI 技术学习主题',
+      description: '从模型认知到应用实践',
+      supported: '热门',
+      soon: '持续更新',
+      claude: '模型思维',
+      gemini: 'Prompt 工程',
+      antigravity: 'Agent 工作流',
+      more: '更多主题'
+    },
+    topics: {
+      title: 'AI 技术学习主题',
+      description: '从模型认知到应用实践，让交流更聚焦、更有启发',
+      hot: '热门',
+      new: '新方向',
+      soon: '持续更新',
+      modelThinking: '模型思维',
+      promptEngineering: 'Prompt 工程',
+      agentWorkflow: 'Agent 工作流',
+      caseStudies: '实战案例',
+      more: '更多主题'
     },
     // CTA 区块
     cta: {
-      title: '准备好开始了吗？',
-      description: '注册即可获得免费试用额度，体验一站式 AI 服务',
-      button: '免费注册'
+      title: '准备好开始探索了吗？',
+      description: '进入 ChinaAPI，一起学习、交流和实践最新 AI 技术',
+      button: '立即开始'
     },
     footer: {
       allRightsReserved: '保留所有权利。'

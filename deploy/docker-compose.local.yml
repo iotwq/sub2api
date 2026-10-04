@@ -163,6 +163,10 @@ services:
       # =======================================================================
       # Gateway Upstream, Scheduling & Image Configuration
       # =======================================================================
+      - IMAGE_WORKSPACE_URL=${IMAGE_WORKSPACE_URL:-https://image.iotwq.top/}
+
+      # =======================================================================
+      # =======================================================================
       # Gateway values come from Compose .env or the shell.
       # Fallbacks mirror Sub2API backend defaults so omitted values preserve behavior.
       - GATEWAY_FORCE_CODEX_CLI=${GATEWAY_FORCE_CODEX_CLI:-false}

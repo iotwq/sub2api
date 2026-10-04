@@ -26,10 +26,10 @@ type ResolvedPricing struct {
 	// Token 模式：区间定价列表（如有，覆盖 BasePricing 中的对应字段）
 	Intervals []PricingInterval
 
-	// 按次/图片模式：分层定价
+	// 按次/图片/视频模式：分层定价
 	RequestTiers []PricingInterval
 
-	// 按次/图片模式：默认价格（未命中层级时使用）
+	// 按次/图片模式的默认价格，或通用视频模式的输出每秒价格
 	DefaultPerRequestPrice float64
 
 	// 来源标识

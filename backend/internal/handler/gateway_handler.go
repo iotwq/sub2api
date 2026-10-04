@@ -486,6 +486,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+			if err := h.gatewayService.ValidateTokenPricing(
+				c.Request.Context(), apiKey, reqModel, channelMapping.MappedModel,
+				channelMapping.BillingModelSource, account.GetMappedModel(reqModel),
+			); err != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				reqLog.Warn("gateway.pricing_unavailable", zap.Error(err))
+				status, errType, message := pricingPreflightErrorDetails(reqModel, err)
+				h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+				return
+			}
 
 			// 转发请求 - 根据账号平台分流
 			var result *service.ForwardResult
@@ -513,7 +525,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
-			if err != nil {
+			if err != nil && service.ForwardResultHasBillableUsage(result) {
+				reqLog.Warn("gateway.forward_partial_error_with_billable_usage",
+					zap.Int64("account_id", account.ID),
+					zap.Error(err),
+				)
+			} else if err != nil {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
@@ -636,6 +653,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		fallbackGroupID = apiKey.Group.FallbackGroupIDOnInvalidRequest
 	}
 	fallbackUsed := false
+	probePolicy := resolveChannelMonitorProbePolicy(c, h.maxAccountSwitches)
 
 	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -662,7 +680,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}()
 
 	for {
-		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
+		fs := NewFailoverState(probePolicy.maxAccountSwitches, hasBoundSession)
 		retryWithFallback := false
 
 		for {
@@ -705,7 +723,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 					return
 				}
-				action := fs.HandleSelectionExhausted(c.Request.Context())
+				action := FailoverExhausted
+				if probePolicy.allowsSelectionExhaustedRetry() {
+					action = fs.HandleSelectionExhausted(c.Request.Context())
+				}
 				switch action {
 				case FailoverContinue:
 					ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
@@ -836,6 +857,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+			if err := h.gatewayService.ValidateTokenPricing(
+				c.Request.Context(), currentAPIKey, reqModel, channelMapping.MappedModel,
+				channelMapping.BillingModelSource, account.GetMappedModel(reqModel),
+			); err != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				reqLog.Warn("gateway.pricing_unavailable", zap.Error(err))
+				status, errType, message := pricingPreflightErrorDetails(reqModel, err)
+				h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+				return
+			}
 
 			// ===== 用户消息串行队列 START =====
 			var queueRelease func()
@@ -916,6 +949,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
+			startChannelMonitorProbeAttempt(c, time.Now())
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
 			} else {
@@ -2475,6 +2509,25 @@ func extractQuotaResetSeconds(err error) int {
 	return int(math.Ceil(secs))
 }
 
+func modelNotPricedMessage(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "This model is not priced and cannot be used. Please contact the administrator to configure pricing."
+	}
+	return fmt.Sprintf("Model %q is not priced and cannot be used. Please contact the administrator to configure pricing.", model)
+}
+
+func pricingPreflightErrorDetails(model string, err error) (status int, code, message string) {
+	var videoInputErr *service.OpenAIVideoBillingInputError
+	if errors.As(err, &videoInputErr) {
+		return http.StatusBadRequest, "invalid_request_error", videoInputErr.Error()
+	}
+	if err == nil || errors.Is(err, service.ErrModelPricingUnavailable) {
+		return http.StatusBadRequest, "invalid_request_error", modelNotPricedMessage(model)
+	}
+	return http.StatusServiceUnavailable, "billing_service_error", service.ErrBillingServiceUnavailable.Message
+}
+
 func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
 	if errors.Is(err, service.ErrBillingServiceUnavailable) {
 		msg := pkgerrors.Message(err)
@@ -2549,32 +2602,7 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 	if task == nil {
 		return
 	}
-	task, abandon := wrapUsageRecordTaskContext(parent, task)
-	if h.usageRecordWorkerPool != nil {
-		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
-			if mode.Dropped() {
-				abandon()
-			}
-			return
-		}
-		// 池已停止（进程关停窗口）：计费任务不能静默丢失，降级为内联同步执行。
-		// 显式配置的 drop/sample 溢出丢弃仍按配置语义保留。
-		logger.L().With(
-			zap.String("component", "handler.gateway.messages"),
-		).Warn("gateway.usage_record_task_stopped_sync_fallback")
-	}
-	// 回退路径：worker 池未注入或已停止时同步执行，避免退回到无界 goroutine 模式。
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logger.L().With(
-				zap.String("component", "handler.gateway.messages"),
-				zap.Any("panic", recovered),
-			).Error("gateway.usage_record_task_panic_recovered")
-		}
-	}()
-	task(ctx)
+	h.submitMandatoryUsageRecordTask(parent, task)
 }
 
 // submitMandatoryUsageRecordTask never silently drops billing work on pool overflow.

@@ -261,6 +261,28 @@ func TestInferenceFailoverExhaustionRestoresRetryAfter(t *testing.T) {
 	require.Equal(t, "17", recorder.Header().Get("Retry-After"))
 }
 
+func TestBasispointsRateLimitFailoverExhaustionUsesSafe429(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	h := &OpenAIGatewayHandler{}
+	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:       http.StatusTooManyRequests,
+		Reason:           service.ExcelBPSRateLimitedReason,
+		ClientStatusCode: http.StatusTooManyRequests,
+		ClientMessage:    "Excel BPS rate limit exceeded, please retry later",
+		ResponseBody:     []byte(`{"error":{"message":"PRIVATE_UPSTREAM"}}`),
+		ResponseHeaders:  http.Header{"Retry-After": []string{"30"}},
+	}, false)
+
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+	require.Equal(t, "30", recorder.Header().Get("Retry-After"))
+	require.Equal(t, "rate_limit_error", gjson.Get(recorder.Body.String(), "error.type").String())
+	require.Equal(t, string(service.ExcelBPSRateLimitedReason), gjson.Get(recorder.Body.String(), "error.code").String())
+	require.Contains(t, recorder.Body.String(), "Excel BPS rate limit exceeded")
+	require.NotContains(t, recorder.Body.String(), "PRIVATE_UPSTREAM")
+}
+
 func TestFailoverExhaustionRejectsSecretBearingRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

@@ -541,19 +541,20 @@ watch(
       showAddForm.value = false
       showDeleteConfirm.value = false
     }
-  }
+  },
+  { immediate: true }
 )
 
-const loadPlans = async () => {
-  if (!props.accountId) return
-  loading.value = true
-  try {
-    plans.value = await adminAPI.scheduledTests.listByAccount(props.accountId)
-  } catch (error: any) {
-    appStore.showError(error?.message || 'Failed to load plans')
-  } finally {
-    loading.value = false
-  }
+async function loadPlans() {
+	if (!props.accountId) return
+	loading.value = true
+	try {
+		plans.value = await adminAPI.scheduledTests.listByAccount(props.accountId)
+	} catch (error: any) {
+		appStore.showError(error?.message || 'Failed to load plans')
+	} finally {
+		loading.value = false
+	}
 }
 
 const handleCreate = async () => {

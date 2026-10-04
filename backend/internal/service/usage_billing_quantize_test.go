@@ -139,6 +139,50 @@ func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 	}
 }
 
+func TestBatchImageBalanceHoldCommandQuantizesRuntimeCalculatedAmounts(t *testing.T) {
+	unitPrice := 1.32
+	runtimeAmount := unitPrice * 5
+	require.Greater(t, decimalPlaces(runtimeAmount), int32(UsageBillingMonetaryScale),
+		"test setup must retain the binary floating-point tail")
+
+	cmd := &BatchImageBalanceHoldCommand{
+		RequestID:    "batch_image_release:openai-media:precision-regression",
+		APIKeyID:     7,
+		UserID:       42,
+		BatchID:      "openai-media:precision-regression",
+		HoldAmount:   runtimeAmount,
+		ActualAmount: runtimeAmount,
+	}
+	cmd.Normalize()
+
+	require.Equal(t, 6.6, cmd.HoldAmount)
+	require.Equal(t, 6.6, cmd.ActualAmount)
+	require.LessOrEqual(t, decimalPlaces(cmd.HoldAmount), int32(UsageBillingMonetaryScale))
+	require.LessOrEqual(t, decimalPlaces(cmd.ActualAmount), int32(UsageBillingMonetaryScale))
+}
+
+func TestBatchImageBalanceHoldNormalizeKeepsFingerprintDerivedFromRawAmounts(t *testing.T) {
+	unitPrice := 1.32
+	newCmd := func() *BatchImageBalanceHoldCommand {
+		return &BatchImageBalanceHoldCommand{
+			RequestID:    "batch_image_capture:openai-media:fingerprint-compatibility",
+			APIKeyID:     7,
+			UserID:       42,
+			BatchID:      "openai-media:fingerprint-compatibility",
+			HoldAmount:   unitPrice * 5,
+			ActualAmount: unitPrice * 5,
+		}
+	}
+
+	cmd := newCmd()
+	expected := buildBatchImageBalanceHoldFingerprint(newCmd())
+	cmd.Normalize()
+
+	require.Equal(t, expected, cmd.RequestFingerprint)
+	require.Equal(t, 6.6, cmd.HoldAmount)
+	require.Equal(t, 6.6, cmd.ActualAmount)
+}
+
 // 指纹是请求幂等键，必须仍由原始金额派生：
 // 若量化发生在指纹之前，升级前后同一 request_id 的重试会算出不同指纹，
 // 被误判为 fingerprint conflict。

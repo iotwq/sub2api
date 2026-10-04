@@ -53,7 +53,15 @@
         </template>
 
         <template #cell-model="{ row }">
-          <div class="space-y-0.5 text-xs">
+          <div v-if="isVideoFailureRefund(row)" class="space-y-0.5 text-xs">
+            <span class="inline-flex items-center rounded px-2 py-0.5 font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+              {{ t('usage.videoFailureRefund') }}
+            </span>
+            <div class="break-all text-gray-500 dark:text-gray-400">
+              {{ row.model }}
+            </div>
+          </div>
+          <div v-else class="space-y-0.5 text-xs">
             <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
               <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
                    class="break-all"
@@ -146,8 +154,13 @@
         </template>
 
         <template #cell-tokens="{ row }">
+          <div v-if="isVideoUsage(row)" class="flex items-center gap-1.5">
+            <Icon name="play" size="sm" class="h-4 w-4 text-cyan-500" />
+            <span class="font-medium text-gray-900 dark:text-white">{{ row.video_count || 1 }} × {{ row.video_duration_seconds || 0 }}s</span>
+            <span v-if="row.video_resolution" class="text-gray-400">({{ row.video_resolution }})</span>
+          </div>
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
-          <div v-if="isImageUsage(row)" class="flex items-center gap-1.5">
+          <div v-else-if="isImageUsage(row)" class="flex items-center gap-1.5">
             <svg class="h-4 w-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
@@ -208,7 +221,12 @@
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
+              <span
+                class="font-medium"
+                :class="isVideoFailureRefund(row) ? 'text-emerald-600 dark:text-emerald-400' : 'text-green-600 dark:text-green-400'"
+              >
+                {{ formatSignedCost(row.actual_cost) }}
+              </span>
               <span
                 v-if="row.long_context_billing_applied"
                 data-testid="long-context-billing-marker"
@@ -226,7 +244,7 @@
               </div>
             </div>
             <div v-if="showAccountBilling && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
-              A ${{ accountBilled(row).toFixed(6) }}
+              A {{ formatSignedCost(accountBilled(row)) }}
             </div>
           </div>
         </template>
@@ -443,6 +461,42 @@
                 <span class="font-medium text-pink-300">{{ formatTokenPricePerMillion(tooltipData.image_output_cost ?? 0, tooltipData.image_output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
             </template>
+            <template v-else-if="tooltipData && isVideoUsage(tooltipData)">
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoCount') }}</span>
+                <span class="font-medium text-white">{{ tooltipData.video_count || 1 }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoOutputDuration') }}</span>
+                <span class="font-medium text-white">{{ tooltipData.video_duration_seconds || 0 }}s</span>
+              </div>
+              <div v-if="tooltipData.video_resolution" class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoResolution') }}</span>
+                <span class="font-medium text-white">{{ tooltipData.video_resolution }}</span>
+              </div>
+              <div v-if="videoOutputUnitPrice(tooltipData) != null" class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoOutputUnitPrice') }}</span>
+                <span class="font-medium text-white">${{ videoOutputUnitPrice(tooltipData)?.toFixed(6) }}/s</span>
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-400">{{ t('usage.videoOutputCost') }}</span>
+                <span class="font-medium text-white">{{ formatSignedCost(tooltipData.video_output_cost) }}</span>
+              </div>
+              <template v-if="tooltipData.video_input_duration_seconds > 0">
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-amber-300">{{ t('usage.videoInputDuration') }}</span>
+                  <span class="font-medium text-amber-200">{{ tooltipData.video_input_duration_seconds.toFixed(2) }}s</span>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-amber-300">{{ t('usage.videoInputCost') }}</span>
+                  <span class="font-medium text-amber-200">{{ formatSignedCost(tooltipData.video_input_cost) }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-amber-300">{{ t('usage.videoInputActualCost') }}</span>
+                  <span class="font-semibold text-amber-200">{{ formatSignedCost(tooltipData.video_input_cost * tooltipData.rate_multiplier) }}</span>
+                </div>
+              </template>
+            </template>
             <template v-else-if="tooltipData && isImageUsage(tooltipData)">
               <div class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.imageCount') }}</span>
@@ -501,11 +555,11 @@
           </div>
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.original') }}</span>
-            <span class="font-medium text-white">${{ tooltipData?.total_cost?.toFixed(8) || '0.00000000' }}</span>
+            <span class="font-medium text-white">{{ formatSignedCost(tooltipData?.total_cost) }}</span>
           </div>
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.userBilled') }}</span>
-            <span class="font-semibold text-green-400">${{ tooltipData?.actual_cost?.toFixed(8) || '0.00000000' }}</span>
+            <span class="font-semibold text-green-400">{{ formatSignedCost(tooltipData?.actual_cost) }}</span>
           </div>
           <!-- Account billing (separated from user billing) -->
           <template v-if="showAccountBilling">
@@ -516,11 +570,11 @@
             <div class="flex items-center justify-between gap-6">
               <span class="text-gray-400">{{ t('usage.accountBilled') }}</span>
               <span class="font-semibold text-green-400">
-                ${{ accountBilled({
+                {{ formatSignedCost(accountBilled({
                   total_cost: tooltipData?.total_cost,
                   account_stats_cost: tooltipData?.account_stats_cost,
                   account_rate_multiplier: tooltipData?.account_rate_multiplier,
-                }).toFixed(8) }}
+                })) }}
               </span>
             </div>
           </template>
@@ -619,6 +673,30 @@ const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
+const VIDEO_REFUND_REQUEST_PREFIX = 'openai-video-refund:'
+
+const isVideoFailureRefund = (row: Pick<AdminUsageLog, 'request_id'>): boolean => {
+  return row.request_id.startsWith(VIDEO_REFUND_REQUEST_PREFIX)
+}
+
+const isVideoUsage = (row: Pick<AdminUsageLog, 'media_type' | 'video_count'>): boolean => {
+  return row.media_type?.trim().toLowerCase() === 'video' || row.video_count > 0
+}
+
+const formatSignedCost = (value: number | null | undefined): string => {
+  const amount = Number(value ?? 0)
+  if (!Number.isFinite(amount)) return '$0.000000'
+  if (amount < 0) return `-$${Math.abs(amount).toFixed(8)}`
+  return `$${amount.toFixed(8)}`
+}
+
+const videoOutputUnitPrice = (row: Pick<AdminUsageLog, 'video_count' | 'video_duration_seconds' | 'video_output_cost'>): number | null => {
+  const seconds = (row.video_count || 1) * (row.video_duration_seconds || 0)
+  if (seconds <= 0) return null
+  const cost = Math.abs(Number(row.video_output_cost ?? 0))
+  if (!Number.isFinite(cost)) return null
+  return cost / seconds
+}
 
 const showIpGeoToolbar = computed(() => props.columns.some((col) => col.key === 'ip_address'))
 

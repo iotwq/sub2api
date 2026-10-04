@@ -14619,6 +14619,7 @@ type ChannelMonitorMutation struct {
 	appendextra_models      []string
 	group_name              *string
 	enabled                 *bool
+	intelligence_enabled    *bool
 	interval_seconds        *int
 	addinterval_seconds     *int
 	jitter_seconds          *int
@@ -15271,6 +15272,42 @@ func (m *ChannelMonitorMutation) ResetEnabled() {
 	m.enabled = nil
 }
 
+// SetIntelligenceEnabled sets the "intelligence_enabled" field.
+func (m *ChannelMonitorMutation) SetIntelligenceEnabled(b bool) {
+	m.intelligence_enabled = &b
+}
+
+// IntelligenceEnabled returns the value of the "intelligence_enabled" field in the mutation.
+func (m *ChannelMonitorMutation) IntelligenceEnabled() (r bool, exists bool) {
+	v := m.intelligence_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIntelligenceEnabled returns the old "intelligence_enabled" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldIntelligenceEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIntelligenceEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIntelligenceEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIntelligenceEnabled: %w", err)
+	}
+	return oldValue.IntelligenceEnabled, nil
+}
+
+// ResetIntelligenceEnabled resets all changes to the "intelligence_enabled" field.
+func (m *ChannelMonitorMutation) ResetIntelligenceEnabled() {
+	m.intelligence_enabled = nil
+}
+
 // SetIntervalSeconds sets the "interval_seconds" field.
 func (m *ChannelMonitorMutation) SetIntervalSeconds(i int) {
 	m.interval_seconds = &i
@@ -15840,7 +15877,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 21)
+	fields := make([]string, 0, 22)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -15879,6 +15916,9 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	}
 	if m.enabled != nil {
 		fields = append(fields, channelmonitor.FieldEnabled)
+	}
+	if m.intelligence_enabled != nil {
+		fields = append(fields, channelmonitor.FieldIntelligenceEnabled)
 	}
 	if m.interval_seconds != nil {
 		fields = append(fields, channelmonitor.FieldIntervalSeconds)
@@ -15938,6 +15978,8 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupName()
 	case channelmonitor.FieldEnabled:
 		return m.Enabled()
+	case channelmonitor.FieldIntelligenceEnabled:
+		return m.IntelligenceEnabled()
 	case channelmonitor.FieldIntervalSeconds:
 		return m.IntervalSeconds()
 	case channelmonitor.FieldJitterSeconds:
@@ -15989,6 +16031,8 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldGroupName(ctx)
 	case channelmonitor.FieldEnabled:
 		return m.OldEnabled(ctx)
+	case channelmonitor.FieldIntelligenceEnabled:
+		return m.OldIntelligenceEnabled(ctx)
 	case channelmonitor.FieldIntervalSeconds:
 		return m.OldIntervalSeconds(ctx)
 	case channelmonitor.FieldJitterSeconds:
@@ -16104,6 +16148,13 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetEnabled(v)
+		return nil
+	case channelmonitor.FieldIntelligenceEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIntelligenceEnabled(v)
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		v, ok := value.(int)
@@ -16332,6 +16383,9 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 		return nil
 	case channelmonitor.FieldEnabled:
 		m.ResetEnabled()
+		return nil
+	case channelmonitor.FieldIntelligenceEnabled:
+		m.ResetIntelligenceEnabled()
 		return nil
 	case channelmonitor.FieldIntervalSeconds:
 		m.ResetIntervalSeconds()
@@ -17918,6 +17972,7 @@ type ChannelMonitorHistoryMutation struct {
 	addping_latency_ms *int
 	message            *string
 	quota              **domain.MonitorQuotaSnapshot
+	intelligence       **domain.MonitorIntelligenceResult
 	checked_at         *time.Time
 	clearedFields      map[string]struct{}
 	monitor            *int64
@@ -18371,6 +18426,55 @@ func (m *ChannelMonitorHistoryMutation) ResetQuota() {
 	delete(m.clearedFields, channelmonitorhistory.FieldQuota)
 }
 
+// SetIntelligence sets the "intelligence" field.
+func (m *ChannelMonitorHistoryMutation) SetIntelligence(dir *domain.MonitorIntelligenceResult) {
+	m.intelligence = &dir
+}
+
+// Intelligence returns the value of the "intelligence" field in the mutation.
+func (m *ChannelMonitorHistoryMutation) Intelligence() (r *domain.MonitorIntelligenceResult, exists bool) {
+	v := m.intelligence
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIntelligence returns the old "intelligence" field's value of the ChannelMonitorHistory entity.
+// If the ChannelMonitorHistory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorHistoryMutation) OldIntelligence(ctx context.Context) (v *domain.MonitorIntelligenceResult, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIntelligence is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIntelligence requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIntelligence: %w", err)
+	}
+	return oldValue.Intelligence, nil
+}
+
+// ClearIntelligence clears the value of the "intelligence" field.
+func (m *ChannelMonitorHistoryMutation) ClearIntelligence() {
+	m.intelligence = nil
+	m.clearedFields[channelmonitorhistory.FieldIntelligence] = struct{}{}
+}
+
+// IntelligenceCleared returns if the "intelligence" field was cleared in this mutation.
+func (m *ChannelMonitorHistoryMutation) IntelligenceCleared() bool {
+	_, ok := m.clearedFields[channelmonitorhistory.FieldIntelligence]
+	return ok
+}
+
+// ResetIntelligence resets all changes to the "intelligence" field.
+func (m *ChannelMonitorHistoryMutation) ResetIntelligence() {
+	m.intelligence = nil
+	delete(m.clearedFields, channelmonitorhistory.FieldIntelligence)
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (m *ChannelMonitorHistoryMutation) SetCheckedAt(t time.Time) {
 	m.checked_at = &t
@@ -18468,7 +18572,7 @@ func (m *ChannelMonitorHistoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorHistoryMutation) Fields() []string {
-	fields := make([]string, 0, 8)
+	fields := make([]string, 0, 9)
 	if m.monitor != nil {
 		fields = append(fields, channelmonitorhistory.FieldMonitorID)
 	}
@@ -18489,6 +18593,9 @@ func (m *ChannelMonitorHistoryMutation) Fields() []string {
 	}
 	if m.quota != nil {
 		fields = append(fields, channelmonitorhistory.FieldQuota)
+	}
+	if m.intelligence != nil {
+		fields = append(fields, channelmonitorhistory.FieldIntelligence)
 	}
 	if m.checked_at != nil {
 		fields = append(fields, channelmonitorhistory.FieldCheckedAt)
@@ -18515,6 +18622,8 @@ func (m *ChannelMonitorHistoryMutation) Field(name string) (ent.Value, bool) {
 		return m.Message()
 	case channelmonitorhistory.FieldQuota:
 		return m.Quota()
+	case channelmonitorhistory.FieldIntelligence:
+		return m.Intelligence()
 	case channelmonitorhistory.FieldCheckedAt:
 		return m.CheckedAt()
 	}
@@ -18540,6 +18649,8 @@ func (m *ChannelMonitorHistoryMutation) OldField(ctx context.Context, name strin
 		return m.OldMessage(ctx)
 	case channelmonitorhistory.FieldQuota:
 		return m.OldQuota(ctx)
+	case channelmonitorhistory.FieldIntelligence:
+		return m.OldIntelligence(ctx)
 	case channelmonitorhistory.FieldCheckedAt:
 		return m.OldCheckedAt(ctx)
 	}
@@ -18599,6 +18710,13 @@ func (m *ChannelMonitorHistoryMutation) SetField(name string, value ent.Value) e
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetQuota(v)
+		return nil
+	case channelmonitorhistory.FieldIntelligence:
+		v, ok := value.(*domain.MonitorIntelligenceResult)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIntelligence(v)
 		return nil
 	case channelmonitorhistory.FieldCheckedAt:
 		v, ok := value.(time.Time)
@@ -18676,6 +18794,9 @@ func (m *ChannelMonitorHistoryMutation) ClearedFields() []string {
 	if m.FieldCleared(channelmonitorhistory.FieldQuota) {
 		fields = append(fields, channelmonitorhistory.FieldQuota)
 	}
+	if m.FieldCleared(channelmonitorhistory.FieldIntelligence) {
+		fields = append(fields, channelmonitorhistory.FieldIntelligence)
+	}
 	return fields
 }
 
@@ -18701,6 +18822,9 @@ func (m *ChannelMonitorHistoryMutation) ClearField(name string) error {
 		return nil
 	case channelmonitorhistory.FieldQuota:
 		m.ClearQuota()
+		return nil
+	case channelmonitorhistory.FieldIntelligence:
+		m.ClearIntelligence()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitorHistory nullable field %s", name)
@@ -18730,6 +18854,9 @@ func (m *ChannelMonitorHistoryMutation) ResetField(name string) error {
 		return nil
 	case channelmonitorhistory.FieldQuota:
 		m.ResetQuota()
+		return nil
+	case channelmonitorhistory.FieldIntelligence:
+		m.ResetIntelligence()
 		return nil
 	case channelmonitorhistory.FieldCheckedAt:
 		m.ResetCheckedAt()

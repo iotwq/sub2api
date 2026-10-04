@@ -17,6 +17,11 @@ export type Provider =
   | 'minimax'
   | 'opencode_go'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
+export interface MonitorIntelligenceResult {
+  status: 'passed' | 'failed' | 'inconclusive'
+  reason?: string
+  answer?: string
+}
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses'
 /**
@@ -60,6 +65,8 @@ export interface MonitorQuotaSnapshot {
 }
 
 export interface ChannelMonitor {
+  intelligence_enabled?: boolean
+  intelligence?: MonitorIntelligenceResult | null
   id: number
   name: string
   provider: Provider
@@ -105,6 +112,7 @@ export interface ChannelMonitor {
 }
 
 export interface ExtraModelStatus {
+  intelligence?: MonitorIntelligenceResult | null
   model: string
   status: MonitorStatus | ''
   latency_ms: number | null
@@ -127,6 +135,7 @@ export interface ListResponse {
 }
 
 export interface CreateParams {
+  intelligence_enabled?: boolean
   name: string
   provider: Provider
   api_mode?: APIMode
@@ -159,6 +168,7 @@ export type UpdateParams = Partial<CreateParams> & {
 }
 
 export interface CheckResult {
+  intelligence?: MonitorIntelligenceResult | null
   model: string
   status: MonitorStatus
   latency_ms: number | null
@@ -174,6 +184,7 @@ export interface RunNowResponse {
 }
 
 export interface HistoryItem {
+  intelligence?: MonitorIntelligenceResult | null
   id: number
   model: string
   status: MonitorStatus
@@ -327,7 +338,15 @@ export async function del(id: number): Promise<void> {
  * Returns the latest check results for primary + extra models.
  */
 export async function runNow(id: number): Promise<RunNowResponse> {
-  const { data } = await apiClient.post<RunNowResponse>(`/admin/channel-monitors/${id}/run`)
+  const { data } = await apiClient.post<RunNowResponse>(
+    `/admin/channel-monitors/${id}/run`,
+    undefined,
+    {
+      // Manual monitor runs can legitimately take longer than the default 30s:
+      // one model may retry multiple probes before converging.
+      timeout: 180000,
+    }
+  )
   return data
 }
 

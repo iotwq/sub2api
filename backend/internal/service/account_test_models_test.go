@@ -105,6 +105,32 @@ func TestFetchOpenAIAccountModelsAPIKeyAppliesAccountModelMapping(t *testing.T) 
 	require.EqualValues(t, 123, alias.Created)
 }
 
+func TestFetchOpenAIAccountModelsIncludesConfiguredCustomMappingKeys(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"gpt-6-astra"},{"id":"gpt-*"}]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{
+		"my-custom-model": "gpt-6-astra",
+		"gpt-6-astra":     "gpt-6-astra",
+		"gpt-*":           "gpt-6-astra",
+	}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "my-custom-model")
+	require.Contains(t, ids, "gpt-6-astra")
+	require.NotContains(t, ids, "gpt-*")
+
+	requested := "my-custom-model"
+	require.Equal(t, "gpt-6-astra", account.GetMappedModel(requested), "testing the custom key must use its configured target")
+}
+
 func TestFetchOpenAIAccountModelsPreservesEmptyCatalog(t *testing.T) {
 	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 		return ordinaryModelsUpstreamResponse(`{"data":[]}`), nil

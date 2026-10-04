@@ -171,6 +171,17 @@
       </div>
 
       <!-- 高级设置区：请求模板 + 自定义 headers/body（仅探活模式有意义） -->
+      <div v-if="usesProbePart" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+        <div class="flex items-center justify-between gap-3">
+          <span id="monitor-intelligence-label" class="text-sm font-medium">{{ t('monitorCommon.intelligence.enable') }}</span>
+          <Toggle v-model="form.intelligence_enabled" aria-labelledby="monitor-intelligence-label" data-testid="monitor-intelligence-toggle" />
+        </div>
+        <p class="mt-2 text-xs text-gray-500">{{ t('monitorCommon.intelligence.hint') }}</p>
+        <p v-if="form.intelligence_enabled && form.body_override_mode === 'replace'" class="mt-2 text-xs text-red-500">
+          {{ t('monitorCommon.intelligence.incompatible') }}
+        </p>
+      </div>
+
       <details v-if="usesProbePart" class="rounded-lg border border-gray-200 bg-gray-50/50 p-3 dark:border-dark-700 dark:bg-dark-900/30">
         <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.channelMonitor.advanced.section') }}
@@ -319,6 +330,7 @@ const myActiveKeys = ref<ApiKey[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 
 interface MonitorForm {
+  intelligence_enabled: boolean
   name: string
   provider: Provider
   api_mode: APIMode
@@ -340,6 +352,7 @@ interface MonitorForm {
 }
 
 const form = reactive<MonitorForm>({
+  intelligence_enabled: false,
   name: '',
   provider: PROVIDER_ANTHROPIC,
   api_mode: API_MODE_CHAT_COMPLETIONS,
@@ -724,6 +737,7 @@ watch(() => form.api_mode, () => {
 }, { flush: 'sync' })
 
 function resetForm() {
+  form.intelligence_enabled = false
   suppressFormWatchers = true
   form.name = ''
   form.provider = PROVIDER_ANTHROPIC
@@ -748,6 +762,7 @@ function resetForm() {
 }
 
 function loadFromMonitor(m: ChannelMonitor) {
+  form.intelligence_enabled = m.intelligence_enabled ?? false
   suppressFormWatchers = true
   form.name = m.name
   form.provider = m.provider
@@ -827,6 +842,7 @@ function buildPayload(): CreateParams {
     primary_model: usesProbePart.value ? form.primary_model.trim() : 'quota',
     extra_models: usesProbePart.value ? form.extra_models : [],
     group_name: form.group_name.trim(),
+    intelligence_enabled: usesProbePart.value && form.intelligence_enabled,
     enabled: form.enabled,
     interval_seconds: form.interval_seconds,
     jitter_seconds: form.jitter_seconds || 0,
@@ -839,6 +855,10 @@ function buildPayload(): CreateParams {
 
 async function handleSubmit() {
   if (submitting.value) return
+  if (usesProbePart.value && form.intelligence_enabled && form.body_override_mode === 'replace') {
+    appStore.showError(t('monitorCommon.intelligence.incompatible'))
+    return
+  }
   if (!form.name.trim()) {
     appStore.showError(t('admin.channelMonitor.nameRequired'))
     return

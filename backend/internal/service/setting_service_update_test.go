@@ -865,6 +865,18 @@ func TestSettingService_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(
 	require.Nil(t, repo.updates)
 }
 
+func TestSettingService_UpdateSettings_PersistsOptimizedAPIBaseURL(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		OptimizedAPIBaseURL: "https://optimized.example.com",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "https://optimized.example.com", repo.updates[SettingKeyOptimizedAPIBaseURL])
+}
+
 func TestSettingService_PasskeySwitchPersistsAndDefaultsToConfigured(t *testing.T) {
 	cfg := &config.Config{WebAuthn: config.WebAuthnConfig{
 		Enabled:   true,

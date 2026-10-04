@@ -37,8 +37,21 @@ func TestBuildOpenAIEmbeddingsURL(t *testing.T) {
 	}
 }
 
+func TestEstimateOpenAIEmbeddingsInputTokens(t *testing.T) {
+	single, err := EstimateOpenAIEmbeddingsInputTokens([]byte(`{"model":"text-embedding-3-small","input":"hello world"}`), "text-embedding-3-small")
+	require.NoError(t, err)
+	require.Positive(t, single)
+
+	batch, err := EstimateOpenAIEmbeddingsInputTokens([]byte(`{"model":"text-embedding-3-small","input":["hello world","second input"]}`), "text-embedding-3-small")
+	require.NoError(t, err)
+	require.Greater(t, batch, single)
+
+	tokens, err := EstimateOpenAIEmbeddingsInputTokens([]byte(`{"model":"text-embedding-3-small","input":[[1,2,3],[4,5]]}`), "text-embedding-3-small")
+	require.NoError(t, err)
+	require.Equal(t, 5, tokens)
+}
+
 func TestForwardEmbeddings_APIKeyPassthroughRecordsUsageAndBatchInput(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	reqBody := []byte(`{
 		"model":"nowledge-embedding",

@@ -500,3 +500,28 @@ func TestCollectGeminiSSEObserved_SeesTerminalChunkEvenWhenAggregateDropsIt(t *t
 	require.NoError(t, err)
 	require.NotContains(t, string(aggregated), "PROHIBITED_CONTENT")
 }
+
+func TestCollectGeminiSSEObserved_PreservesImageBillingAndTerminalSignal(t *testing.T) {
+	imageEvent := `data: {"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"` + geminiTestPNG + `"}}]}}]}` + "\n\n"
+	for _, tailError := range []error{io.EOF, io.ErrUnexpectedEOF} {
+		t.Run(tailError.Error(), func(t *testing.T) {
+			reader := &errTailReader{data: []byte(imageEvent + imageEvent + geminiSignalTestProhibitedSSE), err: tailError}
+			var best geminiResponseSignal
+			collected, usage, stats, err := collectGeminiSSEObserved(reader, false, func(raw []byte) {
+				if signal, ok := detectGeminiResponseSignal(raw); ok && signal.Kind > best.Kind {
+					best = signal
+				}
+			})
+			if tailError == io.EOF {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tailError)
+			}
+			require.NotEmpty(t, collected)
+			require.Equal(t, 21775, usage.InputTokens)
+			require.Equal(t, 1, stats.imageCount, "repeated image chunks must be billed once, even on a read error")
+			require.Equal(t, 5, stats.dataEvents)
+			require.Equal(t, geminiSignalContentFilter, best.Kind)
+		})
+	}
+}

@@ -115,3 +115,36 @@ func TestGetPoolModeRetryCount(t *testing.T) {
 		})
 	}
 }
+
+func TestIsPoolModeScope(t *testing.T) {
+	tests := []struct {
+		name     string
+		account  *Account
+		expected bool
+	}{
+		{
+			name: "openai_oauth_keeps_credential_health_checks",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+				Credentials: map[string]any{"pool_mode": true}},
+			expected: false,
+		},
+		{
+			name: "openai_setup_token_keeps_credential_health_checks",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken,
+				Credentials: map[string]any{"pool_mode": true}},
+			expected: false,
+		},
+		{
+			name: "gemini_oauth_ignored",
+			account: &Account{Platform: PlatformGemini, Type: AccountTypeOAuth,
+				Credentials: map[string]any{"pool_mode": true}},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.account.IsPoolMode())
+		})
+	}
+}

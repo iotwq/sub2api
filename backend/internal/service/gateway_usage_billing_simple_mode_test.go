@@ -70,7 +70,7 @@ func TestApplyUsageBillingSimpleModeDeduplicatesWithoutBalanceEffects(t *testing
 
 	first, err := applyUsageBilling(context.Background(), "simple-req", nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
 	require.NoError(t, err)
-	require.True(t, first)
+	require.False(t, first, "return value reports usage persistence, not whether a deduction was applied")
 	second, err := applyUsageBilling(context.Background(), "simple-req", nil, p, &billingDeps{deferredService: &DeferredService{}}, repo)
 	require.NoError(t, err)
 	require.False(t, second)

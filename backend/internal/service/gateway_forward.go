@@ -750,8 +750,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 	if resp.StatusCode >= 400 {
-		// 可选：对部分 400 触发 failover（默认关闭以保持语义）
-		if resp.StatusCode == 400 && s.cfg != nil && s.cfg.Gateway.FailoverOn400 {
+		// 可选：对部分 400 触发 failover（默认关闭以保持语义）。
+		// 渠道监控的策略拒绝是账号/网关级错误，即使全局 FailoverOn400
+		// 关闭也应切换到同组下一个账号；其他监控 400 仍保持原语义。
+		if resp.StatusCode == 400 && (s.cfg != nil && s.cfg.Gateway.FailoverOn400 || shouldFailoverChannelMonitorBadRequest(c, resp.StatusCode)) {
 			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr != nil {
 				// ReadAll failed, fall back to normal error handling without consuming the stream
@@ -760,7 +762,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-			if s.shouldFailoverOn400(respBody) {
+			channelMonitorPolicyRejection := shouldFailoverChannelMonitorProbeError(c, resp.StatusCode, respBody)
+			if channelMonitorPolicyRejection || s.shouldFailoverOn400(respBody) {
 				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 				upstreamDetail := ""
@@ -784,7 +787,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					Detail:             upstreamDetail,
 				})
 
-				if s.cfg.Gateway.LogUpstreamErrorBody {
+				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 					logger.LegacyPrintf("service.gateway",
 						"Account %d: 400 error, attempting failover: %s",
 						account.ID,

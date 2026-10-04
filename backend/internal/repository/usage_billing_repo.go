@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -60,6 +61,110 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 	tx = nil
 	return result, nil
+}
+
+func (r *usageBillingRepository) ApplyWithUsageLog(ctx context.Context, cmd *service.UsageBillingCommand, log *service.UsageLog) (_ *service.UsageBillingApplyResult, err error) {
+	if cmd == nil || log == nil {
+		return nil, errors.New("usage billing command and usage log are required")
+	}
+	if r == nil || r.db == nil {
+		return nil, errors.New("usage billing repository db is nil")
+	}
+
+	cmd.Normalize()
+	if cmd.RequestID == "" {
+		return nil, service.ErrUsageBillingRequestIDRequired
+	}
+	if log.APIKeyID != cmd.APIKeyID || (strings.TrimSpace(log.RequestID) != "" && strings.TrimSpace(log.RequestID) != cmd.RequestID) {
+		return nil, service.ErrUsageBillingRequestConflict
+	}
+	log.RequestID = cmd.RequestID
+	if hold := cmd.CapturedBalanceHold; hold != nil && hold.CompletedMedia &&
+		(hold.ActualAmount != service.QuantizeUsageBillingAmount(log.ActualCost) || cmd.BalanceCost != 0) {
+		return nil, service.ErrUsageBillingRequestConflict
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if cmd.CapturedBalanceHold != nil && cmd.CapturedBalanceHold.CompletedMedia {
+		if err := lockMediaBalanceUser(ctx, tx, cmd.UserID); err != nil {
+			return nil, err
+		}
+	}
+	applied, err := r.claimUsageBillingKey(ctx, tx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	result := &service.UsageBillingApplyResult{Applied: applied}
+	if applied {
+		if cmd.CapturedBalanceHold != nil {
+			hold := cmd.CapturedBalanceHold
+			hold.Normalize()
+			if hold.RequestID == "" || hold.APIKeyID != cmd.APIKeyID || hold.UserID != cmd.UserID {
+				return nil, service.ErrUsageBillingRequestConflict
+			}
+			holdApplied, holdErr := r.claimUsageBillingRequest(ctx, tx, hold.RequestID, hold.APIKeyID, hold.RequestFingerprint)
+			if holdErr != nil {
+				return nil, holdErr
+			}
+			if hold.CompletedMedia && !holdApplied {
+				// The usage key is new but this reservation already funded another
+				// settlement. Do not manufacture a second paid usage row.
+				return nil, service.ErrUsageBillingRequestConflict
+			}
+			if holdApplied {
+				holdResult, captureErr := captureUsageBillingBatchImageBalance(ctx, tx, hold)
+				if captureErr != nil {
+					return nil, captureErr
+				}
+				result.NewBalance = holdResult.NewBalance
+				result.BalanceOverdrafted = result.NewBalance != nil && *result.NewBalance < 0
+			}
+		}
+		if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
+			return nil, err
+		}
+	}
+
+	usageRepo := &usageLogRepository{}
+	inserted, err := usageRepo.createSingle(ctx, tx, log)
+	if err != nil {
+		return nil, err
+	}
+	if applied && !inserted {
+		return nil, service.ErrUsageBillingRequestConflict
+	}
+	if log.ID <= 0 {
+		return nil, errors.New("usage log id is missing after atomic insert")
+	}
+	if err := insertUsageBillingEntry(ctx, tx, log); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	tx = nil
+	return result, nil
+}
+
+func insertUsageBillingEntry(ctx context.Context, tx *sql.Tx, log *service.UsageLog) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO billing_usage_entries (
+			usage_log_id, user_id, api_key_id, subscription_id,
+			billing_type, applied, delta_usd, created_at
+		) VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7)
+		ON CONFLICT (usage_log_id) DO NOTHING
+	`, log.ID, log.UserID, log.APIKeyID, log.SubscriptionID, log.BillingType, log.ActualCost, log.CreatedAt)
+	return err
 }
 
 func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {
@@ -147,6 +252,11 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 		}
 	}()
 
+	if cmd.CompletedMedia {
+		if err := lockMediaBalanceUser(ctx, tx, cmd.UserID); err != nil {
+			return nil, err
+		}
+	}
 	applied, err := r.claimUsageBillingRequest(ctx, tx, cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint)
 	if err != nil {
 		return nil, err
@@ -176,6 +286,10 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
 			return err
 		}
+	} else if cmd.SubscriptionCost < 0 && cmd.SubscriptionID != nil {
+		if err := refundUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, -cmd.SubscriptionCost, cmd.RestoreUsageCreatedAt); err != nil {
+			return err
+		}
 	}
 
 	if cmd.BalanceCost > 0 {
@@ -185,6 +299,12 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		}
 		result.NewBalance = &newBalance
 		result.BalanceOverdrafted = !sufficient
+	} else if cmd.BalanceCost < 0 {
+		newBalance, err := refundUsageBillingBalance(ctx, tx, cmd.UserID, -cmd.BalanceCost)
+		if err != nil {
+			return err
+		}
+		result.NewBalance = &newBalance
 	}
 
 	// Key 已不存在时跳过其自身的额度/限速计数，其余结算项不受影响。
@@ -194,10 +314,18 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 			return err
 		}
 		result.APIKeyQuotaExhausted = exhausted
+	} else if cmd.APIKeyQuotaCost < 0 {
+		if err := refundUsageBillingAPIKeyQuota(ctx, tx, cmd.APIKeyID, -cmd.APIKeyQuotaCost); err != nil {
+			return err
+		}
 	}
 
 	if cmd.APIKeyRateLimitCost > 0 {
 		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost); err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
+			return err
+		}
+	} else if cmd.APIKeyRateLimitCost < 0 {
+		if err := refundUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, -cmd.APIKeyRateLimitCost, cmd.RestoreUsageCreatedAt); err != nil {
 			return err
 		}
 	}
@@ -208,8 +336,40 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 			return err
 		}
 		result.QuotaState = quotaState
+	} else if cmd.AccountQuotaCost < 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock)) {
+		quotaState, err := refundUsageBillingAccountQuota(ctx, tx, cmd.AccountID, -cmd.AccountQuotaCost, cmd.RestoreUsageCreatedAt)
+		if err != nil {
+			return err
+		}
+		result.QuotaState = quotaState
 	}
 
+	return nil
+}
+
+func refundUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, amount float64, usageCreatedAt time.Time) error {
+	if amount <= 0 || usageCreatedAt.IsZero() {
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE user_subscriptions us
+		SET
+			daily_usage_usd = CASE WHEN daily_window_start IS NULL OR $1 >= daily_window_start THEN GREATEST(daily_usage_usd - $2, 0) ELSE daily_usage_usd END,
+			weekly_usage_usd = CASE WHEN weekly_window_start IS NULL OR $1 >= weekly_window_start THEN GREATEST(weekly_usage_usd - $2, 0) ELSE weekly_usage_usd END,
+			monthly_usage_usd = CASE WHEN monthly_window_start IS NULL OR $1 >= monthly_window_start THEN GREATEST(monthly_usage_usd - $2, 0) ELSE monthly_usage_usd END,
+			updated_at = NOW()
+		WHERE us.id = $3 AND us.deleted_at IS NULL
+	`, usageCreatedAt, amount, subscriptionID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrSubscriptionNotFound
+	}
 	return nil
 }
 
@@ -257,6 +417,8 @@ func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, am
 		return 0, false, err
 	}
 
+	// 上游成本已经发生，余额不足时也必须完整入账；若在这里回滚，
+	// 小额正余额会在后续请求中被反复放行。
 	err = tx.QueryRowContext(ctx, `
 		UPDATE users
 		SET balance = balance - $1,
@@ -271,6 +433,27 @@ func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, am
 		return 0, false, err
 	}
 	return newBalance, false, nil
+}
+
+func refundUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount float64) (float64, error) {
+	if amount <= 0 {
+		return 0, nil
+	}
+	var newBalance float64
+	err := tx.QueryRowContext(ctx, `
+		UPDATE users
+		SET balance = balance + $1,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+		RETURNING balance
+	`, amount, userID).Scan(&newBalance)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, service.ErrUserNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return newBalance, nil
 }
 
 func reserveUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
@@ -304,8 +487,30 @@ func captureUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 	if cmd.HoldAmount <= 0 && cmd.ActualAmount <= 0 {
 		return &service.BatchImageBalanceHoldResult{}, nil
 	}
-	if cmd.ActualAmount-cmd.HoldAmount > 0.00000001 {
+	if !cmd.CompletedMedia && cmd.ActualAmount-cmd.HoldAmount > 0.00000001 {
 		return nil, service.ErrBatchImageSettlementCostExceedsHold
+	}
+	if cmd.CompletedMedia {
+		held, err := batchImageHoldClaimExists(ctx, tx, service.BatchImageHoldRequestID(cmd.BatchID), cmd.APIKeyID)
+		if err != nil {
+			return nil, err
+		}
+		if !held {
+			return nil, service.ErrMediaBalanceHoldInconsistent
+		}
+		released, err := batchImageHoldClaimExists(ctx, tx, service.BatchImageReleaseRequestID(cmd.BatchID), cmd.APIKeyID)
+		if err != nil {
+			return nil, err
+		}
+		if released {
+			// A confirmed release returned this reservation to available balance.
+			// Settle once from that balance, never consume another request's hold.
+			balance, _, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.ActualAmount)
+			if err != nil {
+				return nil, err
+			}
+			return &service.BatchImageBalanceHoldResult{NewBalance: &balance}, nil
+		}
 	}
 	var balance, frozen float64
 	err := tx.QueryRowContext(ctx, `
@@ -329,12 +534,24 @@ func captureUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 	} else if !exists {
 		return nil, service.ErrUserNotFound
 	}
+	if cmd.CompletedMedia {
+		return nil, service.ErrMediaBalanceHoldInconsistent
+	}
 	return nil, errors.New("batch image frozen balance is insufficient")
 }
 
 func releaseUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
 	if cmd.HoldAmount <= 0 {
 		return &service.BatchImageBalanceHoldResult{}, nil
+	}
+	if cmd.CompletedMedia {
+		captured, err := batchImageHoldClaimExists(ctx, tx, service.BatchImageCaptureRequestID(cmd.BatchID), cmd.APIKeyID)
+		if err != nil {
+			return nil, err
+		}
+		if captured {
+			return &service.BatchImageBalanceHoldResult{}, nil
+		}
 	}
 	// 释放前校验该 job 确实预留过 hold（hold request id 已被 claim），
 	// 防止从未成功冻结的 job 触发"幻影释放"，从其他用户的冻结资金池中凭空生成余额。
@@ -366,7 +583,21 @@ func releaseUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 	} else if !exists {
 		return nil, service.ErrUserNotFound
 	}
+	if cmd.CompletedMedia {
+		return nil, service.ErrMediaBalanceHoldInconsistent
+	}
 	return nil, errors.New("batch image frozen balance is insufficient")
+}
+
+// All media reserve/capture/release operations lock the same user before
+// claiming their idempotency keys, making capture and release mutually exclusive.
+func lockMediaBalanceUser(ctx context.Context, tx *sql.Tx, userID int64) error {
+	var id int64
+	err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return service.ErrUserNotFound
+	}
+	return err
 }
 
 // batchImageHoldClaimExists 检查 hold request id 是否已在 dedup（或归档）表中被 claim，
@@ -440,6 +671,33 @@ func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID 
 	return exhausted, nil
 }
 
+func refundUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID int64, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE api_keys
+		SET quota_used = GREATEST(quota_used - $1, 0),
+			status = CASE
+				WHEN status = $3 AND (quota <= 0 OR GREATEST(quota_used - $1, 0) < quota) THEN $4
+				ELSE status
+			END,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, amount, apiKeyID, service.StatusAPIKeyQuotaExhausted, service.StatusAPIKeyActive)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAPIKeyNotFound
+	}
+	return nil
+}
+
 func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64) error {
 	res, err := tx.ExecContext(ctx, `
 		UPDATE api_keys SET
@@ -452,6 +710,31 @@ func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKe
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, cost, apiKeyID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAPIKeyNotFound
+	}
+	return nil
+}
+
+func refundUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64, usageCreatedAt time.Time) error {
+	if cost <= 0 || usageCreatedAt.IsZero() {
+		return nil
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE api_keys SET
+			usage_5h = CASE WHEN window_5h_start IS NOT NULL AND $1 >= window_5h_start AND window_5h_start + INTERVAL '5 hours' > NOW() THEN GREATEST(usage_5h - $2, 0) ELSE usage_5h END,
+			usage_1d = CASE WHEN window_1d_start IS NOT NULL AND $1 >= window_1d_start AND window_1d_start + INTERVAL '24 hours' > NOW() THEN GREATEST(usage_1d - $2, 0) ELSE usage_1d END,
+			usage_7d = CASE WHEN window_7d_start IS NOT NULL AND $1 >= window_7d_start AND window_7d_start + INTERVAL '7 days' > NOW() THEN GREATEST(usage_7d - $2, 0) ELSE usage_7d END,
+			updated_at = NOW()
+		WHERE id = $3 AND deleted_at IS NULL
+	`, usageCreatedAt, cost, apiKeyID)
 	if err != nil {
 		return err
 	}
@@ -555,6 +838,60 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 			logger.LegacyPrintf("repository.usage_billing", "[SchedulerOutbox] enqueue quota exceeded failed: account=%d err=%v", accountID, err)
 			return nil, err
 		}
+	}
+	return &state, nil
+}
+
+func refundUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountID int64, amount float64, usageCreatedAt time.Time) (*service.AccountQuotaState, error) {
+	if amount <= 0 {
+		return &service.AccountQuotaState{}, nil
+	}
+	rows, err := tx.QueryContext(ctx, `UPDATE accounts SET extra = (
+			COALESCE(extra, '{}'::jsonb)
+			|| jsonb_build_object('quota_used', GREATEST(COALESCE((extra->>'quota_used')::numeric, 0) - $1, 0))
+			|| CASE WHEN COALESCE((extra->>'quota_daily_limit')::numeric, 0) > 0
+				AND COALESCE((extra->>'quota_daily_start')::timestamptz, '1970-01-01'::timestamptz) <= $2
+				AND NOT `+dailyExpiredExpr+`
+			THEN jsonb_build_object('quota_daily_used', GREATEST(COALESCE((extra->>'quota_daily_used')::numeric, 0) - $1, 0))
+			ELSE '{}'::jsonb END
+			|| CASE WHEN COALESCE((extra->>'quota_weekly_limit')::numeric, 0) > 0
+				AND COALESCE((extra->>'quota_weekly_start')::timestamptz, '1970-01-01'::timestamptz) <= $2
+				AND NOT `+weeklyExpiredExpr+`
+			THEN jsonb_build_object('quota_weekly_used', GREATEST(COALESCE((extra->>'quota_weekly_used')::numeric, 0) - $1, 0))
+			ELSE '{}'::jsonb END
+		), updated_at = NOW()
+		WHERE id = $3 AND deleted_at IS NULL
+		RETURNING
+			COALESCE((extra->>'quota_used')::numeric, 0),
+			COALESCE((extra->>'quota_limit')::numeric, 0),
+			COALESCE((extra->>'quota_daily_used')::numeric, 0),
+			COALESCE((extra->>'quota_daily_limit')::numeric, 0),
+			COALESCE((extra->>'quota_weekly_used')::numeric, 0),
+			COALESCE((extra->>'quota_weekly_limit')::numeric, 0)`, amount, usageCreatedAt, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var state service.AccountQuotaState
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrAccountNotFound
+	}
+	if err := rows.Scan(
+		&state.TotalUsed, &state.TotalLimit,
+		&state.DailyUsed, &state.DailyLimit,
+		&state.WeeklyUsed, &state.WeeklyLimit,
+	); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+		return nil, err
 	}
 	return &state, nil
 }

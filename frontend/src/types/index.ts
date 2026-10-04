@@ -236,12 +236,14 @@ export interface PublicSettings {
   site_logo: string
   site_subtitle: string
   api_base_url: string
+  optimized_api_base_url: string
   contact_info: string
   doc_url: string
   home_content: string
   compact_home_enabled: boolean
   hide_ccs_import_button: boolean
   payment_enabled: boolean
+  image_workspace_url?: string
   risk_control_enabled: boolean
   table_default_page_size: number
   table_page_size_options: number[]
@@ -1217,14 +1219,11 @@ export interface Account {
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
   ollama_cloud_usage?: OllamaCloudUsageState
-  codex_turn_tickets?: Array<{
-    model: string
-    length?: number
-    ready: boolean
-    remaining_seconds: number
-    blocked: boolean
-    expires_at?: string
-  }>
+  codex_signal?: {
+    length: number
+    observed_at: string
+    last_312_at?: string
+  }
   opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
@@ -1518,7 +1517,7 @@ export interface CodexUsageSnapshot {
 
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
-export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings' | 'seedance'
+export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings' | 'gemini_native' | 'minimax_video' | 'seedance'
 
 export interface OpenAICompactState {
   openai_compact_mode?: OpenAICompactMode
@@ -1801,6 +1800,15 @@ export interface UsageLog {
   image_input_cost: number
   image_output_tokens: number
   image_output_cost: number
+  media_type: string | null
+
+  // 视频生成字段
+  video_count: number
+  video_resolution: string | null
+  video_duration_seconds: number | null
+  video_input_duration_seconds: number
+  video_output_cost: number
+  video_input_cost: number
 
   // User-Agent
   user_agent: string | null

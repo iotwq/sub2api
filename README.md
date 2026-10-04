@@ -792,28 +792,46 @@ For API-key accounts, select **Grok → API Key** in the create-account dialog. 
 4. If configuring manually, save the following as `~/.grok/config.toml` (Windows: `%USERPROFILE%\.grok\config.toml`):
 
 ```toml
-[models]
-default = "grok"
-web_search = "grok"
+installer = "internal"
+auto_update = false
 
-[model."grok"]
-model = "grok-4.5"
-base_url = "https://your-sub2api.example.com/v1"
-name = "Grok 4.5"
+[endpoints]
+models_base_url = "https://your-sub2api.example.com/v1"
+
+[models]
+default = "grok-4.6"
+default_reasoning_effort = "xhigh"
+
+[model."grok-4.6"]
+model = "grok-4.6"
 api_key = "sk-your-sub2api-key"
-api_backend = "responses"
-context_window = 1000000
-supports_backend_search = true
+name = "Grok 4.6"
+context_window = 500000
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "medium", "high", "xhigh"]
+
+[marketplace]
+default_skills_installs_purged = true
+
+[ui]
+max_thoughts_width = 120
+fork_secondary_model = "grok-4.5"
+yolo = false
+compact_mode = false
+permission_mode = "always-approve"
+
+[cli]
+installer = "internal"
 ```
 
-Back up an existing `config.toml` before merging the entry. The file contains a Sub2API API key, so keep it private and restrict its permissions where supported. Verify the effective configuration and make a smoke request:
+Back up an existing `config.toml` before replacing it with this template. The file contains a Sub2API API key, so keep it private and restrict its permissions where supported. Verify the effective configuration and make a smoke request:
 
 ```bash
 grok inspect
-grok -p "Reply with sub2api-ok" -m grok
+grok -p "Reply with sub2api-ok" -m grok-4.6
 ```
 
-The `base_url` above is the public Sub2API URL ending in `/v1`, not `api.x.ai` or the internal xAI OAuth proxy URL.
+The `models_base_url` above is the public Sub2API URL ending in `/v1`, not `api.x.ai` or the internal xAI OAuth proxy URL.
 
 ### Usage And Quota Display
 

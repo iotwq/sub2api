@@ -162,7 +162,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 
-	maxAccountSwitches := h.maxAccountSwitches
+	probePolicy := resolveChannelMonitorProbePolicy(c, h.maxAccountSwitches)
+	maxAccountSwitches := probePolicy.maxAccountSwitches
+	probedAccountIDs := make(map[int64]struct{})
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
@@ -228,6 +230,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		account := selection.Account
+		probedAccountIDs[account.ID] = struct{}{}
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		reqLog.Debug("openai_chat_completions.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
@@ -245,9 +248,22 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		if err := h.gatewayService.ValidateOpenAITokenPricing(
+			c.Request.Context(), apiKey, reqModel, channelMapping.MappedModel,
+			channelMapping.BillingModelSource, account.GetMappedModel(reqModel),
+		); err != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			reqLog.Warn("openai_chat_completions.pricing_unavailable", zap.Error(err))
+			status, errType, message := pricingPreflightErrorDetails(reqModel, err)
+			h.handleStreamingAwareError(c, status, errType, message, streamStarted)
+			return
+		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
+		startChannelMonitorProbeAttempt(c, forwardStart)
 
 		forwardBody := body
 		if channelMapping.Mapped {
@@ -322,10 +338,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			})
 		}
 		if err != nil {
-			if result != nil && result.ImageCount > 0 {
-				reqLog.Warn("openai_chat_completions.forward_partial_error_with_image_result",
+			if service.OpenAIForwardResultHasBillableUsage(result) {
+				reqLog.Warn("openai_chat_completions.forward_partial_error_with_billable_usage",
 					zap.Int64("account_id", account.ID),
-					zap.Int("image_count", result.ImageCount),
 					zap.Error(err),
 				)
 			} else {
@@ -350,7 +365,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
-					// Pool mode: retry on the same account
+					// Pool mode retries stay within the current account's monitor budget slot.
 					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
@@ -374,6 +389,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					if !probePolicy.allowsAnotherAccount(len(probedAccountIDs)) {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
 					if switchCount >= maxAccountSwitches {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return

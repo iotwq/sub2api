@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -86,6 +87,9 @@ type postUsageBillingParams struct {
 	// SimpleModeKeyRateLimitOnly opts the request into the simple-mode billing
 	// path that records only API-key 5h/1d/7d window usage. It must not trigger
 	// balance, subscription, account, platform, or lifetime-key-quota effects.
+	SkipBalanceDeduction       bool
+	CapturedBalanceHold        *BatchImageBalanceHoldCommand
+	BillingCachesInvalidated   bool
 	SimpleModeKeyRateLimitOnly bool
 }
 
@@ -157,7 +161,7 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 				slog.Error("increment subscription usage failed", "subscription_id", p.Subscription.ID, "error", err)
 			}
 		}
-	} else {
+	} else if !p.SkipBalanceDeduction {
 		if cost.ActualCost > 0 {
 			if err := deps.userRepo.DeductBalance(billingCtx, p.User.ID, cost.ActualCost); err != nil {
 				slog.Error("deduct balance failed", "user_id", p.User.ID, "error", err)
@@ -306,6 +310,9 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.CacheCreationTokens = usageLog.CacheCreationTokens
 		cmd.CacheReadTokens = usageLog.CacheReadTokens
 		cmd.ImageCount = usageLog.ImageCount
+		if usageLog.MediaType != nil {
+			cmd.MediaType = *usageLog.MediaType
+		}
 		if usageLog.ServiceTier != nil {
 			cmd.ServiceTier = *usageLog.ServiceTier
 		}
@@ -332,7 +339,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
 		cmd.SubscriptionID = &p.Subscription.ID
 		cmd.SubscriptionCost = p.Cost.ActualCost
-	} else if p.Cost.ActualCost > 0 {
+	} else if p.Cost.ActualCost > 0 && !p.SkipBalanceDeduction {
 		cmd.BalanceCost = p.Cost.ActualCost
 	}
 
@@ -345,6 +352,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
+	cmd.CapturedBalanceHold = p.CapturedBalanceHold
 
 	cmd.Normalize()
 	return cmd
@@ -363,20 +371,45 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		// The legacy path is only a fallback for standard billing. Simple mode
 		// must retain request-id deduplication and never bill other balances.
 		postUsageBilling(ctx, p, deps)
-		return true, nil
+		return false, nil
 	}
 
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 
-	result, err := repo.Apply(billingCtx, cmd)
+	usageLogPersisted := false
+	var pending *PendingImageSettlement
+	pendingRepo, canRetryImages := repo.(PendingImageSettlementRepository)
+	if canRetryImages && usageLog != nil && usageLog.ImageCount > 0 && usageLog.VideoCount == 0 {
+		pending = &PendingImageSettlement{Command: cmd, Usage: usageLog, Platform: p.Platform}
+		if err := pendingRepo.SavePendingImageSettlement(billingCtx, pending); err != nil {
+			return false, fmt.Errorf("persist image settlement: %w", err)
+		}
+	}
+	var result *UsageBillingApplyResult
+	var err error
+	if atomicRepo, ok := repo.(AtomicUsageBillingRepository); ok && usageLog != nil {
+		result, err = atomicRepo.ApplyWithUsageLog(billingCtx, cmd, usageLog)
+		usageLogPersisted = err == nil
+	} else {
+		if cmd.CapturedBalanceHold != nil {
+			return false, errors.New("atomic usage billing repository is required for media balance settlement")
+		}
+		result, err = repo.Apply(billingCtx, cmd)
+	}
 	if err != nil {
+		if pending != nil {
+			_ = pendingRepo.FinishPendingImageSettlement(billingCtx, pending, err)
+		}
 		return false, err
 	}
 
 	if result == nil || !result.Applied {
+		if pending != nil {
+			_ = pendingRepo.FinishPendingImageSettlement(billingCtx, pending, nil)
+		}
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
-		return false, nil
+		return usageLogPersisted, nil
 	}
 
 	if result.APIKeyQuotaExhausted {
@@ -386,12 +419,18 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	finalizePostUsageBilling(billingCtx, p, deps, result)
-	return true, nil
+	if pending != nil {
+		_ = pendingRepo.FinishPendingImageSettlement(billingCtx, pending, nil)
+	}
+	return usageLogPersisted, nil
 }
 
 func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
 	if p == nil || p.Cost == nil || deps == nil {
 		return
+	}
+	if p.CapturedBalanceHold != nil && deps.billingCacheService != nil {
+		_ = deps.billingCacheService.InvalidateUserBalance(ctx, p.User.ID)
 	}
 
 	if p.SimpleModeKeyRateLimitOnly {
@@ -408,15 +447,15 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 		return
 	}
 
-	if p.IsSubscriptionBill {
+	if p.IsSubscriptionBill && !p.BillingCachesInvalidated {
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
 			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
 		}
-	} else if p.Cost.ActualCost > 0 && p.User != nil {
+	} else if p.Cost.ActualCost > 0 && p.User != nil && !p.SkipBalanceDeduction {
 		syncBalanceCacheAfterDeduction(ctx, p, deps, result)
 	}
 
-	if p.Cost.ActualCost > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() && deps.billingCacheService != nil {
+	if !p.BillingCachesInvalidated && p.Cost.ActualCost > 0 && p.APIKey != nil && p.APIKey.HasRateLimits() && deps.billingCacheService != nil {
 		deps.billingCacheService.QueueUpdateAPIKeyRateLimitUsage(p.APIKey.ID, p.Cost.ActualCost)
 	}
 
@@ -831,7 +870,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用
-	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	if err != nil {
+		if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+			cost = &CostBreakdown{}
+		} else {
+			return fmt.Errorf("calculate usage cost for %s: %w", billingModel, err)
+		}
+	}
 	// response_model：按上游成功响应自报的模型计费（渠道显式开启才生效）。
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedResponseModelPricing
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
@@ -843,9 +889,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
-			responseCost := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt)
+			responseCost, responseErr := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, billingModel, apiKey) != nil
-			if responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
+			if responseErr == nil && responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
 				// billingModel 到此为止只是定价查表的入参，后续流程只消费 cost，
 				// 因此这里不改写它，改由日志记录实际生效的计费基准。
 				logResponseModelBillingApplied("service.gateway", account, result.RequestID, billingModel, responseModel, cost, responseCost)
@@ -903,7 +949,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		}
 	}
 	requestID := usageLog.RequestID
-	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	usageLogPersisted, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                       cost,
 		User:                       user,
 		APIKey:                     apiKey,
@@ -918,11 +964,11 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {
-		usageLog.ActualCost = 0
-		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		return billingErr
 	}
-	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
+	if !usageLogPersisted {
+		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
+	}
 
 	return nil
 }
@@ -936,7 +982,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	multiplier float64,
 	imageMultiplier float64,
 	pricingAt time.Time,
-) *CostBreakdown {
+) (*CostBreakdown, error) {
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
@@ -956,16 +1002,17 @@ func (s *GatewayService) calculateRecordUsageCost(
 				RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
 				ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 			})
-			if err == nil {
-				return cost
-			}
+			return cost, err
 		}
 		cfg := groupAudioPriceConfigFromAPIKey(apiKey)
-		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier)
+		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier), nil
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
-	tokenCost := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt)
+	tokenCost, err := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt)
+	if err != nil {
+		return nil, err
+	}
 	if result.SearchCount > 0 {
 		price := groupSearchPricePer1kFromAPIKey(apiKey)
 		if price != nil && *price == 0 {
@@ -974,13 +1021,13 @@ func (s *GatewayService) calculateRecordUsageCost(
 		searchCost := s.billingService.CalculateSearchCost(result.SearchCount, price, multiplier)
 		if searchCost != nil && (searchCost.TotalCost > 0 || searchCost.ActualCost > 0) {
 			if tokenCost == nil {
-				return searchCost
+				return searchCost, nil
 			}
 			tokenCost.TotalCost += searchCost.TotalCost
 			tokenCost.ActualCost += searchCost.ActualCost
 		}
 	}
-	return tokenCost
+	return tokenCost, nil
 }
 
 // compositeBillableModel 决定 composite 分组请求的计费模型：来源覆盖把计费模型
@@ -1000,7 +1047,7 @@ func (s *GatewayService) compositeBillableModel(ctx context.Context, apiKey *API
 
 // billableModelWithFallback 在选定计费模型（可能是 composite 公开别名或未定价的映射名）
 // 查不到任何价格（渠道价与全局价均无）时，按序回退到实际转发的具体模型，避免静默 $0 计费。
-// 所有候选都无价时保持原值，走既有的 warn + 零成本路径。
+// 所有候选都无价时保持原值，后续计费返回缺价错误。
 func (s *GatewayService) billableModelWithFallback(ctx context.Context, apiKey *APIKey, billingModel string, fallbacks ...string) string {
 	if s.hasResolvableTokenPricing(ctx, billingModel, apiKey) {
 		return billingModel
@@ -1049,6 +1096,35 @@ func (s *GatewayService) hasIdentifiedResponseModelPricing(ctx context.Context, 
 	return s.billingService.HasIdentifiedTokenPricing(model), false
 }
 
+func (s *GatewayService) ValidateTokenPricing(
+	ctx context.Context,
+	apiKey *APIKey,
+	requestModel string,
+	channelMappedModel string,
+	billingModelSource string,
+	upstreamModel string,
+) error {
+	if s == nil || apiKey == nil || strings.TrimSpace(requestModel) == "" {
+		return fmt.Errorf("token pricing input is incomplete: %w", ErrModelPricingUnavailable)
+	}
+	concreteBillingModel := forwardResultBillingModel(requestModel, upstreamModel)
+	billingModel := concreteBillingModel
+	if billingModelSource == BillingModelSourceChannelMapped && strings.TrimSpace(channelMappedModel) != "" {
+		billingModel = strings.TrimSpace(channelMappedModel)
+	}
+	if billingModelSource == BillingModelSourceRequested {
+		billingModel = strings.TrimSpace(requestModel)
+	}
+	if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
+		billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
+	}
+	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, upstreamModel, requestModel, channelMappedModel)
+	if !s.hasResolvableTokenPricing(ctx, billingModel, apiKey) {
+		return fmt.Errorf("no pricing available for model %s: %w", requestModel, ErrModelPricingUnavailable)
+	}
+	return nil
+}
+
 // resolveChannelPricing 检查指定模型是否存在渠道级别定价。
 // 返回非 nil 的 ResolvedPricing 表示有渠道定价，nil 表示走默认定价路径。
 func (s *GatewayService) resolveChannelPricing(ctx context.Context, billingModel string, apiKey *APIKey) *ResolvedPricing {
@@ -1070,7 +1146,7 @@ func (s *GatewayService) calculateImageCost(
 	apiKey *APIKey,
 	billingModel string,
 	multiplier float64,
-) *CostBreakdown {
+) (*CostBreakdown, error) {
 	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
 	resolved := s.resolveChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup {
@@ -1081,13 +1157,11 @@ func (s *GatewayService) calculateImageCost(
 			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
 			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 		})
-		if err == nil {
-			return cost
-		}
+		return cost, err
 	}
 	groupConfig := imagePriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
-		return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+		return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier), nil
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel {
 		tokens := UsageTokens{
@@ -1109,14 +1183,10 @@ func (s *GatewayService) calculateImageCost(
 			Resolver:        s.resolver,
 			Resolved:        resolved,
 		})
-		if err != nil {
-			logger.LegacyPrintf("service.gateway", "Calculate image token cost failed: %v", err)
-			return &CostBreakdown{ActualCost: 0}
-		}
-		return cost
+		return cost, err
 	}
 
-	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier), nil
 }
 
 // calculateTokenCost 计算 Token 计费：路径选择（分组/渠道定价 → 内置定价）
@@ -1128,7 +1198,7 @@ func (s *GatewayService) calculateTokenCost(
 	billingModel string,
 	multiplier float64,
 	pricingAt time.Time,
-) *CostBreakdown {
+) (*CostBreakdown, error) {
 	tokens := UsageTokens{
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
@@ -1157,11 +1227,7 @@ func (s *GatewayService) calculateTokenCost(
 		Resolver:        s.resolver,
 		Resolved:        resolved,
 	})
-	if err != nil {
-		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
-		return &CostBreakdown{ActualCost: 0}
-	}
-	return cost
+	return cost, err
 }
 
 // buildRecordUsageLog 构建使用日志并设置计费模式。

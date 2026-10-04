@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
@@ -39,9 +40,10 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
+	// 检查平台：OpenAI 分组仅允许显式开启 Gemini 原生能力的 APIKey 账号。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
+	if !hasForcePlatform && groupPlatform != service.PlatformGemini && groupPlatform != service.PlatformOpenAI {
 		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 		return
 	}
@@ -60,22 +62,36 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return filtered
 	}
 
-	agModelIDs, err := h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity)
-	if err != nil {
-		googleError(c, http.StatusServiceUnavailable, "Unable to list Antigravity models")
-		return
-	}
-	agModels := make([]gemini.Model, 0, len(agModelIDs))
-	for _, id := range agModelIDs {
-		agModels = append(agModels, gemini.FallbackModel(id))
+	var agModels []gemini.Model
+	if groupPlatform != service.PlatformOpenAI || hasForcePlatform {
+		agModelIDs, err := h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity)
+		if err != nil {
+			googleError(c, http.StatusServiceUnavailable, "Unable to list Antigravity models")
+			return
+		}
+		agModels = make([]gemini.Model, 0, len(agModelIDs))
+		for _, id := range agModelIDs {
+			agModels = append(agModels, gemini.FallbackModel(id))
+		}
 	}
 	if forcePlatform == service.PlatformAntigravity {
 		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
 		return
 	}
 
-	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
+	var account *service.Account
+	var err error
+	if groupPlatform == service.PlatformOpenAI && !hasForcePlatform {
+		account, err = h.openAIGatewayService.SelectAccountForGeminiNative(c.Request.Context(), apiKey.GroupID, "")
+	} else {
+		account, err = h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
+	}
 	if err != nil {
+		if groupPlatform == service.PlatformOpenAI && !hasForcePlatform {
+			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+			googleError(c, http.StatusServiceUnavailable, "No available OpenAI accounts with Gemini native capability: "+err.Error())
+			return
+		}
 		if len(agModels) > 0 {
 			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
 			return
@@ -223,9 +239,10 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
+	// 检查平台：OpenAI 分组仅允许显式开启 Gemini 原生能力的 APIKey 账号。
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
+	if !hasForcePlatform && groupPlatform != service.PlatformGemini && groupPlatform != service.PlatformOpenAI {
 		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 		return
 	}
@@ -251,8 +268,19 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
-	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
+	var account *service.Account
+	var err error
+	if groupPlatform == service.PlatformOpenAI && !hasForcePlatform {
+		account, err = h.openAIGatewayService.SelectAccountForGeminiNative(c.Request.Context(), apiKey.GroupID, modelName)
+	} else {
+		account, err = h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
+	}
 	if err != nil {
+		if groupPlatform == service.PlatformOpenAI && !hasForcePlatform {
+			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+			googleError(c, http.StatusServiceUnavailable, "No available OpenAI accounts with Gemini native capability: "+err.Error())
+			return
+		}
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
@@ -299,9 +327,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
-	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
+	// 检查平台：OpenAI 分组仅允许显式开启 Gemini 原生能力的 APIKey 账号。
+	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
+	openAIGeminiNative := !middleware.HasForcePlatform(c) && groupPlatform == service.PlatformOpenAI
 	if !middleware.HasForcePlatform(c) {
-		if effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+		if groupPlatform != service.PlatformGemini && !openAIGeminiNative {
 			googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 			return
 		}
@@ -443,7 +473,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	var geminiPrefixHash string
 	var geminiSessionUUID string
 	var matchedDigestChain string
-	useDigestFallback := sessionBoundAccountID == 0
+	useDigestFallback := !openAIGeminiNative && sessionBoundAccountID == 0
 
 	if useDigestFallback {
 		// 解析 Gemini 请求体
@@ -507,7 +537,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 	cleanedForUnknownBinding := false
 
-	fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+	maxAccountSwitches := h.maxAccountSwitchesGemini
+	if openAIGeminiNative {
+		maxAccountSwitches = h.maxAccountSwitches
+	}
+	fs := NewFailoverState(maxAccountSwitches, hasBoundSession)
 
 	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -517,20 +551,32 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 
 	for {
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
+		var selection *service.AccountSelectionResult
+		if openAIGeminiNative {
+			selection, err = h.openAIGatewayService.SelectAccountForGeminiNativeWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs)
+		} else {
+			selection, err = h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
+		}
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("gemini.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
 			if len(fs.FailedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, service.PlatformGemini)
+				classificationPlatform := service.PlatformGemini
+				if openAIGeminiNative {
+					classificationPlatform = service.PlatformOpenAI
+				}
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, classificationPlatform)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
 				message := cls.Message
 				if !cls.ModelNotFound {
 					message = "No available Gemini accounts: " + err.Error()
+					if openAIGeminiNative {
+						message = "No available OpenAI accounts with Gemini native capability: " + err.Error()
+					}
 				}
 				googleError(c, cls.Status, message)
 				return
@@ -554,7 +600,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
 		// 注意：Gemini 原生 API 的 thoughtSignature 与具体上游账号强相关；跨账号透传会导致 400。
-		if sessionBoundAccountID > 0 && sessionBoundAccountID != account.ID {
+		if !openAIGeminiNative && sessionBoundAccountID > 0 && sessionBoundAccountID != account.ID {
 			reqLog.Info("gemini.sticky_session_account_switched",
 				zap.Int64("from_account_id", sessionBoundAccountID),
 				zap.Int64("to_account_id", account.ID),
@@ -562,7 +608,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			)
 			body = service.CleanGeminiNativeThoughtSignatures(body)
 			sessionBoundAccountID = account.ID
-		} else if sessionKey != "" && sessionBoundAccountID == 0 && !cleanedForUnknownBinding && bytes.Contains(body, []byte(`"thoughtSignature"`)) {
+		} else if !openAIGeminiNative && sessionKey != "" && sessionBoundAccountID == 0 && !cleanedForUnknownBinding && bytes.Contains(body, []byte(`"thoughtSignature"`)) {
 			// 无缓存绑定但请求里已有 thoughtSignature：常见于缓存丢失/TTL 过期后，客户端继续携带旧签名。
 			// 为避免第一次转发就 400，这里做一次确定性清理，让新账号重新生成签名链路。
 			reqLog.Info("gemini.sticky_session_binding_missing",
@@ -650,6 +696,24 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 		// 账号槽位/等待计数需要在超时或断开时安全回收
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+		if (action == "generateContent" || action == "streamGenerateContent") && (h.cfg == nil || h.cfg.RunMode != config.RunModeSimple) {
+			upstreamModel := modelName
+			if account.Type == service.AccountTypeAPIKey || account.Type == service.AccountTypeServiceAccount || account.Platform == service.PlatformAntigravity {
+				upstreamModel = account.GetMappedModel(modelName)
+			}
+			if err := h.gatewayService.ValidateTokenPricing(
+				c.Request.Context(), apiKey, reqModel, channelMapping.MappedModel,
+				channelMapping.BillingModelSource, upstreamModel,
+			); err != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				reqLog.Warn("gemini.pricing_unavailable", zap.Error(err))
+				status, _, message := pricingPreflightErrorDetails(reqModel, err)
+				googleError(c, status, message)
+				return
+			}
+		}
 
 		// 5) forward (根据平台分流)
 		var result *service.ForwardResult
@@ -720,6 +784,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		requestPayloadHash := service.HashUsageRequestPayload(body)
 		inboundEndpoint := GetInboundEndpoint(c)
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
+		if openAIGeminiNative {
+			upstreamEndpoint = EndpointGeminiModels
+		}
 		// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
 		forceCacheBilling := fs.ForceCacheBilling
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)

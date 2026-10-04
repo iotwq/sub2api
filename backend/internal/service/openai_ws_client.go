@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -79,10 +80,12 @@ func newDefaultOpenAIWSClientDialer() openAIWSClientDialer {
 }
 
 type coderOpenAIWSClientDialer struct {
-	proxyMu      sync.Mutex
-	proxyClients map[string]*openAIWSProxyClientEntry
-	proxyHits    atomic.Int64
-	proxyMisses  atomic.Int64
+	proxyMu         sync.Mutex
+	proxyClients    map[string]*openAIWSProxyClientEntry
+	proxyHits       atomic.Int64
+	proxyMisses     atomic.Int64
+	tlsRootCAs      *x509.CertPool
+	tlsProxyRootCAs *x509.CertPool
 }
 
 // openAIWSHandshakeError keeps a bounded, non-logged HTTP error body so the
@@ -132,7 +135,17 @@ func (d *coderOpenAIWSClientDialer) Dial(
 			return true
 		},
 	}
-	if proxy := strings.TrimSpace(proxyURL); proxy != "" {
+	if tlsConfig, protected := ctx.Value(openAIWSTLSContextKey{}).(openAIWSTLSConfig); protected {
+		parsed, err := url.Parse(targetURL)
+		if err != nil || parsed.Scheme != "wss" {
+			return nil, 0, nil, errors.New("Codex TLS requires WSS")
+		}
+		client, err := d.fingerprintHTTPClient(tlsConfig, targetURL, proxyURL)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		opts.HTTPClient = client
+	} else if proxy := strings.TrimSpace(proxyURL); proxy != "" {
 		proxyClient, err := d.proxyHTTPClient(proxy)
 		if err != nil {
 			return nil, 0, nil, err

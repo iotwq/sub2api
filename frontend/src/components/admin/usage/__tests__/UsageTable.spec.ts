@@ -38,6 +38,15 @@ const messages: Record<string, string> = {
   'usage.original': 'Original',
   'usage.userBilled': 'User billed',
   'usage.accountBilled': 'Account billed',
+  'usage.videoFailureRefund': 'Video failure refund',
+	'usage.videoCount': 'Video count',
+	'usage.videoOutputDuration': 'Output duration',
+	'usage.videoResolution': 'Video resolution',
+	'usage.videoOutputUnitPrice': 'Output video price per second',
+	'usage.videoOutputCost': 'Output video cost',
+	'usage.videoInputDuration': 'Reference video billed duration',
+	'usage.videoInputCost': 'Reference video cost',
+	'usage.videoInputActualCost': 'Reference video user charge',
   'usage.imageUnit': ' images',
   'usage.imageCount': 'Image count',
   'usage.imageBillingSize': 'Billing size',
@@ -482,6 +491,97 @@ describe('admin UsageTable tooltip', () => {
 		expect(text).toContain(expectedBadge)
 	})
 
+  it('labels failed video refund usage rows separately from normal model calls', () => {
+    const row = {
+      request_id: 'openai-video-refund:task-123',
+			model: 'firefly-video-v2-fast',
+      actual_cost: -30,
+      total_cost: -30,
+      account_rate_multiplier: 1,
+      rate_multiplier: 1,
+      input_cost: 0,
+      output_cost: 0,
+      cache_creation_cost: 0,
+      cache_read_cost: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      billing_mode: 'per_request',
+      image_count: 0,
+      image_output_tokens: 0,
+      image_output_cost: 0,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('Video failure refund')
+		expect(text).toContain('firefly-video-v2-fast')
+    expect(text).toContain('-$30.000000')
+  })
+
+	it('shows video duration and MiniMax reference-video charge details', async () => {
+		const row = {
+			...baseImageRow,
+			request_id: 'openai-video:task-minimax-h3',
+			model: 'MiniMax-H3',
+			media_type: 'video',
+			billing_mode: 'video',
+			image_count: 0,
+			video_count: 1,
+			video_resolution: '2K',
+			video_duration_seconds: 5,
+			video_input_duration_seconds: 7.5,
+			video_output_cost: 1,
+			video_input_cost: 1.5,
+			rate_multiplier: 2,
+			total_cost: 2.5,
+			actual_cost: 5,
+		}
+		const wrapper = mount(UsageTable, {
+			props: { data: [row], loading: false, columns: [] },
+			global: {
+				stubs: {
+					DataTable: DataTableStub,
+					EmptyState: true,
+					Icon: true,
+					Teleport: true,
+				},
+			},
+		})
+
+		expect(wrapper.text()).toContain('1 × 5s')
+		expect(wrapper.text()).toContain('(2K)')
+		const tooltipTriggers = wrapper.findAll('.group.relative')
+		await tooltipTriggers[tooltipTriggers.length - 1].trigger('mouseenter')
+		await nextTick()
+
+		const text = wrapper.text()
+		expect(text).toContain('Output duration')
+		expect(text).toContain('Output video price per second')
+		expect(text).toContain('$0.200000/s')
+		expect(text).toContain('Reference video billed duration')
+		expect(text).toContain('7.50s')
+		expect(text).toContain('Reference video cost')
+		expect(text).toContain('$1.500000')
+		expect(text).toContain('Reference video user charge')
+		expect(text).toContain('$3.000000')
+	})
   it.each([
     {
       name: 'defaulted row',

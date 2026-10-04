@@ -1540,6 +1540,51 @@ async function handleSubmit() {
         appStore.showError(t('admin.channels.form.perRequestPriceRequired'))
         return
       }
+      if (entry.billing_mode === 'video') {
+        const miniMaxOnly = entry.models.length === 1 && entry.models[0].trim().toLowerCase() === 'minimax-h3'
+        const includesMiniMax = entry.models.some(model => model.trim().toLowerCase() === 'minimax-h3')
+        const isSD20Model = (model: string) => ['firefly-video-v2', 'firefly-video-v2-fast'].includes(model.trim().toLowerCase())
+        const sd20Only = entry.models.length === 1 && isSD20Model(entry.models[0])
+        const includesSD20 = entry.models.some(isSD20Model)
+        if (includesMiniMax && !miniMaxOnly) {
+          appStore.showError(t('admin.channels.form.videoModeModelRequired'))
+          activeTab.value = section.platform
+          return
+        }
+        if (miniMaxOnly) {
+          const prices = new Map((entry.intervals || []).map(iv => [iv.tier_label.trim().toUpperCase(), iv.per_request_price]))
+          if (entry.intervals.length !== 2 || !prices.has('768P') || !prices.has('2K') ||
+              prices.get('768P') == null || prices.get('768P') === '' ||
+              prices.get('2K') == null || prices.get('2K') === '') {
+            appStore.showError(t('admin.channels.form.videoSecondPricesRequired'))
+            activeTab.value = section.platform
+            return
+          }
+        } else if (includesSD20 && !sd20Only) {
+          appStore.showError(t('admin.channels.form.sd20VideoModeModelRequired'))
+          activeTab.value = section.platform
+          return
+        } else if (sd20Only) {
+          const expected = entry.models[0].trim().toLowerCase() === 'firefly-video-v2-fast'
+            ? ['480P', '720P']
+            : ['480P', '720P', '1080P']
+          const prices = new Map((entry.intervals || []).map(iv => [iv.tier_label.trim().toUpperCase(), iv.per_request_price]))
+          if ((entry.per_request_price != null && entry.per_request_price !== '') ||
+              entry.intervals.length !== expected.length ||
+              expected.some((resolution) => {
+                const price = prices.get(resolution)
+                return !prices.has(resolution) || price == null || price === '' || Number(price) <= 0
+              })) {
+            appStore.showError(t('admin.channels.form.sd20VideoSecondPricesRequired'))
+            activeTab.value = section.platform
+            return
+          }
+        } else if (entry.per_request_price == null || entry.per_request_price === '' || entry.intervals.length > 0) {
+          appStore.showError(t('admin.channels.form.genericVideoSecondPriceRequired'))
+          activeTab.value = section.platform
+          return
+        }
+      }
     }
   }
 

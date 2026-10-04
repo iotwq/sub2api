@@ -2400,6 +2400,140 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionSticky(t *testin
 	}
 }
 
+func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredTaskAccountDoesNotEscape(t *testing.T) {
+	groupID := int64(10109)
+	accounts := []Account{
+		{
+			ID: 21901, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID},
+		},
+		{
+			ID: 21902, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID},
+		},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
+	cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 100
+	cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.1
+	stats := newOpenAIAccountRuntimeStats()
+	highTTFT := 1000
+	stats.report(accounts[0].ID, false, &highTTFT)
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cache:              &schedulerTestGatewayCache{sessionBindings: map[string]int64{}},
+		cfg:                cfg,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{accounts[0].ID: true, accounts[1].ID: true}}),
+		openaiAccountStats: stats,
+	}
+	ctx := WithRequiredOpenAIAccount(context.Background(), accounts[0].ID)
+
+	selection, decision, err := svc.SelectAccountWithScheduler(
+		ctx,
+		&groupID,
+		"",
+		"video-task-session",
+		"",
+		nil,
+		OpenAIUpstreamTransportHTTPSSE,
+		false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, accounts[0].ID, selection.Account.ID)
+	require.True(t, decision.StickySessionHit)
+	require.Equal(t, openAIAccountScheduleLayerSessionSticky, decision.Layer)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredTaskAccountDoesNotEscapeLegacyScheduler(t *testing.T) {
+	groupID := int64(10110)
+	accounts := []Account{
+		{
+			ID: 21911, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 9, GroupIDs: []int64{groupID},
+			Credentials: map[string]any{"openai_capabilities": []any{"minimax_video"}},
+		},
+		{
+			ID: 21912, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID},
+			Credentials: map[string]any{"openai_capabilities": []any{"minimax_video"}},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                &config.Config{},
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("false"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{accounts[0].ID: true, accounts[1].ID: true}}),
+	}
+	ctx := WithRequiredOpenAIAccount(context.Background(), accounts[0].ID)
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		ctx,
+		&groupID,
+		"",
+		"video-task-session",
+		"MiniMax-H3",
+		nil,
+		OpenAIUpstreamTransportHTTPSSE,
+		OpenAIEndpointCapabilityMiniMaxVideo,
+		false,
+		false,
+		false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, accounts[0].ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredTaskAccountUnavailableDoesNotSwitchLegacyScheduler(t *testing.T) {
+	groupID := int64(10111)
+	accounts := []Account{
+		{
+			ID: 21921, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusError, Schedulable: false, Concurrency: 1, Priority: 9, GroupIDs: []int64{groupID},
+			Credentials: map[string]any{"openai_capabilities": []any{"minimax_video"}},
+		},
+		{
+			ID: 21922, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID},
+			Credentials: map[string]any{"openai_capabilities": []any{"minimax_video"}},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                &config.Config{},
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("false"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: map[int64]bool{accounts[1].ID: true}}),
+	}
+	ctx := WithRequiredOpenAIAccount(context.Background(), accounts[0].ID)
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		ctx,
+		&groupID,
+		"",
+		"video-task-session",
+		"MiniMax-H3",
+		nil,
+		OpenAIUpstreamTransportHTTPSSE,
+		OpenAIEndpointCapabilityMiniMaxVideo,
+		false,
+		false,
+		false,
+	)
+
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection)
+}
+
 func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsSticky(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(10100)

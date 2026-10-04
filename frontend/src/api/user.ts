@@ -3,7 +3,7 @@
  * Handles user profile management and password changes
  */
 
-import { apiClient } from './client'
+import { apiClient, buildGatewayUrl } from './client'
 import {
   resolveWeChatOAuthStartStrict,
   prepareOAuthBindAccessTokenCookie,
@@ -194,6 +194,23 @@ export async function getMyPlatformQuotas(): Promise<PlatformQuotasResponse> {
   return data
 }
 
+interface NewAPIEnvelope<T> {
+  success: boolean
+  message?: string
+  data?: T
+}
+
+export async function generateNewAPIBalanceAccessToken(): Promise<string> {
+  const response = await apiClient.get<NewAPIEnvelope<string>>(
+    buildGatewayUrl('/api/user/token')
+  )
+  const token = response.data?.data?.trim() || ''
+  if (!response.data?.success || !token) {
+    throw new Error(response.data?.message || 'Failed to generate access token')
+  }
+  return token
+}
+
 export const userAPI = {
   getProfile,
   updateProfile,
@@ -210,6 +227,7 @@ export const userAPI = {
   getAffiliateDetail,
   transferAffiliateQuota,
   getMyPlatformQuotas,
+  generateNewAPIBalanceAccessToken,
 }
 
 export default userAPI

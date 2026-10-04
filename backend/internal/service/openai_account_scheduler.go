@@ -75,6 +75,7 @@ type OpenAIAccountScheduleRequest struct {
 	GuardianParentAccountID int64
 	StickyPreviousAccountID int64
 	StickyWeighted          bool
+	RequireStickySession    bool
 	SubscriptionPriority    bool
 	PreserveStickyBinding   bool
 	// DisableStickyEscape keeps task-owner lookups on their account even when
@@ -464,6 +465,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			decision.SelectedAccountType = selection.Account.Type
 			return selection, decision, nil
 		}
+		if req.RequireStickySession {
+			return nil, decision, ErrNoAvailableAccounts
+		}
 		if escapedSticky {
 			req.PreserveStickyBinding = true
 		}
@@ -562,7 +566,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, false, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape && !req.DisableStickyEscape {
+	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape && !req.DisableStickyEscape && !req.RequireStickySession {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
 			"reason", reason,
@@ -1457,6 +1461,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
+		if s.service.isExcelBPSCoolingDown(account, req.RequestedModel) {
+			filterStats.exclude(excelBPSRateLimitedFilterReason)
+			continue
+		}
 		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
 			filterStats.exclude("runtime_blocked")
 			continue
@@ -1812,7 +1820,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}) {
 		return false, "shadow_parent_unhealthy"
 	}
-	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
+	if req.RequestedModel != "" && !openAICompatibleAccountSupportsRequestedModel(account, req.RequestedModel) {
 		return false, "model_not_supported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
@@ -2328,8 +2336,30 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) == "" {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
+	requiredAccountID := requiredOpenAIAccountIDFromContext(ctx)
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
+		if requiredAccountID > 0 {
+			selection, err := s.selectRequiredOpenAIAccount(
+				ctx,
+				groupID,
+				platform,
+				requestedModel,
+				excludedIDs,
+				requiredAccountID,
+				requiredTransport,
+				requiredCapability,
+				requiredImageCapability,
+				requireCompact,
+			)
+			decision.Layer = openAIAccountScheduleLayerSessionSticky
+			if selection != nil && selection.Account != nil {
+				decision.StickySessionHit = true
+				decision.SelectedAccountID = selection.Account.ID
+				decision.SelectedAccountType = selection.Account.Type
+			}
+			return selection, decision, err
+		}
 		decision.Layer = openAIAccountScheduleLayerLoadBalance
 		if selection, hit, err := s.selectLegacyAccountByPreviousResponse(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform); err != nil {
 			return nil, decision, err
@@ -2441,7 +2471,11 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			stickyAccountID = accountID
 		}
 	}
-	stickyWeighted := s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
+	if requiredAccountID > 0 {
+		stickyAccountID = requiredAccountID
+	}
+	requireStickySession := requiredAccountID > 0
+	stickyWeighted := !requireStickySession && s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
 	subscriptionPriority := s.isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx)
 	stickyPreviousAccountID := int64(0)
 	if stickyWeighted && previousResponseCanMove && strings.TrimSpace(previousResponseID) != "" && platform == PlatformOpenAI {
@@ -2456,6 +2490,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		GuardianParentAccountID: guardianParentAccountID,
 		StickyPreviousAccountID: stickyPreviousAccountID,
 		StickyWeighted:          stickyWeighted,
+		RequireStickySession:    requireStickySession,
 		SubscriptionPriority:    subscriptionPriority,
 		PreserveStickyBinding:   preserveGuardianParentBinding,
 		RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
@@ -2468,6 +2503,55 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		RequiredImageCapability: requiredImageCapability,
 		RequireCompact:          requireCompact,
 		ExcludedIDs:             excludedIDs,
+	})
+}
+
+func (s *OpenAIGatewayService) selectRequiredOpenAIAccount(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	accountID int64,
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool,
+) (*AccountSelectionResult, error) {
+	if accountID <= 0 {
+		return nil, ErrNoAvailableAccounts
+	}
+	if _, excluded := excludedIDs[accountID]; excluded {
+		return nil, ErrNoAvailableAccounts
+	}
+	account, err := s.getSchedulableAccount(ctx, accountID)
+	if err != nil || account == nil {
+		return nil, ErrNoAvailableAccounts
+	}
+	account = s.resolveFreshSchedulableOpenAIAccount(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
+	if account == nil {
+		return nil, ErrNoAvailableAccounts
+	}
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
+	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) ||
+		!s.isOpenAIAccountTransportCompatible(account, requiredTransport) ||
+		!accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability) {
+		return nil, ErrNoAvailableAccounts
+	}
+	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
+		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
+		return nil, ErrNoAvailableAccounts
+	}
+	result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+	if acquireErr == nil && result != nil && result.Acquired {
+		return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+	}
+	cfg := s.schedulingConfig()
+	return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+		AccountID:      account.ID,
+		MaxConcurrency: account.Concurrency,
+		Timeout:        cfg.StickySessionWaitTimeout,
+		MaxWaiting:     cfg.StickySessionMaxWaiting,
 	})
 }
 

@@ -207,6 +207,11 @@ type UsageLog struct {
 	VideoCount           int
 	VideoResolution      *string
 	VideoDurationSeconds *int
+	// VideoInputDurationSeconds is the verified MiniMax-H3 reference-video duration.
+	VideoInputDurationSeconds float64
+	// VideoOutputCost and VideoInputCost are pre-multiplier billing components.
+	VideoOutputCost float64
+	VideoInputCost  float64
 
 	CreatedAt time.Time
 

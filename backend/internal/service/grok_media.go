@@ -709,7 +709,18 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		return nil, err
 	}
 	upstreamReq.Header.Set("Authorization", "Bearer "+token)
-	upstreamReq.Header.Set("Accept", "application/json")
+	if endpoint == GrokMediaEndpointVideoContent {
+		upstreamReq.Header.Set("Accept", "*/*")
+		if c != nil && c.Request != nil {
+			for _, key := range []string{"Range", "If-Range"} {
+				if value := strings.TrimSpace(c.Request.Header.Get(key)); value != "" {
+					upstreamReq.Header.Set(key, value)
+				}
+			}
+		}
+	} else {
+		upstreamReq.Header.Set("Accept", "application/json")
+	}
 	if account.IsGrokOAuth() && isGrokCLIProxyTarget(targetURL) {
 		applyGrokCLIHeaders(upstreamReq.Header)
 	}
@@ -742,6 +753,21 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	}
 
 	s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, requestModel), account, resp.Header, resp.StatusCode)
+	if endpoint == GrokMediaEndpointVideoContent {
+		if err := s.streamOpenAIVideoContentResponse(resp, c); err != nil {
+			return nil, err
+		}
+		return &OpenAIForwardResult{
+			RequestID:        requestIDHeader,
+			ResponseID:       strings.TrimSpace(requestID),
+			ResponseHeaders:  resp.Header.Clone(),
+			Duration:         time.Since(startTime),
+			ImageCount:       0,
+			ImageSize:        "",
+			ImageInputSize:   "",
+			ImageOutputSizes: nil,
+		}, nil
+	}
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err

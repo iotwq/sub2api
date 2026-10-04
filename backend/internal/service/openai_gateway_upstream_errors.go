@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -191,6 +192,87 @@ func isOpenAIRequestScopedCapacityShed(upstreamMsg string, upstreamBody []byte) 
 	return isOpenAIUpstreamCapacityShedEvent(upstreamBody) ||
 		isOpenAICapacityShedMessage(upstreamMsg) ||
 		(!gjson.ValidBytes(upstreamBody) && isOpenAICapacityShedMessage(string(upstreamBody)))
+}
+
+// normalizeWrappedUpstreamRetryStatus recognizes one strict wrapper format used
+// by pool-style upstreams. Generic 400 responses remain request errors.
+func normalizeWrappedUpstreamRetryStatus(statusCode int, upstreamBody []byte) int {
+	if statusCode != http.StatusBadRequest {
+		return statusCode
+	}
+
+	const prefix = "API returned "
+	message := strings.TrimSpace(extractUpstreamErrorMessage(upstreamBody))
+	if !strings.HasPrefix(message, prefix) {
+		return statusCode
+	}
+	remainder := strings.TrimPrefix(message, prefix)
+	if len(remainder) < 4 || remainder[3] != ':' {
+		return statusCode
+	}
+
+	switch remainder[:3] {
+	case "401":
+		return http.StatusUnauthorized
+	case "403":
+		return http.StatusForbidden
+	case "429":
+		return http.StatusTooManyRequests
+	case "501":
+		return http.StatusNotImplemented
+	case "502":
+		return http.StatusBadGateway
+	case "503":
+		return http.StatusServiceUnavailable
+	default:
+		return statusCode
+	}
+}
+
+func shouldFailoverChannelMonitorBadRequest(c *gin.Context, statusCode int) bool {
+	if statusCode != http.StatusBadRequest || c == nil || c.Request == nil {
+		return false
+	}
+	attempts, err := strconv.Atoi(strings.TrimSpace(c.GetHeader(ChannelMonitorProbeAttemptsHeader)))
+	return err == nil && attempts == ChannelMonitorProbeAttempts
+}
+
+// isChannelMonitorProbePolicyRejection identifies the gateway-policy response
+// emitted by an upstream probe endpoint. It is intentionally narrow: other
+// monitor 400 responses (invalid request, unsupported model, etc.) must not
+// cause an account switch.
+func isChannelMonitorProbePolicyRejection(respBody []byte) bool {
+	if len(respBody) == 0 {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(respBody)), "probe_request_rejected") {
+		return true
+	}
+	match := func(value string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(value)), "request blocked by gateway policy")
+	}
+	if match(extractUpstreamErrorMessage(respBody)) {
+		return true
+	}
+	// Some gateways wrap the original error JSON in detail/error.message.
+	for _, path := range []string{"detail", "error.message", "message"} {
+		wrapped := strings.TrimSpace(gjson.GetBytes(respBody, path).String())
+		if wrapped == "" {
+			continue
+		}
+		if match(wrapped) || strings.EqualFold(strings.TrimSpace(gjson.Get(wrapped, "error.code").String()), "probe_request_rejected") {
+			return true
+		}
+		if gjson.Valid(wrapped) && match(gjson.Get(wrapped, "error.message").String()) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldFailoverChannelMonitorProbeError(c *gin.Context, statusCode int, respBody []byte) bool {
+	return shouldFailoverChannelMonitorBadRequest(c, statusCode) &&
+		isChannelMonitorProbePolicyRejection(respBody)
 }
 
 func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
@@ -386,12 +468,16 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 	retryableOnSameAccount bool,
 ) *UpstreamFailoverError {
 	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody)
+	// OAuth credentials are not upstream pools: preserve their auth/quota state
+	// handling, but retry transient failures with the existing bounded budget.
+	oauthTransientRetry := account.IsOpenAIOAuthLike() && !account.IsShadow() && !shouldDisable &&
+		shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody)
 	failoverErr := newOpenAIUpstreamFailoverError(
 		statusCode,
 		responseHeaders,
 		responseBody,
 		upstreamMsg,
-		retryableOnSameAccount || oauth429Retry,
+		retryableOnSameAccount || oauth429Retry || oauthTransientRetry,
 	)
 	if oauth429Retry {
 		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account)

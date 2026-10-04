@@ -1,6 +1,10 @@
 package apicompat
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+)
 
 // NormalizeOpenAIReasoningEffort keeps the accepted OpenAI reasoning effort
 // values consistent across chat-completions and responses code paths.
@@ -15,7 +19,7 @@ func NormalizeOpenAIReasoningEffort(raw string) string {
 	switch value {
 	case "none", "minimal":
 		return ""
-	case "low", "medium", "high":
+	case "low", "medium", "high", "max":
 		return value
 	case "xhigh", "extrahigh":
 		return "xhigh"
@@ -30,6 +34,15 @@ func NormalizeOpenAIReasoningEffort(raw string) string {
 func (req *ChatCompletionsRequest) EffectiveReasoningEffort() string {
 	if req == nil {
 		return ""
+	}
+	if openai.IsGPT6SolOrLunaModelSpelling(req.Model) {
+		raw := strings.TrimSpace(req.ReasoningEffort)
+		if raw == "" && req.Reasoning != nil {
+			raw = strings.TrimSpace(req.Reasoning.Effort)
+		}
+		if strings.EqualFold(raw, "none") {
+			return "none"
+		}
 	}
 
 	if effort := NormalizeOpenAIReasoningEffort(req.ReasoningEffort); effort != "" {

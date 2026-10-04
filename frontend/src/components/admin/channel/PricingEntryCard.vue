@@ -87,12 +87,7 @@
             </label>
             <Select
               :modelValue="entry.billing_mode"
-              @update:modelValue="emit('update', {
-                ...entry,
-                billing_mode: $event as BillingMode,
-                intervals: [],
-                time_pricing: { ...entry.time_pricing, periods: [] },
-              })"
+              @update:modelValue="onBillingModeUpdate($event as BillingMode)"
               :options="billingModeOptions"
               class="mt-1"
             />
@@ -199,6 +194,9 @@
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
               type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
           </div>
+          <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            {{ t('admin.channels.form.perRequestVideoHint') }}
+          </p>
 
           <!-- Tiers -->
           <div class="mt-3 flex items-center justify-between">
@@ -224,11 +222,11 @@
           </div>
         </div>
 
-        <!-- Image/video mode -->
-        <div v-else-if="entry.billing_mode === 'image' || entry.billing_mode === 'video'">
+        <!-- Image mode -->
+        <div v-else-if="entry.billing_mode === 'image'">
           <!-- Default image price (per-request, same as per_request mode) -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
-            {{ entry.billing_mode === 'video' ? t('admin.channels.form.defaultVideoPrice') : t('admin.channels.form.defaultImagePrice') }}
+            {{ t('admin.channels.form.defaultImagePrice') }}
             <span class="ml-1 font-normal text-gray-400">$</span>
           </label>
           <div class="mt-1 w-48">
@@ -239,7 +237,7 @@
           <!-- Image tiers -->
           <div class="mt-3 flex items-center justify-between">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
-              {{ entry.billing_mode === 'video' ? t('admin.channels.form.videoTiers') : t('admin.channels.form.imageTiers') }}
+              {{ t('admin.channels.form.imageTiers') }}
             </label>
             <button type="button" @click="addMediaTier" class="text-xs text-primary-600 hover:text-primary-700">
               + {{ t('admin.channels.form.addTier') }}
@@ -255,6 +253,92 @@
               @remove="removeInterval(idx)"
             />
           </div>
+        </div>
+
+        <!-- Video per-second mode -->
+        <div v-else-if="entry.billing_mode === 'video'" class="mt-3">
+          <template v-if="isMiniMaxH3Only(entry.models)">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('admin.channels.form.videoSecondPrices') }}
+              <span class="ml-1 font-normal text-gray-400">$/{{ t('admin.channels.form.second') }}</span>
+            </label>
+            <div class="mt-2 grid max-w-lg grid-cols-2 gap-3">
+              <div v-for="resolution in miniMaxVideoResolutions" :key="resolution">
+                <label class="text-xs text-gray-400">{{ resolution }}</label>
+                <input
+                  :value="videoTierPrice(resolution)"
+                  @input="updateVideoTierPrice(resolution, ($event.target as HTMLInputElement).value)"
+                  type="number"
+                  step="any"
+                  min="0"
+                  class="input mt-0.5 text-sm"
+                  :placeholder="t('admin.channels.form.priceRequired')"
+                />
+              </div>
+            </div>
+            <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.channels.form.miniMaxVideoBillingHint') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.channels.form.miniMaxMediaLimitsHint') }}
+            </p>
+          </template>
+          <template v-else-if="isSD20VideoOnly(entry.models)">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('admin.channels.form.sd20VideoSecondPrices') }}
+              <span class="ml-1 font-normal text-gray-400">$/{{ t('admin.channels.form.second') }}</span>
+            </label>
+            <div class="mt-2 grid max-w-2xl grid-cols-2 gap-3 sm:grid-cols-3">
+              <div v-for="resolution in sd20VideoResolutions(entry.models[0])" :key="resolution">
+                <label class="text-xs text-gray-400">{{ resolution }}</label>
+                <input
+                  :data-testid="`sd20-video-price-${resolution}`"
+                  :value="videoTierPrice(resolution)"
+                  @input="updateVideoTierPrice(resolution, ($event.target as HTMLInputElement).value)"
+                  type="number"
+                  step="any"
+                  min="0"
+                  class="input mt-0.5 text-sm"
+                  :placeholder="t('admin.channels.form.priceRequired')"
+                />
+              </div>
+            </div>
+            <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.channels.form.sd20VideoBillingHint') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.channels.form.sd20VideoMediaFreeHint') }}
+            </p>
+          </template>
+          <template v-else-if="includesSD20VideoModel(entry.models)">
+            <p class="text-xs text-red-500 dark:text-red-400">
+              {{ t('admin.channels.form.sd20VideoModeModelRequired') }}
+            </p>
+          </template>
+          <template v-else>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('admin.channels.form.genericVideoSecondPrice') }}
+              <span class="ml-1 font-normal text-gray-400">$/{{ t('admin.channels.form.second') }}</span>
+            </label>
+            <div class="mt-2 w-48">
+              <input
+                data-testid="generic-video-second-price"
+                :value="entry.per_request_price"
+                @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
+                type="number"
+                step="any"
+                min="0"
+                class="input text-sm"
+                :placeholder="t('admin.channels.form.priceRequired')"
+              />
+            </div>
+            <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.channels.form.genericVideoBillingHint') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.channels.form.genericVideoMediaFreeHint') }}
+            </p>
+          </template>
         </div>
 
         <div class="mt-3 border-t border-gray-200 pt-3 dark:border-dark-600" data-testid="reasoning-effort-multipliers">
@@ -341,6 +425,10 @@ const billingModeOptions = computed(() => [
   { value: 'video', label: t('admin.channels.billingMode.video') }
 ])
 
+const miniMaxVideoResolutions = ['768P', '2K'] as const
+const sd20StandardVideoResolutions = ['480p', '720p', '1080p'] as const
+const sd20FastVideoResolutions = ['480p', '720p'] as const
+
 const billingModeLabel = computed(() => {
   const opt = billingModeOptions.value.find(o => o.value === props.entry.billing_mode)
   return opt ? opt.label : props.entry.billing_mode
@@ -362,6 +450,165 @@ function updateReasoningEffortMultiplier(effort: ReasoningEffortLevel, value: st
 
 function emitField(field: keyof PricingFormEntry, value: string) {
   emit('update', { ...props.entry, [field]: value === '' ? null : value })
+}
+
+function isMiniMaxH3Only(models: string[]) {
+  return models.length === 1 && models[0].trim().toLowerCase() === 'minimax-h3'
+}
+
+function isFireflyVideoModel(model: string) {
+  const normalized = model.trim().toLowerCase()
+  return normalized === 'firefly-video-v2' || normalized === 'firefly-video-v2-fast'
+}
+
+function isSD20VideoOnly(models: string[]) {
+  return models.length === 1 && isFireflyVideoModel(models[0])
+}
+
+function includesSD20VideoModel(models: string[]) {
+  return models.some(isFireflyVideoModel)
+}
+
+function sd20VideoResolutions(model: string): readonly string[] {
+  return model.trim().toLowerCase() === 'firefly-video-v2-fast'
+    ? sd20FastVideoResolutions
+    : sd20StandardVideoResolutions
+}
+
+function miniMaxVideoTemplate(models: string[]): PricingFormEntry {
+  return {
+    ...props.entry,
+    models,
+    billing_mode: 'video',
+    input_price: null,
+    output_price: null,
+    cache_write_price: null,
+    cache_read_price: null,
+    image_input_price: null,
+    image_output_price: null,
+    per_request_price: null,
+    intervals: miniMaxVideoResolutions.map((tierLabel, index) => ({
+      min_tokens: 0,
+      max_tokens: null,
+      tier_label: tierLabel,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      input_multiplier: null,
+      output_multiplier: null,
+      cache_write_multiplier: null,
+      cache_read_multiplier: null,
+      per_request_price: null,
+      sort_order: index,
+    })),
+  }
+}
+
+function sd20VideoTemplate(models: string[]): PricingFormEntry {
+  const resolutions = models.length === 1 ? sd20VideoResolutions(models[0]) : []
+  return {
+    ...props.entry,
+    models,
+    billing_mode: 'video',
+    input_price: null,
+    output_price: null,
+    cache_write_price: null,
+    cache_read_price: null,
+    image_input_price: null,
+    image_output_price: null,
+    per_request_price: null,
+    intervals: resolutions.map((tierLabel, index) => ({
+      min_tokens: 0,
+      max_tokens: null,
+      tier_label: tierLabel,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      input_multiplier: null,
+      output_multiplier: null,
+      cache_write_multiplier: null,
+      cache_read_multiplier: null,
+      per_request_price: null,
+      sort_order: index,
+    })),
+  }
+}
+
+function genericVideoTemplate(models: string[], preservePrice = false): PricingFormEntry {
+  return {
+    ...props.entry,
+    models,
+    billing_mode: 'video',
+    input_price: null,
+    output_price: null,
+    cache_write_price: null,
+    cache_read_price: null,
+    image_input_price: null,
+    image_output_price: null,
+    per_request_price: preservePrice ? props.entry.per_request_price : null,
+    intervals: [],
+  }
+}
+
+function onBillingModeUpdate(mode: BillingMode) {
+  if (mode === 'video' && isMiniMaxH3Only(props.entry.models)) {
+    emit('update', {
+      ...miniMaxVideoTemplate(props.entry.models),
+      time_pricing: { ...props.entry.time_pricing, periods: [] },
+    })
+    return
+  }
+  if (mode === 'video' && isSD20VideoOnly(props.entry.models)) {
+    emit('update', {
+      ...sd20VideoTemplate(props.entry.models),
+      time_pricing: { ...props.entry.time_pricing, periods: [] },
+    })
+    return
+  }
+  if (mode === 'video') {
+    emit('update', {
+      ...genericVideoTemplate(props.entry.models),
+      time_pricing: { ...props.entry.time_pricing, periods: [] },
+    })
+    return
+  }
+  emit('update', {
+    ...props.entry,
+    billing_mode: mode,
+    intervals: [],
+    time_pricing: { ...props.entry.time_pricing, periods: [] },
+  })
+}
+
+function videoTierPrice(resolution: string) {
+  return props.entry.intervals.find(iv => iv.tier_label.toUpperCase() === resolution.toUpperCase())?.per_request_price ?? null
+}
+
+function updateVideoTierPrice(resolution: string, value: string) {
+  const intervals = [...props.entry.intervals]
+  const index = intervals.findIndex(iv => iv.tier_label.toUpperCase() === resolution.toUpperCase())
+  if (index < 0) {
+    intervals.push({
+      min_tokens: 0,
+      max_tokens: null,
+      tier_label: resolution,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      input_multiplier: null,
+      output_multiplier: null,
+      cache_write_multiplier: null,
+      cache_read_multiplier: null,
+      per_request_price: value === '' ? null : value,
+      sort_order: intervals.length,
+    })
+  } else {
+    intervals[index] = { ...intervals[index], per_request_price: value === '' ? null : value }
+  }
+  emit('update', { ...props.entry, per_request_price: null, intervals })
 }
 
 function addInterval() {
@@ -409,6 +656,19 @@ function removeInterval(idx: number) {
 
 async function onModelsUpdate(newModels: string[]) {
   const oldModels = props.entry.models
+
+  if (isMiniMaxH3Only(newModels)) {
+    emit('update', miniMaxVideoTemplate(['MiniMax-H3']))
+    return
+  }
+  if (isSD20VideoOnly(newModels)) {
+    emit('update', sd20VideoTemplate(newModels))
+    return
+  }
+  if (props.entry.billing_mode === 'video' || includesSD20VideoModel(newModels)) {
+    emit('update', genericVideoTemplate(newModels, props.entry.billing_mode === 'video' && props.entry.intervals.length === 0))
+    return
+  }
   emit('update', { ...props.entry, models: newModels })
 
   // 只在新增模型且当前无价格时自动填充

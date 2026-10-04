@@ -42,3 +42,26 @@ func optionalInt64Ptr(v int64) *int64 {
 	}
 	return &v
 }
+
+func OpenAIForwardResultHasBillableUsage(result *OpenAIForwardResult) bool {
+	if result == nil {
+		return false
+	}
+	usage := result.Usage
+	return usage.InputTokens > 0 || usage.OutputTokens > 0 ||
+		usage.CacheReadInputTokens > 0 || usage.CacheCreationInputTokens > 0 ||
+		usage.ImageInputTokens > 0 || usage.ImageOutputTokens > 0 ||
+		result.ImageCount > 0 || result.VideoCount > 0 ||
+		result.WebSearchCalls > 0 || result.RequestCount > 0
+}
+
+func ForwardResultHasBillableUsage(result *ForwardResult) bool {
+	if result == nil {
+		return false
+	}
+	usage := result.Usage
+	return usage.InputTokens > 0 || usage.OutputTokens > 0 ||
+		usage.CacheReadInputTokens > 0 || usage.CacheCreationInputTokens > 0 ||
+		usage.CacheCreation5mTokens > 0 || usage.CacheCreation1hTokens > 0 ||
+		usage.ImageOutputTokens > 0 || result.ImageCount > 0
+}

@@ -4,17 +4,19 @@
  */
 
 import { apiClient } from './client'
-import type { MonitorQuotaSnapshot, Provider, MonitorStatus } from './admin/channelMonitor'
+import type { MonitorIntelligenceResult, MonitorQuotaSnapshot, Provider, MonitorStatus } from './admin/channelMonitor'
 
 export type { Provider, MonitorStatus } from './admin/channelMonitor'
 
 export interface UserMonitorExtraModel {
+  intelligence?: MonitorIntelligenceResult | null
   model: string
   status: MonitorStatus
   latency_ms: number | null
 }
 
 export interface MonitorTimelinePoint {
+  intelligence?: MonitorIntelligenceResult | null
   status: MonitorStatus
   latency_ms: number | null
   ping_latency_ms: number | null
@@ -22,6 +24,8 @@ export interface MonitorTimelinePoint {
 }
 
 export interface UserMonitorView {
+  intelligence_enabled?: boolean
+  intelligence?: MonitorIntelligenceResult | null
   id: number
   name: string
   provider: Provider
@@ -45,6 +49,7 @@ export interface UserMonitorListResponse {
 }
 
 export interface UserMonitorModelDetail {
+  intelligence?: MonitorIntelligenceResult | null
   model: string
   latest_status: MonitorStatus
   latest_latency_ms: number | null
@@ -55,6 +60,7 @@ export interface UserMonitorModelDetail {
 }
 
 export interface UserMonitorDetail {
+  intelligence_enabled?: boolean
   id: number
   name: string
   provider: Provider

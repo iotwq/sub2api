@@ -161,12 +161,14 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		retryStatus := normalizeWrappedUpstreamRetryStatus(resp.StatusCode, respBody)
 		upstreamMsg := sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage(respBody))
 		if upstreamMsg == "" {
 			upstreamMsg = fmt.Sprintf("xAI upstream returned status %d", resp.StatusCode)
 		}
 		kind := "http_error"
-		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
+		shouldFailover := s.shouldFailoverGrokUpstreamError(retryStatus, respBody)
+		if shouldFailover {
 			kind = "failover"
 		}
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -181,20 +183,20 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 			Message:            upstreamMsg,
 		})
 		errCtx := withGrokTeamRateLimitModel(ctx, upstreamModel)
-		s.handleGrokAccountUpstreamError(errCtx, account, resp.StatusCode, resp.Header, respBody)
+		s.handleGrokAccountUpstreamError(errCtx, account, retryStatus, resp.Header, respBody)
 		// Quota/rate-limit responses stamp the team+model overlay. Capacity is
 		// request pressure and must not hide sibling accounts.
-		if shouldMarkGrokTeamModelRateLimit(resp.StatusCode, respBody) {
+		if shouldMarkGrokTeamModelRateLimit(retryStatus, respBody) {
 			markGrokTeamModelRateLimit(account, upstreamModel, resolveGrokTeamRateLimitUntil(time.Now().Add(grokTeamRateLimitDefaultTTL), time.Now()))
 		}
-		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
-			retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
+		if shouldFailover {
+			retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, retryStatus, respBody)
 			return nil, &UpstreamFailoverError{
-				StatusCode:               resp.StatusCode,
+				StatusCode:               retryStatus,
 				ResponseBody:             respBody,
 				ResponseHeaders:          resp.Header.Clone(),
 				RetryableOnSameAccount:   retryable,
-				RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
+				RequestScopedTransient:   retryable && retryStatus == http.StatusTooManyRequests,
 				SameAccountRetryDelay:    retryDelay,
 				SameAccountRetryDeadline: retryDeadline,
 				SameAccountRetryMax:      retryMax,
@@ -724,7 +726,7 @@ func normalizeGrokChatReasoningEffort(body []byte, upstreamModel string) ([]byte
 	return out, err
 }
 
-func normalizeGrokReasoningEffortValue(raw, model string) (string, bool) {
+func normalizeGrokReasoningEffortValue(raw, upstreamModel string) (string, bool) {
 	value := strings.NewReplacer("-", "", "_", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(raw)))
 	switch value {
 	case "none", "low", "medium", "high":
@@ -732,7 +734,7 @@ func normalizeGrokReasoningEffortValue(raw, model string) (string, bool) {
 	case "minimal":
 		return "low", true
 	case "xhigh", "extrahigh":
-		if GrokSupportsXHighReasoningEffort(model) {
+		if GrokSupportsXHighReasoningEffort(upstreamModel) {
 			return "xhigh", true
 		}
 		return "high", true

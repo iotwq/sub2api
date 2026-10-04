@@ -89,7 +89,6 @@ func (r *grokAccountTestRateLimitRepo) SetRateLimited(_ context.Context, _ int64
 }
 
 func TestAccountTestService_TestAccountConnection_GrokUsesXAIResponses(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	account := &Account{
 		ID:          13,

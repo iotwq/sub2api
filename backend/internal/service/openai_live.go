@@ -58,19 +58,15 @@ func hashLiveCallID(callID string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func LiveCallUsageRequestID(callID string) string {
+	return hashLiveCallID(callID)
+}
+
 func liveGroupID(groupID *int64) int64 {
 	if groupID == nil {
 		return 0
 	}
 	return *groupID
-}
-
-func liveOptionalID(value int64) *int64 {
-	if value <= 0 {
-		return nil
-	}
-	result := value
-	return &result
 }
 
 func (s *OpenAIGatewayService) liveStore() (LiveCallStore, error) {
@@ -236,6 +232,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			return nil, fmt.Errorf("save live call mapping: %w", saveErr)
 		}
 		created.Account = account
+		created.record = record
 		go s.observeLiveCall(record)
 		return created, nil
 	}
@@ -794,6 +791,16 @@ func (s *OpenAIGatewayService) releaseLiveLease(accountID, userID, apiKeyID int6
 	_ = cache.ReleaseLiveLease(ctx, accountID, userID, apiKeyID, leaseID)
 }
 
+// AbortCreatedLiveCall closes a successfully created Live call when the
+// downstream request cannot complete, for example when synchronous billing
+// fails after the upstream call was created.
+func (s *OpenAIGatewayService) AbortCreatedLiveCall(created *LiveCallCreated) {
+	if created == nil || created.record == nil {
+		return
+	}
+	s.finalizeLiveCall(created.record)
+}
+
 func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 	if record == nil {
 		return
@@ -809,46 +816,4 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 		return
 	}
 	s.releaseLiveLease(record.AccountID, record.UserID, record.APIKeyID, record.LeaseID)
-	if s.usageLogRepo == nil {
-		return
-	}
-	duration := int(time.Since(record.CreatedAt).Milliseconds())
-	if duration < 0 {
-		duration = 0
-	}
-	inboundEndpoint := record.InboundEndpoint
-	upstreamEndpoint := "/backend-api/codex/realtime/calls"
-	userAgent := record.UserAgent
-	ipAddress := record.IPAddress
-	billingType := int8(BillingTypeBalance)
-	if record.SubscriptionID > 0 {
-		billingType = BillingTypeSubscription
-	}
-	// TODO(billing): Live 会话目前不计费：TotalCost/ActualCost 恒为 0，完全绕过
-	// recordUsageCore/applyUsageBilling，余额模式下极低余额也能反复开启最长
-	// liveMaxSessionDuration 的会话。若确认按时长计费，应在此接入计费管道；
-	// 若确认有意免费，删除本注释即可（零值行为由
-	// TestFinalizeLiveCallIsIdempotentAndWritesZeroUsage 锁定）。
-	//
-	// 这是该会话唯一一次落库机会（MarkLiveCallClosed 已标记 first），失败即永久
-	// 丢失，因此走带日志与同步兜底的 writeUsageLogBestEffort（issue #3656）。
-	writeUsageLogBestEffort(context.Background(), s.usageLogRepo, &UsageLog{
-		UserID:           record.UserID,
-		APIKeyID:         record.APIKeyID,
-		AccountID:        record.AccountID,
-		RequestID:        record.CallHash,
-		Model:            record.Model,
-		RequestedModel:   record.Model,
-		GroupID:          liveOptionalID(record.GroupID),
-		SubscriptionID:   liveOptionalID(record.SubscriptionID),
-		RateMultiplier:   1,
-		BillingType:      billingType,
-		RequestType:      RequestTypeLive,
-		DurationMs:       &duration,
-		UserAgent:        &userAgent,
-		IPAddress:        &ipAddress,
-		InboundEndpoint:  &inboundEndpoint,
-		UpstreamEndpoint: &upstreamEndpoint,
-		CreatedAt:        record.CreatedAt,
-	}, "service.openai_live")
 }

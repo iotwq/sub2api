@@ -80,6 +80,9 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "video_count", "integer", 0, false)
 	requireColumn(t, tx, "usage_logs", "video_resolution", "character varying", 10, true)
 	requireColumn(t, tx, "usage_logs", "video_duration_seconds", "integer", 0, true)
+	requireColumn(t, tx, "usage_logs", "video_input_duration_seconds", "double precision", 0, false)
+	requireColumn(t, tx, "usage_logs", "video_output_cost", "numeric", 0, false)
+	requireColumn(t, tx, "usage_logs", "video_input_cost", "numeric", 0, false)
 	requireColumn(t, tx, "usage_logs", "upstream_response_model", "character varying", 200, true)
 	requireColumn(t, tx, "usage_logs", "upstream_model_mismatch", "boolean", 0, true)
 	requireIndex(t, tx, "usage_logs", usageLogsUpstreamModelMismatchIndex)
@@ -124,6 +127,28 @@ WHERE ns.nspname = 'public'
 		"'4K'",
 		"'mixed'",
 	)
+
+	// openai_video_task_bindings: persistent async failure compensation.
+	requireColumn(t, tx, "openai_video_task_bindings", "api_key_id", "bigint", 0, true)
+	requireColumn(t, tx, "openai_video_task_bindings", "compensation_status", "character varying", 16, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "next_check_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "openai_video_task_bindings", "check_attempts", "integer", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "last_check_error", "text", 0, true)
+	requireColumn(t, tx, "openai_video_task_bindings", "checked_at", "timestamp with time zone", 0, true)
+	requireIndex(t, tx, "openai_video_task_bindings", "idx_openai_video_task_bindings_compensation_pending")
+	requireColumn(t, tx, "openai_video_task_bindings", "upstream_task_id", "text", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "billing_task_id", "text", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_status", "character varying", 16, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_baseline", "jsonb", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_signature", "jsonb", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_billing", "jsonb", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_next_check_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_expires_at", "timestamp with time zone", 0, true)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_attempts", "integer", 0, false)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_last_error", "text", 0, true)
+	requireColumn(t, tx, "openai_video_task_bindings", "recovery_checked_at", "timestamp with time zone", 0, true)
+	requireIndex(t, tx, "openai_video_task_bindings", "idx_openai_video_task_bindings_recovery_pending")
+	requireIndex(t, tx, "openai_video_task_bindings", "idx_openai_video_task_bindings_recovery_owned")
 
 	// usage_billing_dedup: billing idempotency narrow table
 	var usageBillingDedupRegclass sql.NullString
@@ -211,6 +236,14 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireIndex(t, tx, "payment_orders", "paymentorder_out_trade_no")
 	requirePartialUniqueIndexDefinition(t, tx, "payment_orders", "paymentorder_out_trade_no", "out_trade_no", "WHERE")
 	requireIndexAbsent(t, tx, "payment_orders", "paymentorder_out_trade_no_unique")
+	requireColumn(t, tx, "payment_orders", "bonus_amount", "numeric", 0, false)
+	requireColumnDefaultContains(t, tx, "payment_orders", "bonus_amount", "0")
+}
+
+func TestMigrationsRunner_TypeSafePlatformConstraints(t *testing.T) {
+	tx := testTx(t)
+	requireConstraintDefinitionContains(t, tx, "user_platform_quotas", "user_platform_quotas_platform_check", "'typesafe'", "'opencode_go'")
+	requireConstraintDefinitionContains(t, tx, "composite_model_routes", "composite_model_routes_target_platform_check", "'typesafe'", "'opencode_go'")
 }
 
 func requireIndex(t *testing.T, tx *sql.Tx, table, index string) {

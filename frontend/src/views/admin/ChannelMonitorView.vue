@@ -339,7 +339,13 @@ async function handleRunNow(row: ChannelMonitor) {
     // Refresh row to get latest status from backend
     void reload()
   } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.runFailed')))
+    const message = extractApiErrorMessage(err, t('admin.channelMonitor.runFailed'))
+    const normalized = message.toLowerCase()
+    const isTimeoutLike = normalized.includes('timeout')
+      || normalized.includes('timed out')
+      || normalized.includes('exceeded')
+      || normalized.includes('ecconnaborted')
+    appStore.showError(isTimeoutLike ? t('admin.channelMonitor.runTimeout') : message)
   } finally {
     runningId.value = null
   }

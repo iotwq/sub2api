@@ -88,17 +88,19 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
-	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody)
+	retryStatus := normalizeWrappedUpstreamRetryStatus(resp.StatusCode, respBody)
+	shouldFailover := shouldFailoverChannelMonitorBadRequest(c, retryStatus) ||
+		s.shouldFailoverOpenAIUpstreamResponse(account, retryStatus, upstreamMsg, respBody)
 	tempUnscheduled := false
 	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
-		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, upstreamModel) == ErrorPolicyTempUnscheduled
+		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, retryStatus, respBody, upstreamModel) == ErrorPolicyTempUnscheduled
 		shouldFailover = tempUnscheduled
 	}
 	if account != nil && account.Platform == PlatformGrok {
-		shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)
+		shouldFailover = s.shouldFailoverGrokUpstreamError(retryStatus, respBody)
 	}
 	if account != nil && account.Platform == PlatformGrok {
-		s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		s.handleGrokAccountUpstreamError(ctx, account, retryStatus, resp.Header, respBody)
 	}
 	if !shouldFailover {
 		return nil
@@ -125,16 +127,16 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	})
 	shouldDisable := tempUnscheduled
 	if account.Platform != PlatformGrok && !tempUnscheduled {
-		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, retryStatus, resp.Header, respBody, upstreamModel)
 	}
 	return s.newOpenAIAccountFailoverError(
 		account,
-		resp.StatusCode,
+		retryStatus,
 		resp.Header,
 		respBody,
 		upstreamMsg,
 		shouldDisable,
-		!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
+		!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(retryStatus) || isOpenAITransientProcessingError(retryStatus, upstreamMsg, respBody)),
 	)
 }
 

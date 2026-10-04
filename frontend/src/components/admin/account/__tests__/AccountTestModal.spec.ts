@@ -62,16 +62,21 @@ function createStreamResponse(lines: string[]) {
   } as Response
 }
 
-function mountModal(account: Record<string, unknown> = {
+const defaultAccount = {
   id: 42,
   name: 'Gemini Image Test',
   platform: 'gemini',
   type: 'apikey',
   status: 'active'
-}) {
+}
+
+function mountModal(showOrAccount: boolean | Record<string, unknown> = false) {
+  const show = typeof showOrAccount === 'boolean' ? showOrAccount : false
+  const account = typeof showOrAccount === 'boolean' ? defaultAccount : showOrAccount
+
   return mount(AccountTestModal, {
     props: {
-      show: false,
+      show,
       account
     } as any,
     global: {
@@ -117,6 +122,66 @@ describe('AccountTestModal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('初始 show=true 时会立即加载可测试模型', async () => {
+    mountModal(true)
+    await flushPromises()
+
+    expect(getAvailableModels).toHaveBeenCalledWith(42)
+  })
+
+  it.each(['oauth', 'apikey'])('%s 模型缺少名称时可显示、搜索并提交模型 ID', async (type) => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-6-astra' },
+      { id: 'gpt-5.4', display_name: '' },
+      { id: 'gpt-5.6-sol', display_name: '   ' },
+      { id: 'gpt-5.5', display_name: null },
+      { id: 'custom-model', display_name: 'Custom Model' },
+      { id: 'gpt-image-2', display_name: 'GPT Image 2' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse([
+      'data: {"type":"test_complete","success":true}\n'
+    ])) as any
+    const wrapper = mount(AccountTestModal, {
+      props: {
+        show: true,
+        account: { ...defaultAccount, platform: 'openai', type }
+      } as any,
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Teleport: true,
+          Icon: true
+        }
+      }
+    })
+
+    try {
+      await flushPromises()
+      expect(wrapper.get('.select-value').text()).toBe('gpt-6-astra')
+
+      await wrapper.get('.select-trigger').trigger('click')
+      expect(wrapper.findAll('[role="option"]').map(option => option.text())).toEqual([
+        'gpt-6-astra', 'gpt-5.4', 'gpt-5.6-sol', 'gpt-5.5', 'Custom Model', 'GPT Image 2'
+      ])
+      await wrapper.get('.select-search-input').setValue('gpt-5.4')
+      expect(wrapper.findAll('[role="option"]')).toHaveLength(1)
+      expect(wrapper.get('[role="option"]').text()).toBe('gpt-5.4')
+      await wrapper.get('[role="option"]').trigger('click')
+      expect(wrapper.get('.select-value').text()).toBe('gpt-5.4')
+
+      const startButton = wrapper.findAll('button').find(button =>
+        button.text().includes('admin.accounts.startTest')
+      )!
+      await startButton.trigger('click')
+      await flushPromises()
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+      const [, request] = (global.fetch as any).mock.calls[0]
+      expect(JSON.parse(request.body)).toMatchObject({ model_id: 'gpt-5.4' })
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {

@@ -265,7 +265,7 @@ func TestRunLiveControllerClosesExpiredSession(t *testing.T) {
 	}
 }
 
-func TestFinalizeLiveCallIsIdempotentAndWritesZeroUsage(t *testing.T) {
+func TestFinalizeLiveCallIsIdempotentAndDoesNotWriteSecondUsage(t *testing.T) {
 	record := &LiveCallRecord{
 		CallID:          "call_secret",
 		CallHash:        hashLiveCallID("call_secret"),
@@ -297,17 +297,40 @@ func TestFinalizeLiveCallIsIdempotentAndWritesZeroUsage(t *testing.T) {
 	require.Equal(t, 1, concurrencyCache.releases)
 	concurrencyCache.mu.Unlock()
 	usageRepo.mu.Lock()
-	require.Len(t, usageRepo.logs, 1)
-	log := usageRepo.logs[0]
+	require.Empty(t, usageRepo.logs)
 	usageRepo.mu.Unlock()
-	require.Equal(t, RequestTypeLive, log.RequestType)
-	require.Equal(t, record.CallHash, log.RequestID)
-	require.NotEqual(t, record.CallID, log.RequestID)
-	require.NotNil(t, log.DurationMs)
-	require.Zero(t, log.InputTokens)
-	require.Zero(t, log.OutputTokens)
-	require.Zero(t, log.TotalCost)
-	require.Zero(t, log.ActualCost)
+}
+
+func TestAbortCreatedLiveCallClosesMappingAndReleasesLeaseOnce(t *testing.T) {
+	record := &LiveCallRecord{
+		CallID:     "call_billing_failed",
+		CallHash:   hashLiveCallID("call_billing_failed"),
+		AccountID:  11,
+		APIKeyID:   22,
+		UserID:     33,
+		LeaseID:    "lease-billing-failed",
+		CreatedAt:  time.Now(),
+		ExpiresAt:  time.Now().Add(time.Hour),
+		Controller: LiveControllerPending,
+	}
+	store := &liveTestStore{}
+	require.NoError(t, store.SaveLiveCall(context.Background(), record, time.Hour))
+	concurrencyCache := &liveTestConcurrencyCache{}
+	service := &OpenAIGatewayService{
+		cache:              store,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+	created := &LiveCallCreated{CallID: record.CallID, record: record}
+
+	service.AbortCreatedLiveCall(created)
+	service.AbortCreatedLiveCall(created)
+
+	controller, err := store.GetLiveController(context.Background(), record.CallHash)
+	require.NoError(t, err)
+	require.Equal(t, LiveControllerClosed, controller)
+	concurrencyCache.mu.Lock()
+	require.Equal(t, 1, concurrencyCache.releases)
+	concurrencyCache.mu.Unlock()
 }
 
 func TestGetLiveCallForIdentityRejectsMismatchedCaller(t *testing.T) {
@@ -469,7 +492,7 @@ func TestWaitForLiveObserverRetryLeavesExpiryToLoopFinalize(t *testing.T) {
 	svc := &OpenAIGatewayService{cache: store}
 
 	require.True(t, svc.waitForLiveObserverRetry(record),
-		"过期判定必须留给循环顶部，否则不会写 usage log")
+		"过期判定必须留给循环顶部，否则不会释放 Live 租约")
 
 	// 控制权已被他人接管时仍必须停止重试，避免与新控制者抢同一个 call。
 	require.NoError(t, store.SaveLiveCall(context.Background(), &LiveCallRecord{
@@ -496,15 +519,15 @@ func TestWaitForLiveObserverRetryTreatsStoreErrorAsRetryable(t *testing.T) {
 	svc := &OpenAIGatewayService{cache: store}
 
 	require.True(t, svc.waitForLiveObserverRetry(record),
-		"store 报错必须继续重试，否则 Redis 抖动会让会话静默结束、不留记录")
+		"store 报错必须继续重试，否则 Redis 抖动会让会话静默结束且租约不释放")
 
 	// 记录已被清理（ErrLiveCallNotFound）不是故障，应停止重试。
 	require.False(t, (&OpenAIGatewayService{cache: &liveTestStore{}}).waitForLiveObserverRetry(record))
 }
 
 // TestObserveLiveCallStoreOutageFallsBackToExpiryFinalize 锁定：observer 遇到持续
-// store 报错时不能静默退出，必须按 record.ExpiresAt 兜底 finalize（写 usage log +
-// 释放租约）。
+// store 报错时不能静默退出，必须按 record.ExpiresAt 兜底 finalize 释放租约；
+// Live 已在创建成功时同步计费，结束阶段不得重复写第二条用量记录。
 func TestObserveLiveCallStoreOutageFallsBackToExpiryFinalize(t *testing.T) {
 	restore := liveObserverStoreRetryInterval
 	liveObserverStoreRetryInterval = time.Millisecond
@@ -548,56 +571,8 @@ func TestObserveLiveCallStoreOutageFallsBackToExpiryFinalize(t *testing.T) {
 			require.Equal(t, 1, concurrencyCache.releases, "store 故障时租约释放不能丢")
 			concurrencyCache.mu.Unlock()
 			usageRepo.mu.Lock()
-			require.Len(t, usageRepo.logs, 1, "store 故障时 usage log 不能丢")
-			require.Equal(t, RequestTypeLive, usageRepo.logs[0].RequestType)
+			require.Empty(t, usageRepo.logs, "Live 结束阶段不能重复写第二条用量记录")
 			usageRepo.mu.Unlock()
 		})
 	}
-}
-
-type liveTestBestEffortUsageRepo struct {
-	liveTestUsageRepo
-	bestEffortErr   error
-	bestEffortCalls int
-}
-
-func (r *liveTestBestEffortUsageRepo) CreateBestEffort(_ context.Context, _ *UsageLog) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.bestEffortCalls++
-	return r.bestEffortErr
-}
-
-// TestFinalizeLiveCallUsageLogFallsBackToSyncCreate 锁定：finalize 是该会话唯一一次
-// 落库机会（MarkLiveCallClosed 已标记 first），best-effort 写入失败必须走同步 Create
-// 兜底，而不是丢弃错误。
-func TestFinalizeLiveCallUsageLogFallsBackToSyncCreate(t *testing.T) {
-	record := &LiveCallRecord{
-		CallID:     "call_usage_fallback",
-		CallHash:   hashLiveCallID("call_usage_fallback"),
-		AccountID:  11,
-		APIKeyID:   22,
-		UserID:     33,
-		LeaseID:    "lease-1",
-		Model:      "gpt-live-test",
-		CreatedAt:  time.Now().Add(-time.Second),
-		ExpiresAt:  time.Now().Add(time.Hour),
-		Controller: LiveControllerPending,
-	}
-	store := &liveTestStore{}
-	require.NoError(t, store.SaveLiveCall(context.Background(), record, time.Hour))
-	usageRepo := &liveTestBestEffortUsageRepo{bestEffortErr: errors.New("usage log queue dropped")}
-	svc := &OpenAIGatewayService{
-		cache:              store,
-		concurrencyService: NewConcurrencyService(&liveTestConcurrencyCache{}),
-		usageLogRepo:       usageRepo,
-	}
-
-	svc.finalizeLiveCall(record)
-
-	usageRepo.mu.Lock()
-	defer usageRepo.mu.Unlock()
-	require.Equal(t, 1, usageRepo.bestEffortCalls)
-	require.Len(t, usageRepo.logs, 1, "best-effort 失败后必须同步兜底落库")
-	require.Equal(t, record.CallHash, usageRepo.logs[0].RequestID)
 }

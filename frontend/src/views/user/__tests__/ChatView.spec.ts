@@ -30,6 +30,7 @@ type MockSession = {
   title: string
   model: string
   deepThinkingEnabled?: boolean
+  webSearchEnabled?: boolean
   apiKey?: string
   baseUrl?: string
   apiKeyHint: string
@@ -47,6 +48,7 @@ const draftConfigState = ref<{
   model?: string
   sessionTitle?: string
   deepThinkingEnabled?: boolean
+  webSearchEnabled?: boolean
 } | null>(null)
 
 let idCounter = 0
@@ -87,9 +89,13 @@ const translations: Record<string, string> = {
   'chat.model': '模型',
   'chat.modelPlaceholder': '选择模型',
   'chat.deepThinking': '深度思考',
-  'chat.deepThinkingHint': '默认使用 medium，开启后切换为 xhigh。',
+  'chat.deepThinkingHint': '默认使用 medium，开启后切换为 max。',
   'chat.deepThinkingStateOn': 'ON',
   'chat.deepThinkingStateOff': 'OFF',
+  'chat.webSearch': '联网搜索',
+  'chat.webSearchHint': '开启后使用 Responses API 并注入 web_search 工具。',
+  'chat.webSearchStateOn': 'ON',
+  'chat.webSearchStateOff': 'OFF',
   'chat.localOnlyTitle': '仅保存在本地',
   'chat.localOnlyDescription': '聊天记录只保存在浏览器。',
   'chat.newChat': '新建对话',
@@ -105,6 +111,7 @@ const translations: Record<string, string> = {
   'chat.you': '你',
   'chat.assistant': '助手',
   'chat.streaming': '助手正在回复...',
+  'chat.scrollToLatest': '回到最新消息',
   'chat.inputPlaceholder': '发送消息。Enter 发送，Shift+Enter 换行。',
   'chat.dropzoneTitle': '松开即可添加附件',
   'chat.dropzoneDescription': '支持拖拽图片、PDF、DOCX 和文本文件到这里。',
@@ -133,6 +140,7 @@ const translations: Record<string, string> = {
   'chat.errors.loadModelsFailed': '加载模型失败。',
   'chat.errors.sendFailed': '发送消息失败。',
   'chat.errors.emptyAssistantReply': '没有收到有效回复。',
+  'chat.errors.networkFailed': '连接已中断，未收到完整回复。请检查网络、反向代理超时或稍后重试。',
   'chat.errors.unsupportedFileType': '当前只支持图片和文本类文件。',
   'chat.errors.imageTooLarge': '单张图片不能超过 10 MB。',
   'chat.errors.fileTooLarge': '单个文本文件不能超过 10 MB。',
@@ -171,13 +179,14 @@ function nowIso() {
 }
 
 function createSessionRecord(
-  input?: Partial<Pick<MockSession, 'title' | 'model' | 'deepThinkingEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint' | 'messages'>>
+  input?: Partial<Pick<MockSession, 'title' | 'model' | 'deepThinkingEnabled' | 'webSearchEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint' | 'messages'>>
 ): MockSession {
   return {
     id: nextId('chat'),
     title: input?.title?.trim() || '新对话',
     model: input?.model?.trim() || '',
     deepThinkingEnabled: input?.deepThinkingEnabled ?? false,
+    webSearchEnabled: input?.webSearchEnabled ?? false,
     apiKey: input?.apiKey?.trim() || '',
     baseUrl: input?.baseUrl?.trim() || '',
     apiKeyHint: input?.apiKeyHint?.trim() || '',
@@ -191,7 +200,7 @@ function createSessionRecord(
 }
 
 function seedActiveSession(
-  input?: Partial<Pick<MockSession, 'title' | 'model' | 'deepThinkingEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint' | 'messages'>>
+  input?: Partial<Pick<MockSession, 'title' | 'model' | 'deepThinkingEnabled' | 'webSearchEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint' | 'messages'>>
 ) {
   const session = createSessionRecord(input)
   sessionsState.value = [session, ...sessionsState.value]
@@ -239,7 +248,7 @@ vi.mock('@/composables/useLocalChat', () => ({
       () => sessionsState.value.find((session) => session.id === activeSessionIdState.value) ?? null
     ),
     createSession: (
-      input?: Partial<Pick<MockSession, 'title' | 'model' | 'deepThinkingEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint'>>
+      input?: Partial<Pick<MockSession, 'title' | 'model' | 'deepThinkingEnabled' | 'webSearchEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint'>>
     ) => {
       return seedActiveSession(input)
     },
@@ -289,6 +298,12 @@ vi.mock('@/composables/useLocalChat', () => ({
       message.content = content
       session.updatedAt = nowIso()
     },
+    deleteMessage: (sessionId: string, messageId: string) => {
+      const session = sessionsState.value.find((item) => item.id === sessionId)
+      if (!session) return
+      session.messages = session.messages.filter((message) => message.id !== messageId)
+      session.updatedAt = nowIso()
+    },
     clearAllSessions: () => {
       sessionsState.value = []
       activeSessionIdState.value = null
@@ -311,6 +326,9 @@ vi.mock('mammoth', () => ({
 }))
 
 vi.mock('pdfjs-dist/build/pdf.mjs', () => ({
+  GlobalWorkerOptions: {
+    workerSrc: '',
+  },
   getDocument: vi.fn(),
 }))
 
@@ -334,11 +352,13 @@ vi.mock('@/components/common/Select.vue', () => ({
     props: {
       modelValue: { type: [String, Number, Boolean, null], required: false, default: null },
       options: { type: Array, required: false, default: () => [] },
+      disabled: { type: Boolean, required: false, default: false },
     },
     emits: ['update:modelValue'],
     template: `
       <select
         :value="modelValue ?? ''"
+        :disabled="disabled"
         @change="$emit('update:modelValue', $event.target.value)"
       >
         <option
@@ -373,6 +393,7 @@ function createStreamResponse(lines: string[]) {
 
   return {
     ok: true,
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
     body: {
       getReader: () => ({
         read: vi.fn().mockImplementation(async () => {
@@ -534,6 +555,33 @@ describe('ChatView 附件体验', () => {
     expect(text).not.toContain('当前模型：')
   })
 
+  it('只提供 GPT-5.6 Sol 和 Terra，并默认选择 Terra', async () => {
+    const wrapper = await mountChatView()
+    const select = wrapper.find('select')
+    const optionValues = Array.from((select.element as HTMLSelectElement).options).map((option) => option.value)
+
+    expect(optionValues).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra'])
+    expect((select.element as HTMLSelectElement).value).toBe('gpt-5.6-terra')
+    expect(wrapper.text()).not.toContain('GPT-5.4 Mini')
+  })
+
+  it('中文输入法仍在组字时按 Enter 不会误发送', async () => {
+    global.fetch = vi.fn() as any
+    seedActiveSession()
+    const wrapper = await mountChatView()
+    const apiKeyInput = wrapper.find('input[type="password"]')
+    const composer = wrapper.find('textarea')
+
+    await apiKeyInput.setValue('sk-test-12345678')
+    await composer.setValue('还在输入')
+    await composer.trigger('keydown', { key: 'Enter', isComposing: true })
+    await flushPromises()
+
+    expect(global.fetch).not.toHaveBeenCalled()
+    expect(sessionsState.value[0]?.messages).toHaveLength(0)
+    expect((composer.element as HTMLTextAreaElement).value).toBe('还在输入')
+  })
+
   it('会渲染代码块复制按钮，并允许一键复制回复', async () => {
     seedActiveSession()
     const wrapper = await mountChatView()
@@ -562,7 +610,7 @@ describe('ChatView 附件体验', () => {
     expect(appStoreMock.showSuccess).toHaveBeenCalledWith('代码已复制到剪贴板')
   })
 
-  it('默认发送 medium，开启深度思考后发送 xhigh', async () => {
+  it('默认发送 medium，开启深度思考后发送 max', async () => {
     const requestBodies: Array<Record<string, any>> = []
     global.fetch = vi.fn().mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
       requestBodies.push(JSON.parse(String(init?.body ?? '{}')))
@@ -589,7 +637,79 @@ describe('ChatView 附件体验', () => {
     await wrapper.find('form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(requestBodies[1]?.reasoning?.effort).toBe('xhigh')
+    expect(requestBodies[1]?.reasoning?.effort).toBe('max')
+  })
+
+  it('开启联网搜索后走 Responses API 并注入 web_search 工具', async () => {
+    const requests: Array<{ url: string; body: Record<string, any> }> = []
+    global.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body ?? '{}')),
+      })
+      return createStreamResponse([
+        'data: {"type":"response.output_text.delta","delta":"已搜索"}\n\n',
+        'data: {"type":"response.completed"}\n\n',
+      ])
+    }) as any
+
+    seedActiveSession()
+    const wrapper = await mountChatView()
+    const apiKeyInput = wrapper.find('input[type="password"]')
+    const composer = wrapper.find('textarea')
+
+    await apiKeyInput.setValue('sk-test-12345678')
+    await wrapper.get('[data-testid="chat-web-search-toggle"]').trigger('click')
+    await composer.setValue('今天有什么新闻')
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    const responsesRequest = requests.find((request) => request.url.endsWith('/responses'))
+    expect(responsesRequest?.url).toBe('http://localhost:8080/v1/responses')
+    expect(responsesRequest?.body.tools).toEqual([{ type: 'web_search' }])
+    expect(responsesRequest?.body.input?.[0]?.role).toBe('user')
+    expect(responsesRequest?.body.stream).toBe(true)
+    expect(sessionsState.value[0]?.messages.at(-1)?.content).toBe('已搜索')
+  })
+
+  it('能处理连接结束前没有空行终止的最后一个 SSE 事件', async () => {
+    global.fetch = vi.fn().mockImplementation(async () =>
+      createStreamResponse([
+        'data: {"choices":[{"delta":{"content":"最后一段"}}]}',
+      ])
+    ) as any
+
+    seedActiveSession()
+    const wrapper = await mountChatView()
+    const apiKeyInput = wrapper.find('input[type="password"]')
+    const composer = wrapper.find('textarea')
+
+    await apiKeyInput.setValue('sk-test-12345678')
+    await composer.setValue('test partial event')
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(sessionsState.value[0]?.messages.at(-1)?.content).toBe('最后一段')
+    expect(wrapper.text()).not.toContain('没有收到有效回复')
+  })
+
+  it('网络层 fetch 失败时显示连接中断提示，而不是空回复提示', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) as any
+
+    seedActiveSession()
+    const wrapper = await mountChatView()
+    const apiKeyInput = wrapper.find('input[type="password"]')
+    const composer = wrapper.find('textarea')
+
+    await apiKeyInput.setValue('sk-test-12345678')
+    await composer.setValue('hello')
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    const assistantMessage = sessionsState.value[0]?.messages.at(-1)
+    expect(assistantMessage?.content).toContain('连接已中断')
+    expect(assistantMessage?.content).not.toBe('没有收到有效回复。')
+    expect(wrapper.text()).toContain('连接已中断')
   })
 
   it('附件批量处理时会保留成功项，并为 PDF 提取失败给出明确提示', async () => {
@@ -626,7 +746,7 @@ describe('ChatView 附件体验', () => {
 
     const existingSession = createSessionRecord({
       title: '保留的对话',
-      model: 'gpt-5.4',
+      model: 'gpt-5.5',
     })
     sessionsState.value = [existingSession]
 
@@ -635,6 +755,8 @@ describe('ChatView 附件体验', () => {
     expect(sessionsState.value).toHaveLength(1)
     expect(activeSessionIdState.value).toBe(existingSession.id)
     expect(wrapper.text()).toContain('保留的对话')
+    expect(sessionsState.value[0]?.model).toBe('gpt-5.6-sol')
+    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('gpt-5.6-sol')
   })
 
   it('存在草稿配置时只预填设置，不会自动新建对话', async () => {
@@ -644,6 +766,7 @@ describe('ChatView 附件体验', () => {
       model: 'gpt-5.4-mini',
       sessionTitle: '来自草稿',
       deepThinkingEnabled: true,
+      webSearchEnabled: true,
     }
 
     const wrapper = await mountChatView()
@@ -651,6 +774,8 @@ describe('ChatView 附件体验', () => {
     expect(sessionsState.value).toHaveLength(0)
     expect(activeSessionIdState.value).toBeNull()
     expect((wrapper.find('input[type="password"]').element as HTMLInputElement).value).toBe('sk-draft-12345678')
+    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('gpt-5.6-terra')
+    expect(wrapper.get('[data-testid="chat-web-search-toggle"]').attributes('aria-checked')).toBe('true')
     expect(wrapper.text()).toContain('开始本地聊天')
   })
 
@@ -690,11 +815,54 @@ describe('ChatView 附件体验', () => {
     const primaryButton = wrapper.find('button[type="submit"]')
     expect(primaryButton.text()).toContain('停止')
     expect(composer.attributes('disabled')).toBeUndefined()
+    expect(apiKeyInput.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('input[type="text"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('select').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="chat-deep-thinking-toggle"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="chat-web-search-toggle"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('button').find((button) => button.text().includes('新建对话'))?.attributes('disabled')).toBeDefined()
 
     await wrapper.find('form').trigger('submit.prevent')
     await flushPromises()
 
     expect(wrapper.find('button[type="submit"]').text()).toContain('发送')
+    expect(sessionsState.value[0]?.messages.map((message) => message.role)).toEqual(['user'])
+  })
+
+  it('用户向上阅读时不强制滚动，并提供回到最新消息按钮', async () => {
+    seedActiveSession({
+      messages: [{
+        id: nextId('assistant'),
+        role: 'assistant',
+        content: '已有回复',
+        createdAt: nowIso(),
+      }],
+    })
+    const wrapper = await mountChatView()
+    const messages = wrapper.get('[data-testid="chat-messages"]')
+    const element = messages.element as HTMLElement
+
+    Object.defineProperties(element, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 300 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    })
+    await messages.trigger('scroll')
+
+    expect(wrapper.get('[data-testid="chat-scroll-to-latest"]').text()).toContain('回到最新消息')
+
+    sessionsState.value[0]?.messages.push({
+      id: nextId('assistant'),
+      role: 'assistant',
+      content: '新增回复',
+      createdAt: nowIso(),
+    })
+    await flushPromises()
+    expect(element.scrollTop).toBe(0)
+
+    await wrapper.get('[data-testid="chat-scroll-to-latest"]').trigger('click')
+    await flushPromises()
+    expect(element.scrollTop).toBe(1000)
   })
 
   it('显式点击新建对话时才会创建会话', async () => {

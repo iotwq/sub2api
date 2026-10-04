@@ -14,7 +14,7 @@
         class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow transition-opacity hover:opacity-80"
         @click="handleMenuItemClick(homePath)"
       >
-        <img v-if="settingsLoaded" :src="siteLogo || '/dragon-logo.svg'" alt="Logo" class="h-full w-full object-contain" />
+        <img v-if="settingsLoaded" :src="siteLogo || '/dragon-logo.png'" alt="Logo" class="h-full w-full object-contain" />
       </router-link>
       <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
         <router-link
@@ -81,7 +81,11 @@
               v-else
               :to="item.path"
               class="sidebar-link mb-1"
-              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+              :class="{
+                'sidebar-link-active': isActive(item.path),
+                'sidebar-link-collapsed': sidebarCollapsed,
+                'sidebar-link-with-unread': shouldShowCommunityChatUnread(item.path)
+              }"
               :title="sidebarCollapsed ? item.label : undefined"
               :id="
                 item.path === '/admin/accounts'
@@ -94,9 +98,23 @@
               "
               @click="handleMenuItemClick(item.path)"
             >
-              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+              <span class="sidebar-menu-icon">
+                <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+                <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+                <span
+                  v-if="shouldShowCommunityChatUnread(item.path) && sidebarCollapsed"
+                  class="sidebar-unread-dot sidebar-unread-dot-collapsed"
+                  aria-hidden="true"
+                ></span>
+              </span>
+              <span
+                class="sidebar-label sidebar-label-with-badge"
+                :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+                :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+              >
+                <span class="sidebar-label-text">{{ item.label }}</span>
+                <span v-if="shouldShowCommunityChatUnread(item.path) && !sidebarCollapsed" class="sidebar-unread-dot" aria-hidden="true"></span>
+              </span>
             </router-link>
           </template>
         </div>
@@ -114,14 +132,32 @@
             :key="item.path"
             :to="item.path"
             class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+            :class="{
+              'sidebar-link-active': isActive(item.path),
+              'sidebar-link-collapsed': sidebarCollapsed,
+              'sidebar-link-with-unread': shouldShowCommunityChatUnread(item.path)
+            }"
             :title="sidebarCollapsed ? item.label : undefined"
             :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
             @click="handleMenuItemClick(item.path)"
           >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span class="sidebar-menu-icon">
+              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+              <span
+                v-if="shouldShowCommunityChatUnread(item.path) && sidebarCollapsed"
+                class="sidebar-unread-dot sidebar-unread-dot-collapsed"
+                aria-hidden="true"
+              ></span>
+            </span>
+            <span
+              class="sidebar-label sidebar-label-with-badge"
+              :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+            >
+              <span class="sidebar-label-text">{{ item.label }}</span>
+              <span v-if="shouldShowCommunityChatUnread(item.path) && !sidebarCollapsed" class="sidebar-unread-dot" aria-hidden="true"></span>
+            </span>
           </router-link>
         </div>
       </template>
@@ -134,14 +170,32 @@
             :key="item.path"
             :to="item.path"
             class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+            :class="{
+              'sidebar-link-active': isActive(item.path),
+              'sidebar-link-collapsed': sidebarCollapsed,
+              'sidebar-link-with-unread': shouldShowCommunityChatUnread(item.path)
+            }"
             :title="sidebarCollapsed ? item.label : undefined"
             :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
             @click="handleMenuItemClick(item.path)"
           >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span class="sidebar-menu-icon">
+              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+              <span
+                v-if="shouldShowCommunityChatUnread(item.path) && sidebarCollapsed"
+                class="sidebar-unread-dot sidebar-unread-dot-collapsed"
+                aria-hidden="true"
+              ></span>
+            </span>
+            <span
+              class="sidebar-label sidebar-label-with-badge"
+              :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+            >
+              <span class="sidebar-label-text">{{ item.label }}</span>
+              <span v-if="shouldShowCommunityChatUnread(item.path) && !sidebarCollapsed" class="sidebar-unread-dot" aria-hidden="true"></span>
+            </span>
           </router-link>
         </div>
       </template>
@@ -199,6 +253,8 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { useCommunityChatRealtime } from '@/composables/useCommunityChatRealtime'
+import { communityChatAPI, type CommunityChatEvent } from '@/api'
 
 interface NavItem {
   path: string
@@ -251,6 +307,16 @@ const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
+const communityChatGroupUnread = ref(false)
+const communityChatDirectUnread = ref(false)
+const latestCommunityChatMessageId = ref(0)
+
+const communityChatRealtime = useCommunityChatRealtime({
+  onEvent: handleCommunityChatBadgeEvent,
+  onConnected: () => {
+    void refreshCommunityChatUnread()
+  },
+})
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
 
@@ -686,6 +752,36 @@ const ChatBubbleIcon = {
     )
 }
 
+const DocumentIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9zM8.25 13.5h7.5M8.25 16.5h7.5M8.25 10.5h2.25'
+        })
+      ]
+    )
+}
+
+const ImageIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 19.5h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25z'
+        })
+      ]
+    )
+}
+
 const ChevronDownIcon = {
   render: () =>
     h(
@@ -739,8 +835,11 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/api-docs', label: t('nav.apiDocs'), icon: DocumentIcon },
     { path: '/chat', label: t('nav.chat'), icon: ChatBubbleIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
+    { path: '/community-chat', label: t('nav.communityChat'), icon: UsersIcon },
+    { path: '/image', label: t('nav.imageGeneration'), icon: ImageIcon },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
@@ -909,6 +1008,79 @@ function handleMenuItemClick(itemPath: string) {
   }
 }
 
+function shouldShowCommunityChatUnread(path: string): boolean {
+  return path === '/community-chat'
+    && (communityChatGroupUnread.value || communityChatDirectUnread.value)
+}
+
+async function refreshCommunityChatUnread(): Promise<void> {
+  const userId = authStore.user?.id ?? 0
+  if (userId <= 0) return
+
+  communityChatGroupUnread.value = false
+  communityChatDirectUnread.value = false
+
+  try {
+    const result = await communityChatAPI.listMessages(1, 1)
+    applyCommunityChatNotification(result.items[result.items.length - 1])
+  } catch (error) {
+    console.error('Failed to restore community chat notification:', error)
+  }
+
+  try {
+    const summary = await communityChatAPI.getDirectUnread()
+    communityChatDirectUnread.value = summary.total > 0
+  } catch (error) {
+    console.error('Failed to restore community direct chat notification:', error)
+  }
+}
+
+function handleCommunityChatBadgeEvent(event: CommunityChatEvent): void {
+  if (event.type === 'message_created') {
+    applyCommunityChatNotification(event.message)
+  } else if (event.type === 'direct_message_created' || event.type === 'direct_message_deleted') {
+    void refreshCommunityDirectUnread()
+  }
+}
+
+function applyCommunityChatNotification(message?: { id: number; user_id: number }): void {
+  if (!message) return
+  latestCommunityChatMessageId.value = Math.max(latestCommunityChatMessageId.value, message.id)
+  applyCommunityChatUnreadState('group', message)
+}
+
+async function refreshCommunityDirectUnread(): Promise<void> {
+  try {
+    const summary = await communityChatAPI.getDirectUnread()
+    communityChatDirectUnread.value = summary.total > 0
+  } catch (error) {
+    console.error('Failed to refresh community direct chat notification:', error)
+  }
+}
+
+function applyCommunityChatUnreadState(scope: 'group' | 'direct', message: { id: number; user_id: number }): void {
+  const userId = authStore.user?.id ?? 0
+  if (userId <= 0) return
+  const lastSeenId = communityChatAPI.getCommunityChatLastSeenMessageId(userId, scope)
+  if (message.user_id !== userId && message.id > lastSeenId) {
+    if (scope === 'group') {
+      communityChatGroupUnread.value = true
+    } else {
+      communityChatDirectUnread.value = true
+    }
+  }
+}
+
+function handleCommunityChatSeen(event: Event): void {
+  const detail = (event as CustomEvent<{ userId: number; scope: 'group' | 'direct' }>).detail
+  if (!detail || detail.userId !== authStore.user?.id) return
+  if (detail.scope === 'group') {
+    communityChatGroupUnread.value = false
+  } else {
+    void refreshCommunityDirectUnread()
+  }
+}
+
 function isActive(path: string): boolean {
   return route.path === path || route.path.startsWith(path + '/')
 }
@@ -970,6 +1142,7 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener('community-chat:seen', handleCommunityChatSeen)
   void refreshBatchImageAccess()
   if (isAdmin.value) {
     adminSettingsStore.fetch()
@@ -985,9 +1158,30 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('community-chat:seen', handleCommunityChatSeen)
   if (sidebarNavRef.value) {
     appStore.sidebarScrollTop = sidebarNavRef.value.scrollTop
   }
+})
+
+watch(
+  () => authStore.isAuthenticated,
+  (authenticated) => {
+    if (authenticated) {
+      void refreshCommunityChatUnread()
+      communityChatRealtime.start()
+    } else {
+      communityChatRealtime.stop()
+      communityChatGroupUnread.value = false
+      communityChatDirectUnread.value = false
+      latestCommunityChatMessageId.value = 0
+    }
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  communityChatRealtime.stop()
 })
 </script>
 
@@ -1033,6 +1227,37 @@ onBeforeUnmount(() => {
   gap: 0;
   padding-left: 0.875rem;
   padding-right: 0.875rem;
+}
+
+.sidebar-link-with-unread {
+  overflow: visible;
+}
+
+.sidebar-menu-icon {
+  position: relative;
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 1.25rem;
+}
+
+.sidebar-unread-dot {
+  display: block;
+  width: 0.625rem;
+  height: 0.625rem;
+  flex: 0 0 0.625rem;
+  border-radius: 9999px;
+  background: #dc2626;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.98),
+    0 0 8px rgba(220, 38, 38, 0.45);
+  animation: sidebar-unread-blink 1.2s ease-in-out infinite;
+}
+
+.sidebar-unread-dot-collapsed {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.35rem;
 }
 
 .sidebar-section-title {
@@ -1099,6 +1324,38 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.sidebar-label-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: visible;
+}
+
+@keyframes sidebar-unread-blink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-unread-dot {
+    animation: none;
+  }
+}
+
+.sidebar-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-label-collapsed {

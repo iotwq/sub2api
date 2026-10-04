@@ -48,6 +48,7 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetPrimaryModel(m.PrimaryModel).
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
+		SetIntelligenceEnabled(m.IntelligenceEnabled).
 		SetEnabled(m.Enabled).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
@@ -120,6 +121,7 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		SetPrimaryModel(m.PrimaryModel).
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
+		SetIntelligenceEnabled(m.IntelligenceEnabled).
 		SetEnabled(m.Enabled).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
@@ -252,6 +254,9 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 		if row.Quota != nil {
 			c = c.SetQuota(row.Quota)
 		}
+		if row.Intelligence != nil {
+			c.SetIntelligence(row.Intelligence)
+		}
 		bulk = append(bulk, c)
 	}
 	if _, err := client.ChannelMonitorHistory.CreateBulk(bulk...).Save(ctx); err != nil {
@@ -292,6 +297,7 @@ func (r *channelMonitorRepository) ListHistory(ctx context.Context, monitorID in
 			Message:       row.Message,
 			CheckedAt:     row.CheckedAt,
 			Quota:         row.Quota,
+			Intelligence:  row.Intelligence,
 		}
 		out = append(out, entry)
 	}
@@ -305,7 +311,7 @@ func (r *channelMonitorRepository) ListHistory(ctx context.Context, monitorID in
 func (r *channelMonitorRepository) ListLatestPerModel(ctx context.Context, monitorID int64) ([]*service.ChannelMonitorLatest, error) {
 	const q = `
 		SELECT DISTINCT ON (model)
-		    model, status, latency_ms, ping_latency_ms, checked_at
+		    model, status, latency_ms, ping_latency_ms, checked_at, intelligence
 		FROM channel_monitor_histories
 		WHERE monitor_id = $1
 		ORDER BY model, checked_at DESC
@@ -320,11 +326,13 @@ func (r *channelMonitorRepository) ListLatestPerModel(ctx context.Context, monit
 	for rows.Next() {
 		l := &service.ChannelMonitorLatest{}
 		var latency, ping sql.NullInt64
-		if err := rows.Scan(&l.Model, &l.Status, &latency, &ping, &l.CheckedAt); err != nil {
+		var intelligence []byte
+		if err := rows.Scan(&l.Model, &l.Status, &latency, &ping, &l.CheckedAt, &intelligence); err != nil {
 			return nil, fmt.Errorf("scan latest row: %w", err)
 		}
 		assignNullInt(&l.LatencyMs, latency)
 		assignNullInt(&l.PingLatencyMs, ping)
+		l.Intelligence = scanMonitorIntelligence(intelligence)
 		out = append(out, l)
 	}
 	return out, rows.Err()
@@ -352,6 +360,17 @@ func scanMonitorQuota(data []byte) *domain.MonitorQuotaSnapshot {
 		return nil
 	}
 	return snapshot
+}
+
+func scanMonitorIntelligence(data []byte) *domain.MonitorIntelligenceResult {
+	if len(data) == 0 {
+		return nil
+	}
+	var result domain.MonitorIntelligenceResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil
+	}
+	return &result
 }
 
 // ComputeAvailability 计算指定窗口内每个模型的可用率与平均延迟。
@@ -426,7 +445,7 @@ func (r *channelMonitorRepository) ListLatestForMonitorIDs(ctx context.Context, 
 	}
 	const q = `
 		SELECT DISTINCT ON (monitor_id, model)
-		    monitor_id, model, status, latency_ms, ping_latency_ms, checked_at, quota
+		    monitor_id, model, status, latency_ms, ping_latency_ms, checked_at, quota, intelligence
 		FROM channel_monitor_histories
 		WHERE monitor_id = ANY($1)
 		ORDER BY monitor_id, model, checked_at DESC
@@ -442,12 +461,14 @@ func (r *channelMonitorRepository) ListLatestForMonitorIDs(ctx context.Context, 
 		l := &service.ChannelMonitorLatest{}
 		var latency, ping sql.NullInt64
 		var quota []byte
-		if err := rows.Scan(&monitorID, &l.Model, &l.Status, &latency, &ping, &l.CheckedAt, &quota); err != nil {
+		var intelligence []byte
+		if err := rows.Scan(&monitorID, &l.Model, &l.Status, &latency, &ping, &l.CheckedAt, &quota, &intelligence); err != nil {
 			return nil, fmt.Errorf("scan latest batch row: %w", err)
 		}
 		assignNullInt(&l.LatencyMs, latency)
 		assignNullInt(&l.PingLatencyMs, ping)
 		l.Quota = scanMonitorQuota(quota)
+		l.Intelligence = scanMonitorIntelligence(intelligence)
 		out[monitorID] = append(out[monitorID], l)
 	}
 	if err := rows.Err(); err != nil {
@@ -487,12 +508,13 @@ func (r *channelMonitorRepository) ListRecentHistoryForMonitors(
 		           h.latency_ms,
 		           h.ping_latency_ms,
 		           h.checked_at,
+		           h.intelligence,
 		           ROW_NUMBER() OVER (PARTITION BY h.monitor_id ORDER BY h.checked_at DESC) AS rn
 		    FROM channel_monitor_histories h
 		    JOIN targets t
 		      ON t.monitor_id = h.monitor_id AND t.model = h.model
 		)
-		SELECT monitor_id, status, latency_ms, ping_latency_ms, checked_at
+		SELECT monitor_id, status, latency_ms, ping_latency_ms, checked_at, intelligence
 		FROM ranked
 		WHERE rn <= $3
 		ORDER BY monitor_id, checked_at DESC
@@ -507,11 +529,13 @@ func (r *channelMonitorRepository) ListRecentHistoryForMonitors(
 		var monitorID int64
 		entry := &service.ChannelMonitorHistoryEntry{}
 		var latency, ping sql.NullInt64
-		if err := rows.Scan(&monitorID, &entry.Status, &latency, &ping, &entry.CheckedAt); err != nil {
+		var intelligence []byte
+		if err := rows.Scan(&monitorID, &entry.Status, &latency, &ping, &entry.CheckedAt, &intelligence); err != nil {
 			return nil, fmt.Errorf("scan recent history row: %w", err)
 		}
 		assignNullInt(&entry.LatencyMs, latency)
 		assignNullInt(&entry.PingLatencyMs, ping)
+		entry.Intelligence = scanMonitorIntelligence(intelligence)
 		out[monitorID] = append(out[monitorID], entry)
 	}
 	if err := rows.Err(); err != nil {
@@ -779,6 +803,7 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		PrimaryModel:         row.PrimaryModel,
 		ExtraModels:          extras,
 		GroupName:            row.GroupName,
+		IntelligenceEnabled:  row.IntelligenceEnabled,
 		Enabled:              row.Enabled,
 		IntervalSeconds:      row.IntervalSeconds,
 		JitterSeconds:        row.JitterSeconds,

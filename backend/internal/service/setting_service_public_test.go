@@ -82,6 +82,19 @@ func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) 
 	require.Equal(t, []int{20, 50, 100}, settings.TablePageSizeOptions)
 }
 
+func TestSettingService_GetPublicSettings_ExposesOptimizedAPIBaseURL(t *testing.T) {
+	repo := &settingPublicRepoStub{
+		values: map[string]string{
+			SettingKeyOptimizedAPIBaseURL: "https://optimized.example.com",
+		},
+	}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "https://optimized.example.com", settings.OptimizedAPIBaseURL)
+}
+
 func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{
@@ -178,6 +191,36 @@ func TestSettingService_GetPublicSettings_ExposesAllowUserViewErrorRequests(t *t
 	settings, err := svc.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.True(t, settings.AllowUserViewErrorRequests)
+}
+
+func TestSettingService_GetPublicSettings_UsesImageWorkspaceURLFromEnv(t *testing.T) {
+	t.Setenv(imageWorkspaceURLEnvVar, "https://images.example.com/workspace")
+
+	svc := NewSettingService(&settingPublicRepoStub{}, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "https://images.example.com/workspace", settings.ImageWorkspaceURL)
+}
+
+func TestSettingService_GetPublicSettings_DefaultsImageWorkspaceURL(t *testing.T) {
+	t.Setenv(imageWorkspaceURLEnvVar, "")
+
+	svc := NewSettingService(&settingPublicRepoStub{}, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultImageWorkspaceURL, settings.ImageWorkspaceURL)
+}
+
+func TestSettingService_GetPublicSettings_RejectsUnsafeImageWorkspaceURLProtocol(t *testing.T) {
+	t.Setenv(imageWorkspaceURLEnvVar, "javascript:alert(1)")
+
+	svc := NewSettingService(&settingPublicRepoStub{}, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, defaultImageWorkspaceURL, settings.ImageWorkspaceURL)
 }
 
 func TestSettingService_GetPublicSettings_ExposesWeChatOAuthModeCapabilities(t *testing.T) {

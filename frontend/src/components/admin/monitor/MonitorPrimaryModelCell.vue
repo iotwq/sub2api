@@ -35,6 +35,7 @@
                 <th class="py-0.5 pr-2 font-medium">{{ t('admin.channelMonitor.columns.primaryModel') }}</th>
                 <th class="py-0.5 pr-2 font-medium">{{ t('admin.channelMonitor.columns.actions') }}</th>
                 <th class="py-0.5 font-medium">{{ t('admin.channelMonitor.columns.latency') }}</th>
+                <th v-if="row.intelligence_enabled" class="py-0.5 font-medium">{{ t('monitorCommon.intelligence.title') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -49,6 +50,7 @@
                   </span>
                 </td>
                 <td class="py-0.5 text-gray-100">{{ formatLatency(m.latency_ms) }}</td>
+                <td v-if="row.intelligence_enabled" class="py-0.5"><MonitorIntelligenceBadge :result="m.intelligence" /></td>
               </tr>
             </tbody>
           </table>
@@ -58,6 +60,7 @@
     </div>
     <!-- 配额模式监控：主模型行内联展示最新用量/余额快照（管理端不受用户端开关限制） -->
     <MonitorQuotaView :snapshot="row.latest_quota" />
+    <MonitorIntelligenceBadge v-if="row.intelligence_enabled" :result="row.intelligence" :checked-at="row.last_checked_at || undefined" class="self-start" />
   </div>
 </template>
 
@@ -66,6 +69,7 @@ import { useI18n } from 'vue-i18n'
 import type { ChannelMonitor } from '@/api/admin/channelMonitor'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
+import MonitorIntelligenceBadge from '@/components/common/MonitorIntelligenceBadge.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 
 defineProps<{

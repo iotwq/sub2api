@@ -158,6 +158,18 @@ func (_u *ChannelMonitorHistoryUpdate) ClearQuota() *ChannelMonitorHistoryUpdate
 	return _u
 }
 
+// SetIntelligence sets the "intelligence" field.
+func (_u *ChannelMonitorHistoryUpdate) SetIntelligence(v *domain.MonitorIntelligenceResult) *ChannelMonitorHistoryUpdate {
+	_u.mutation.SetIntelligence(v)
+	return _u
+}
+
+// ClearIntelligence clears the value of the "intelligence" field.
+func (_u *ChannelMonitorHistoryUpdate) ClearIntelligence() *ChannelMonitorHistoryUpdate {
+	_u.mutation.ClearIntelligence()
+	return _u
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (_u *ChannelMonitorHistoryUpdate) SetCheckedAt(v time.Time) *ChannelMonitorHistoryUpdate {
 	_u.mutation.SetCheckedAt(v)
@@ -285,6 +297,12 @@ func (_u *ChannelMonitorHistoryUpdate) sqlSave(ctx context.Context) (_node int, 
 	}
 	if _u.mutation.QuotaCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldQuota, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Intelligence(); ok {
+		_spec.SetField(channelmonitorhistory.FieldIntelligence, field.TypeJSON, value)
+	}
+	if _u.mutation.IntelligenceCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldIntelligence, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.CheckedAt(); ok {
 		_spec.SetField(channelmonitorhistory.FieldCheckedAt, field.TypeTime, value)
@@ -466,6 +484,18 @@ func (_u *ChannelMonitorHistoryUpdateOne) ClearQuota() *ChannelMonitorHistoryUpd
 	return _u
 }
 
+// SetIntelligence sets the "intelligence" field.
+func (_u *ChannelMonitorHistoryUpdateOne) SetIntelligence(v *domain.MonitorIntelligenceResult) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.SetIntelligence(v)
+	return _u
+}
+
+// ClearIntelligence clears the value of the "intelligence" field.
+func (_u *ChannelMonitorHistoryUpdateOne) ClearIntelligence() *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ClearIntelligence()
+	return _u
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (_u *ChannelMonitorHistoryUpdateOne) SetCheckedAt(v time.Time) *ChannelMonitorHistoryUpdateOne {
 	_u.mutation.SetCheckedAt(v)
@@ -623,6 +653,12 @@ func (_u *ChannelMonitorHistoryUpdateOne) sqlSave(ctx context.Context) (_node *C
 	}
 	if _u.mutation.QuotaCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldQuota, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.Intelligence(); ok {
+		_spec.SetField(channelmonitorhistory.FieldIntelligence, field.TypeJSON, value)
+	}
+	if _u.mutation.IntelligenceCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldIntelligence, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.CheckedAt(); ok {
 		_spec.SetField(channelmonitorhistory.FieldCheckedAt, field.TypeTime, value)

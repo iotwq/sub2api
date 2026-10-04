@@ -163,7 +163,8 @@ async function selectButtonByText(wrapper: ReturnType<typeof mountModal>, text: 
 async function submitApiKeyAccount(
   platform: 'openai' | 'anthropic',
   enableLongContextBilling = false,
-  disableUpstreamBillingProbe = false
+  disableUpstreamBillingProbe = false,
+  enableImageURLToBase64 = false
 ) {
   const wrapper = mountModal()
   await selectButtonByText(wrapper, platform === 'openai' ? 'OpenAI' : 'admin.accounts.claudeConsole')
@@ -177,6 +178,9 @@ async function submitApiKeyAccount(
   }
   if (disableUpstreamBillingProbe) {
     await wrapper.get('[data-testid="upstream-billing-auto-probe"]').trigger('click')
+  }
+  if (enableImageURLToBase64) {
+    await wrapper.get('[data-testid="create-openai-image-url-to-base64-toggle"]').trigger('click')
   }
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
   await flushPromises()
@@ -398,6 +402,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     )
   })
 
+  it('stores image URL conversion only when enabled for an OpenAI API key account', async () => {
+    await submitApiKeyAccount('openai')
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty(
+      'openai_image_url_to_b64_json'
+    )
+
+    createAccountMock.mockClear()
+    await submitApiKeyAccount('openai', false, false, true)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_image_url_to_b64_json).toBe(true)
+  })
+
+  it('shows image URL conversion only for OpenAI API key accounts', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="create-openai-image-url-to-base64-toggle"]').exists()).toBe(false)
+
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.find('[data-testid="create-openai-image-url-to-base64-toggle"]').exists()).toBe(true)
+  })
   // namespace 摊平是仅 OAuth 的兼容开关：API Key 走 chat completions 回退桥时由桥自行摊平
   it('shows the Codex namespace flatten toggle only for OpenAI OAuth accounts', async () => {
     const wrapper = mountModal()
@@ -417,6 +440,49 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await submitApiKeyAccount('openai')
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(true)
+  })
+
+  it('submits MiniMax H3 video capability for a new OpenAI API key account', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('MiniMax video')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="openai-endpoint-capability-minimax_video"]').setValue(true)
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.openai_capabilities).toEqual([
+      'chat_completions',
+      'embeddings',
+      'minimax_video'
+    ])
+  })
+
+  it.each([
+    ['gemini_native', 'seedance'],
+    ['minimax_video', 'seedance'],
+    ['chat_completions', 'embeddings', 'gemini_native', 'minimax_video', 'seedance']
+  ])('preserves mixed endpoint capabilities on create: %j', async (...capabilities) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Mixed capabilities')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    for (const capability of capabilities) {
+      await wrapper.get(`[data-testid="openai-endpoint-capability-${capability}"]`).setValue(true)
+    }
+    for (const capability of ['chat_completions', 'embeddings']) {
+      if (!capabilities.includes(capability)) {
+        await wrapper.get(`[data-testid="openai-endpoint-capability-${capability}"]`).setValue(false)
+      }
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.openai_capabilities).toEqual(capabilities)
   })
 
   it('waits for the initial upstream billing probe before refreshing the account list', async () => {

@@ -253,6 +253,12 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 				responsesBody = stripped
 			}
 		}
+		if account.Type == AccountTypeAPIKey {
+			responsesBody, err = ensureChatCompletionsResponsesBodyInstructions(responsesBody, upstreamModel)
+			if err != nil {
+				return nil, fmt.Errorf("ensure responses-shape instructions: %w", err)
+			}
+		}
 		var normalizedServiceTier string
 		responsesBody, normalizedServiceTier, err = normalizeResponsesBodyServiceTier(responsesBody)
 		if err != nil {
@@ -276,6 +282,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 		}
 		responsesReq.Model = upstreamModel
+		if account.Type == AccountTypeAPIKey {
+			ensureChatCompletionsResponsesRequestInstructions(responsesReq, upstreamModel)
+		}
 		normalizeResponsesRequestServiceTier(responsesReq)
 		responsesBody, err = json.Marshal(responsesReq)
 		if err != nil {
@@ -298,6 +307,21 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		)
 	}
 	logger.L().Debug("openai chat_completions: model mapping applied", logFields...)
+
+	if shouldForwardOpenAIBasispoints(ctx, c, account, body) {
+		// The converter always streams upstream; retain the client's requested
+		// response format for the BPS pipeline, which enables upstream SSE itself.
+		responsesBody, err = sjson.SetBytes(responsesBody, "stream", clientStream)
+		if err == nil && promptCacheKey != "" && strings.TrimSpace(gjson.GetBytes(responsesBody, "prompt_cache_key").String()) == "" {
+			responsesBody, err = sjson.SetBytes(responsesBody, "prompt_cache_key", promptCacheKey)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("prepare Basispoints chat request: %w", err)
+		}
+		return s.forwardOpenAIBasispointsWithChatResponse(ctx, c, account, responsesBody, startTime, &basispointsChatResponse{
+			originalModel: originalModel, billingModel: billingModel, upstreamModel: upstreamModel, requestBodyLen: len(body),
+		})
+	}
 
 	if account.UsesOpenAICodexProtocol() {
 		var reqBody map[string]any
@@ -490,6 +514,21 @@ func normalizeResponsesRequestServiceTier(req *apicompat.ResponsesRequest) {
 	req.ServiceTier = normalizedOpenAIServiceTierValue(req.ServiceTier)
 }
 
+func ensureChatCompletionsResponsesRequestInstructions(req *apicompat.ResponsesRequest, model string) {
+	if req == nil || strings.TrimSpace(req.Instructions) != "" {
+		return
+	}
+	req.Instructions = defaultCodexSynthInstructions(model)
+}
+
+func ensureChatCompletionsResponsesBodyInstructions(body []byte, model string) ([]byte, error) {
+	instructions := gjson.GetBytes(body, "instructions")
+	if instructions.Exists() && instructions.Type == gjson.String && strings.TrimSpace(instructions.String()) != "" {
+		return body, nil
+	}
+	return sjson.SetBytes(body, "instructions", defaultCodexSynthInstructions(model))
+}
+
 func normalizeResponsesBodyServiceTier(body []byte) ([]byte, string, error) {
 	if len(body) == 0 {
 		return body, "", nil
@@ -551,6 +590,25 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	requestID := resp.Header.Get("x-request-id")
 
 	finalResponse, usage, acc, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai chat_completions buffered", requestID)
+	basispointsResponse := GetActualOpenAIUpstreamEndpoint(c) == "/basispoints/api/responses"
+	if basispointsResponse && (err != nil || finalResponse == nil || finalResponse.Status == "failed" || c.GetString(basispointsFailurePayloadKey) != "") {
+		// BPS corrections can consume tokens even when they fail. Preserve usage
+		// without replaying the request through Codex terminal failover.
+		result := &OpenAIForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage,
+			Model: originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel, Duration: time.Since(startTime)}
+		message := "Basispoints stream ended without a complete response"
+		if finalResponse != nil {
+			result.ResponseID = finalResponse.ID
+			message = openAICompatFailedResponseMessage(finalResponse)
+		}
+		MarkResponseCommitted(c)
+		if failure := s.recordBasispointsTerminalFailure(c, account, resp, nil, false); failure != nil {
+			c.JSON(failure.Status, gin.H{"error": failure.Details()})
+			return result, failure
+		}
+		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", message)
+		return result, fmt.Errorf("Basispoints response failed: %s", message)
+	}
 	if err != nil {
 		return nil, s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, err)
 	}
@@ -628,7 +686,20 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// writeContentType 仅在头不存在时才设置，无法覆盖。这里显式 Set 强制改回 JSON，
 	// 否则下游"看头判流式"的中间层（如 new-api）会把本应聚合的 JSON 当成 SSE 处理。
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.JSON(http.StatusOK, chatResp)
+	if openAIBasispointsCacheCreationAsInput(account, GetActualOpenAIUpstreamEndpoint(c)) {
+		// Only normalize the downstream copy, not the measured billing usage.
+		payload, err := json.Marshal(chatResp)
+		if err != nil {
+			return nil, err
+		}
+		payload, err = normalizeOpenAIBasispointsUsage(payload)
+		if err != nil {
+			return nil, err
+		}
+		c.Data(http.StatusOK, "application/json; charset=utf-8", payload)
+	} else {
+		c.JSON(http.StatusOK, chatResp)
+	}
 
 	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
@@ -642,6 +713,9 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+	}
+	if basispointsResponse {
+		result.ResponseID = finalResponse.ID
 	}
 	// Grok chat bridge: bill native search tools found in the terminal Responses body.
 	if account != nil && account.IsGrok() && finalResponse != nil {
@@ -709,6 +783,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
+	basispointsResponse := GetActualOpenAIUpstreamEndpoint(c) == "/basispoints/api/responses"
+	normalizeCacheUsage := openAIBasispointsCacheCreationAsInput(account, GetActualOpenAIUpstreamEndpoint(c))
+	var responseID string
 
 	state := apicompat.NewResponsesEventToChatState()
 	state.Model = originalModel
@@ -780,6 +857,10 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
 		}
+		if basispointsResponse {
+			out.ResponseID = responseID
+			out.ClientDisconnect = clientDisconnected
+		}
 		if searchCount > 0 {
 			out.SearchCount = searchCount
 		}
@@ -806,6 +887,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
+		if basispointsResponse && event.Response != nil && event.Response.ID != "" {
+			responseID = event.Response.ID
+		}
 		refusalDetector.ObservePayload([]byte(payload))
 		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
@@ -819,9 +903,25 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 			}
 		}
-		if strings.TrimSpace(event.Type) == "response.failed" || strings.TrimSpace(event.Type) == "error" {
+		if strings.TrimSpace(event.Type) == "response.failed" || strings.TrimSpace(event.Type) == "error" || (basispointsResponse && event.Type == "response.cancelled") {
 			payloadBytes := []byte(payload)
 			message := extractOpenAISSEErrorMessage(payloadBytes)
+			if basispointsResponse {
+				MarkResponseCommitted(c)
+				failure := s.recordBasispointsTerminalFailure(c, account, resp, payloadBytes, true)
+				streamNonFailoverErr = failure
+				if !clientDisconnected {
+					if !c.Writer.Written() {
+						c.JSON(failure.Status, gin.H{"error": failure.Details()})
+					} else {
+						raw, _ := json.Marshal(gin.H{"error": failure.Details()})
+						_, writeErr := fmt.Fprintf(c.Writer, "data: %s\n\ndata: [DONE]\n\n", raw)
+						clientDisconnected = writeErr != nil
+						c.Writer.Flush()
+					}
+				}
+				return true
+			}
 			if hit, code, msg := detectOpenAICyberPolicy(payloadBytes); hit {
 				// cyber_policy 致命且不可重试：不 failover。下发标准 error chunk +
 				// [DONE]，让程序化客户端可感知并停止重试（F4）；标记供 handler 事后
@@ -898,7 +998,32 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return true
 		}
 
-		chunks := apicompat.ResponsesEventToChatChunks(&event, state)
+		if normalizeCacheUsage {
+			// Capture real usage first, then normalize the downstream event and
+			// the converter's final usage-only chunk.
+			if normalized, err := normalizeOpenAIBasispointsUsage([]byte(payload)); err == nil {
+				_ = json.Unmarshal(normalized, &event)
+			}
+		}
+		var chunks []apicompat.ChatCompletionsChunk
+		if basispointsResponse && !state.SentRole && event.Type != "response.created" {
+			chunks = append(chunks, apicompat.ResponsesEventToChatChunks(&apicompat.ResponsesStreamEvent{Type: "response.created", Response: event.Response}, state)...)
+		}
+		if basispointsResponse && isTerminalEvent && event.Response != nil && !state.SawText {
+			// BPS can deliver text only in the validated terminal response. Tools
+			// already receive synthetic events from the BPS bridge.
+			for _, item := range event.Response.Output {
+				if item.Type != "message" {
+					continue
+				}
+				for _, part := range item.Content {
+					if part.Type == "output_text" {
+						chunks = append(chunks, apicompat.ResponsesEventToChatChunks(&apicompat.ResponsesStreamEvent{Type: "response.output_text.delta", Delta: part.Text}, state)...)
+					}
+				}
+			}
+		}
+		chunks = append(chunks, apicompat.ResponsesEventToChatChunks(&event, state)...)
 		if !clientDisconnected {
 			for _, chunk := range chunks {
 				refusalDetector.ObserveChatChunk(chunk)
@@ -999,7 +1124,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			}
 		}
 		if !clientDisconnected && !clientOutputStarted {
-			if refusalDetector.IsSilentRefusal() {
+			if !basispointsResponse && refusalDetector.IsSilentRefusal() {
 				return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)
 			}
 			if len(pendingSSE) > 0 {

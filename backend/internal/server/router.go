@@ -123,10 +123,26 @@ func registerRoutes(
 	// 防止高频刷管理面接口打爆数据库（阈值可在系统设置中调整）。
 	panelRateLimiter := middleware2.NewPanelRateLimiter(redisClient, settingService)
 
+	// cc-switch NewAPI balance compatibility. These routes intentionally live at
+	// /api/user/* (without /v1), matching NewAPI's public contract.
+	newAPIToken := r.Group("/api")
+	newAPIToken.Use(gin.HandlerFunc(jwtAuth))
+	newAPIToken.Use(middleware2.BackendModeUserGuard(settingService))
+	newAPIToken.Use(panelRateLimiter.Global())
+	newAPIToken.Use(gin.HandlerFunc(auditLog))
+	newAPIToken.GET("/user/token", panelRateLimiter.Heavy(), h.Auth.GenerateNewAPIAccessToken)
+
+	newAPI := r.Group("/api")
+	newAPI.Use(middleware2.NewAPIBalanceAuthMiddleware(jwtAuth, h.Auth.NewAPIBalanceAccessTokenService()))
+	newAPI.Use(middleware2.BackendModeUserGuard(settingService))
+	newAPI.Use(panelRateLimiter.Global())
+	newAPI.GET("/user/self", h.Auth.GetNewAPISelf)
+
 	// 注册各模块路由
 	routes.RegisterAuthRoutes(v1, h, jwtAuth, auditLog, redisClient, settingService, panelRateLimiter)
 	routes.RegisterUserRoutes(v1, h, jwtAuth, auditLog, settingService, panelRateLimiter)
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
+	routes.RegisterCommunityChatRoutes(v1, h, jwtAuth, settingService, redisClient)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter, redisClient)

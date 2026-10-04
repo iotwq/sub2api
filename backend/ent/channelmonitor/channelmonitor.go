@@ -41,6 +41,8 @@ const (
 	FieldGroupName = "group_name"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
+	// FieldIntelligenceEnabled holds the string denoting the intelligence_enabled field in the database.
+	FieldIntelligenceEnabled = "intelligence_enabled"
 	// FieldIntervalSeconds holds the string denoting the interval_seconds field in the database.
 	FieldIntervalSeconds = "interval_seconds"
 	// FieldJitterSeconds holds the string denoting the jitter_seconds field in the database.
@@ -104,6 +106,7 @@ var Columns = []string{
 	FieldExtraModels,
 	FieldGroupName,
 	FieldEnabled,
+	FieldIntelligenceEnabled,
 	FieldIntervalSeconds,
 	FieldJitterSeconds,
 	FieldLastCheckedAt,
@@ -155,6 +158,8 @@ var (
 	GroupNameValidator func(string) error
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
+	// DefaultIntelligenceEnabled holds the default value on creation for the "intelligence_enabled" field.
+	DefaultIntelligenceEnabled bool
 	// IntervalSecondsValidator is a validator for the "interval_seconds" field. It is called by the builders before save.
 	IntervalSecondsValidator func(int) error
 	// DefaultJitterSeconds holds the default value on creation for the "jitter_seconds" field.
@@ -266,6 +271,11 @@ func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 // ByEnabled orders the results by the enabled field.
 func ByEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldEnabled, opts...).ToFunc()
+}
+
+// ByIntelligenceEnabled orders the results by the intelligence_enabled field.
+func ByIntelligenceEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldIntelligenceEnabled, opts...).ToFunc()
 }
 
 // ByIntervalSeconds orders the results by the interval_seconds field.

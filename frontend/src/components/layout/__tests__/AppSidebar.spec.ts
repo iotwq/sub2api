@@ -80,3 +80,45 @@ describe('AppSidebar subscription feature flag', () => {
     expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 })
+
+describe('AppSidebar community chat unread badge', () => {
+  it('keeps the expanded badge beside the menu label in every navigation branch', () => {
+    expect(componentSource.match(/class="sidebar-label sidebar-label-with-badge"/g)).toHaveLength(3)
+    expect(componentSource.match(/shouldShowCommunityChatUnread\(item\.path\) && !sidebarCollapsed/g)).toHaveLength(3)
+  })
+
+  it('anchors the collapsed badge to the menu icon in every navigation branch', () => {
+    expect(componentSource.match(/class="sidebar-menu-icon"/g)).toHaveLength(3)
+    expect(componentSource.match(/class="sidebar-unread-dot sidebar-unread-dot-collapsed"/g)).toHaveLength(3)
+  })
+
+  it('uses a fixed-size high-contrast badge', () => {
+    const unreadDotBlockMatch = componentSource.match(/\.sidebar-unread-dot\s*\{[\s\S]*?\n\}/)
+
+    expect(unreadDotBlockMatch).not.toBeNull()
+    expect(unreadDotBlockMatch?.[0]).toContain('width: 0.625rem;')
+    expect(unreadDotBlockMatch?.[0]).toContain('height: 0.625rem;')
+    expect(unreadDotBlockMatch?.[0]).toContain('flex: 0 0 0.625rem;')
+    expect(unreadDotBlockMatch?.[0]).toContain('background: #dc2626;')
+    expect(unreadDotBlockMatch?.[0]).not.toContain('right: 0.65rem;')
+  })
+
+  it('keeps group and direct unread state separate', () => {
+    expect(componentSource).toContain('const communityChatGroupUnread = ref(false)')
+    expect(componentSource).toContain('const communityChatDirectUnread = ref(false)')
+    expect(componentSource).toContain('(communityChatGroupUnread.value || communityChatDirectUnread.value)')
+
+    expect(componentSource).toContain('communityChatAPI.getDirectUnread()')
+    expect(componentSource).toContain('communityChatDirectUnread.value = summary.total > 0')
+    expect(componentSource).not.toContain('let communityChatSocket: WebSocket')
+    expect(componentSource).toContain('useCommunityChatRealtime')
+  })
+
+  it('does not clip the badge and blinks unless reduced motion is requested', () => {
+    expect(componentSource.match(/'sidebar-link-with-unread': shouldShowCommunityChatUnread\(item\.path\)/g)).toHaveLength(3)
+    expect(componentSource).toContain('.sidebar-link-with-unread {\n  overflow: visible;')
+    expect(componentSource).toContain('.sidebar-label-with-badge {')
+    expect(componentSource).toContain('animation: sidebar-unread-blink 1.2s ease-in-out infinite;')
+    expect(componentSource).toContain('@media (prefers-reduced-motion: reduce)')
+  })
+})

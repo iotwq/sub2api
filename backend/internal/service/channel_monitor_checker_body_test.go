@@ -29,6 +29,7 @@ type captureHandler struct {
 	lastHeaders http.Header
 	respondText string // 写到 Anthropic content[0].text 里（校验用）
 	status      int
+	format      string
 }
 
 func (h *captureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +44,35 @@ func (h *captureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(h.status)
+	if h.format != "" {
+		answer := answerFromOpenAIRequest(parsed)
+		switch h.format {
+		case "openai_chat":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{"message": map[string]any{"content": answer}}},
+			})
+		case "responses":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"output": []map[string]any{
+					{"type": "reasoning", "summary": []any{}},
+					{
+						"type": "message",
+						"content": []map[string]any{
+							{"type": "output_text", "text": answer},
+						},
+					},
+				},
+			})
+		case "anthropic_text_second":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"content": []map[string]any{
+					{"type": "thinking", "thinking": "hidden"},
+					{"type": "text", "text": answer},
+				},
+			})
+		}
+		return
+	}
 	// 构造 Anthropic 格式的响应：content[0].text = h.respondText
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"content": []map[string]any{
@@ -66,9 +96,14 @@ type openAICaptureHandler struct {
 	status                    int
 	rawResponse               string
 	responsesLeadingReasoning bool
+	requestCount              int
+	statuses                  []int
+	rejectChatModelNotFound   bool
+	probeLatencyHeader        string
 }
 
 func (h *openAICaptureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.requestCount++
 	h.lastHeaders = r.Header.Clone()
 	h.lastPath = r.URL.Path
 	defer func() { _ = r.Body.Close() }()
@@ -76,13 +111,42 @@ func (h *openAICaptureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	_ = json.NewDecoder(r.Body).Decode(&parsed)
 	h.lastBody = parsed
 
+	if h.rejectChatModelNotFound && r.URL.Path == providerOpenAIPath {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Model \"gpt-5.5\" is not supported by any configured account in this group",
+				"type":    "model_not_found",
+			},
+		})
+		return
+	}
+
 	if h.status == 0 {
 		h.status = http.StatusOK
 	}
+	status := h.status
+	if len(h.statuses) > 0 {
+		idx := h.requestCount - 1
+		if idx >= len(h.statuses) {
+			idx = len(h.statuses) - 1
+		}
+		status = h.statuses[idx]
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(h.status)
+	if h.probeLatencyHeader != "" {
+		w.Header().Set(ChannelMonitorProbeLatencyHeader, h.probeLatencyHeader)
+	}
+	w.WriteHeader(status)
 	if h.rawResponse != "" {
 		_, _ = w.Write([]byte(h.rawResponse))
+		return
+	}
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"message": "temporary upstream failure"},
+		})
 		return
 	}
 
@@ -164,6 +228,9 @@ func TestRunCheckForModel_OffMode_PreservesDefaultBody(t *testing.T) {
 	if h.lastHeaders.Get("x-api-key") != "sk-fake" {
 		t.Errorf("expected adapter's x-api-key header, got %q", h.lastHeaders.Get("x-api-key"))
 	}
+	if h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader) != strconv.Itoa(ChannelMonitorProbeAttempts) {
+		t.Errorf("expected Anthropic distinct-account probe header, got %q", h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader))
+	}
 }
 
 func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
@@ -192,6 +259,12 @@ func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer sk-openai" {
 		t.Errorf("expected bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
+	}
+	if h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader) != strconv.Itoa(ChannelMonitorProbeAttempts) {
+		t.Errorf("expected distinct-account probe header, got %q", h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader))
+	}
+	if h.requestCount != 1 {
+		t.Fatalf("monitor should send one gateway request, got %d", h.requestCount)
 	}
 }
 
@@ -328,6 +401,132 @@ func TestRunCheckForModel_OpenAIResponses_SkipsLeadingReasoningItem(t *testing.T
 	}
 	if h.lastPath != providerOpenAIResponsesPath {
 		t.Fatalf("expected responses path %q, got %q", providerOpenAIResponsesPath, h.lastPath)
+	}
+}
+
+func TestRunCheckForModel_OpenAICodexModelNotFoundRetriesResponses(t *testing.T) {
+	h := &openAICaptureHandler{rejectChatModelNotFound: true}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-5.5", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("responses fallback should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.requestCount != 2 {
+		t.Fatalf("expected chat failure plus responses fallback, got %d requests", h.requestCount)
+	}
+	if h.lastPath != providerOpenAIResponsesPath {
+		t.Fatalf("expected fallback path %q, got %q", providerOpenAIResponsesPath, h.lastPath)
+	}
+	if !strings.Contains(res.Message, "retried via responses") {
+		t.Fatalf("expected fallback note, got %q", res.Message)
+	}
+}
+
+func TestRunCheckForModel_AnthropicProviderAcceptsOpenAIChatResponse(t *testing.T) {
+	h := &captureHandler{format: "openai_chat"}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("anthropic provider should read compatible OpenAI chat response, got status=%s message=%q", res.Status, res.Message)
+	}
+}
+
+func TestRunCheckForModel_AnthropicProviderAcceptsResponsesResponse(t *testing.T) {
+	h := &captureHandler{format: "responses"}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("anthropic provider should read compatible Responses response, got status=%s message=%q", res.Status, res.Message)
+	}
+}
+
+func TestRunCheckForModel_AnthropicProviderSkipsLeadingNonTextBlock(t *testing.T) {
+	h := &captureHandler{format: "anthropic_text_second"}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-x", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("anthropic provider should read later text block, got status=%s message=%q", res.Status, res.Message)
+	}
+}
+
+func TestRunCheckForModel_DoesNotRepeatIndependentGatewayRequests(t *testing.T) {
+	h := &openAICaptureHandler{statuses: []int{http.StatusTooManyRequests, http.StatusOK}}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", nil)
+
+	if res.Status != MonitorStatusError {
+		t.Fatalf("external endpoint failure should remain an error, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.requestCount != 1 {
+		t.Fatalf("expected one gateway request, got %d", h.requestCount)
+	}
+	if h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader) != strconv.Itoa(ChannelMonitorProbeAttempts) {
+		t.Fatalf("expected gateway to receive probe attempt limit, got %q", h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader))
+	}
+}
+
+func TestRunCheckForModel_UsesSuccessfulAccountAttemptLatency(t *testing.T) {
+	tests := []struct {
+		name        string
+		latencyMs   int
+		wantStatus  string
+		wantMessage string
+	}{
+		{
+			name:       "fast final account is operational",
+			latencyMs:  25,
+			wantStatus: MonitorStatusOperational,
+		},
+		{
+			name:        "slow final account is degraded",
+			latencyMs:   int(monitorDegradedThreshold/time.Millisecond) + 1,
+			wantStatus:  MonitorStatusDegraded,
+			wantMessage: "slow response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &openAICaptureHandler{probeLatencyHeader: strconv.Itoa(tt.latencyMs)}
+			endpoint := setupFakeOpenAI(t, h)
+
+			res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", nil)
+
+			if res.Status != tt.wantStatus {
+				t.Fatalf("status = %s, want %s; message=%q", res.Status, tt.wantStatus, res.Message)
+			}
+			if res.LatencyMs == nil || *res.LatencyMs != tt.latencyMs {
+				t.Fatalf("latency = %v, want %d", res.LatencyMs, tt.latencyMs)
+			}
+			if tt.wantMessage != "" && !strings.Contains(res.Message, tt.wantMessage) {
+				t.Fatalf("message = %q, want substring %q", res.Message, tt.wantMessage)
+			}
+		})
+	}
+}
+
+func TestRunCheckForModel_InternalProbeHeaderOverridesTemplateHeader(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", &CheckOptions{
+		ExtraHeaders: map[string]string{ChannelMonitorProbeAttemptsHeader: "99"},
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("probe should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader) != strconv.Itoa(ChannelMonitorProbeAttempts) {
+		t.Fatalf("template header must not override internal probe limit, got %q", h.lastHeaders.Get(ChannelMonitorProbeAttemptsHeader))
 	}
 }
 

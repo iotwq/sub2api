@@ -286,12 +286,21 @@ const testPrompt = ref('')
 const loadingModels = ref(false)
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
-const testMode = ref<'default' | 'compact'>('default')
+const testMode = ref<'default' | 'compact' | 'bps_tools'>('default')
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
-const openAITestModeOptions = computed(() => [
-  { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
-  { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
-])
+const isBPSAccount = computed(() =>
+  isOpenAIAccount.value && (props.account?.type === 'oauth' || props.account?.type === 'setup-token') &&
+  props.account?.extra?.openai_oauth_responses_endpoint === 'basispoints'
+)
+const openAITestModeOptions = computed(() => isBPSAccount.value
+  ? [
+      { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
+      { value: 'bps_tools', label: t('admin.accounts.openai.testModeBPSTools') }
+    ]
+  : [
+      { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
+      { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
+    ])
 const previewImageUrl = ref('')
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
 const supportsGeminiImageTest = computed(() => {
@@ -332,7 +341,8 @@ watch(
     } else {
       abortStream()
     }
-  }
+  },
+  { immediate: true }
 )
 
 watch(selectedModelId, () => {
@@ -341,13 +351,17 @@ watch(selectedModelId, () => {
   }
 })
 
-const loadAvailableModels = async () => {
+async function loadAvailableModels() {
   if (!props.account) return
 
   loadingModels.value = true
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const fetchedModels = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = fetchedModels.map(model => ({
+      ...model,
+      display_name: model.display_name?.trim() || model.id
+    }))
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
@@ -371,7 +385,7 @@ const loadAvailableModels = async () => {
   }
 }
 
-const resetState = () => {
+function resetState() {
   status.value = 'idle'
   outputLines.value = []
   streamingContent.value = ''
@@ -385,11 +399,11 @@ const handleClose = () => {
   emit('close')
 }
 
-const abortStream = () => {
-  if (abortController) {
-    abortController.abort()
-    abortController = null
-  }
+function abortStream() {
+	if (abortController) {
+		abortController.abort()
+		abortController = null
+	}
 }
 
 const addLine = (text: string, className: string = 'text-gray-300') => {

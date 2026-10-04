@@ -862,6 +862,47 @@ func stripCodexSparkImageGenerationTools(reqBody map[string]any) bool {
 	return stripOpenAIImageGenerationTools(reqBody)
 }
 
+func hasOpenAICustomFunctionTool(reqBody map[string]any) bool {
+	rawTools, ok := reqBody["tools"]
+	if !ok || rawTools == nil {
+		return false
+	}
+	tools, ok := rawTools.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawTool := range tools {
+		toolMap, ok := rawTool.(map[string]any)
+		if !ok {
+			continue
+		}
+		toolType := strings.TrimSpace(firstNonEmptyString(toolMap["type"]))
+		if toolType == "function" {
+			return true
+		}
+		if _, ok := toolMap["function"]; ok {
+			return true
+		}
+		if toolType == "" && strings.TrimSpace(firstNonEmptyString(toolMap["name"])) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldInjectOpenAIResponsesImageGenerationBridge(reqBody map[string]any) bool {
+	if len(reqBody) == 0 {
+		return false
+	}
+	if hasOpenAIImageGenerationTool(reqBody) || isOpenAIImageGenerationModel(firstNonEmptyString(reqBody["model"])) {
+		return true
+	}
+	// App-managed Agent requests can carry custom function tools such as
+	// generate_image_batch. Do not append native image_generation there, or
+	// upstream may mix local function orchestration with native image tools.
+	return !hasOpenAICustomFunctionTool(reqBody)
+}
+
 func hasOpenAIInputImage(reqBody map[string]any) bool {
 	if reqBody == nil {
 		return false
@@ -1054,6 +1095,17 @@ func normalizeOpenAIResponseJSONSchema(schema map[string]any) bool {
 	return modified
 }
 
+func normalizeDanglingOpenAIResponsesImageToolChoice(reqBody map[string]any) bool {
+	if len(reqBody) == 0 || hasOpenAIImageGenerationTool(reqBody) {
+		return false
+	}
+	if !openAIAnyToolChoiceSelectsImageGeneration(reqBody["tool_choice"]) {
+		return false
+	}
+	reqBody["tool_choice"] = "auto"
+	return true
+}
+
 func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 	if len(reqBody) == 0 {
 		return false
@@ -1064,7 +1116,7 @@ func ensureOpenAIResponsesImageGenerationTool(reqBody map[string]any) bool {
 	if hasCodexImageGenerationFunctionTool(reqBody) {
 		return false
 	}
-	if hasOpenAIImageGenerationTool(reqBody) {
+	if hasOpenAIImageGenerationTool(reqBody) || !shouldInjectOpenAIResponsesImageGenerationBridge(reqBody) {
 		return false
 	}
 

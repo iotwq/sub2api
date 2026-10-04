@@ -73,6 +73,13 @@
       :buckets="item.timeline"
       :countdown-seconds="countdownSeconds"
     />
+    <MonitorIntelligenceTimeline v-if="item.intelligence_enabled" :buckets="item.timeline" />
+    <div v-if="item.intelligence_enabled && item.extra_models.length" class="mt-2 flex flex-wrap gap-2">
+      <span v-for="model in item.extra_models" :key="model.model" :title="model.model" class="inline-flex items-center gap-1 text-[10px] text-gray-500">
+        <span class="max-w-28 truncate">{{ model.model }}</span>
+        <MonitorIntelligenceBadge :result="model.intelligence" />
+      </span>
+    </div>
   </button>
 </template>
 
@@ -89,6 +96,8 @@ import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
+import MonitorIntelligenceTimeline from './MonitorIntelligenceTimeline.vue'
+import MonitorIntelligenceBadge from '@/components/common/MonitorIntelligenceBadge.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
 
 // 图标配色与 utils/platformColors.ts 的平台色对齐（新 4 家）。

@@ -32,22 +32,23 @@ const (
 
 // ChannelMonitor 渠道监控配置（service 层模型，不直接暴露 ent 类型）。
 type ChannelMonitor struct {
-	ID              int64
-	Name            string
-	Provider        string
-	APIMode         string
-	Endpoint        string
-	APIKey          string // 解密后的明文 API Key（仅在 service 内部使用，handler 层不应直接序列化返回）
-	PrimaryModel    string
-	ExtraModels     []string
-	GroupName       string
-	Enabled         bool
-	IntervalSeconds int
-	JitterSeconds   int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
-	LastCheckedAt   *time.Time
-	CreatedBy       int64
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                  int64
+	Name                string
+	Provider            string
+	APIMode             string
+	Endpoint            string
+	APIKey              string // 解密后的明文 API Key（仅在 service 内部使用，handler 层不应直接序列化返回）
+	PrimaryModel        string
+	ExtraModels         []string
+	GroupName           string
+	IntelligenceEnabled bool
+	Enabled             bool
+	IntervalSeconds     int
+	JitterSeconds       int // 每次调度 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔
+	LastCheckedAt       *time.Time
+	CreatedBy           int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 
 	// 配额模式（check_mode = quota / quota_probe）：
 	// 关联已有账号复用账号侧用量服务，Endpoint/APIKey 可为空（quota 模式）。
@@ -82,22 +83,23 @@ type ChannelMonitorListParams struct {
 
 // ChannelMonitorCreateParams 创建参数。
 type ChannelMonitorCreateParams struct {
-	Name             string
-	Provider         string
-	APIMode          string
-	Endpoint         string
-	APIKey           string
-	PrimaryModel     string
-	ExtraModels      []string
-	GroupName        string
-	Enabled          bool
-	IntervalSeconds  int
-	JitterSeconds    int
-	CreatedBy        int64
-	TemplateID       *int64
-	ExtraHeaders     map[string]string
-	BodyOverrideMode string
-	BodyOverride     map[string]any
+	Name                string
+	Provider            string
+	APIMode             string
+	Endpoint            string
+	APIKey              string
+	PrimaryModel        string
+	ExtraModels         []string
+	GroupName           string
+	IntelligenceEnabled bool
+	Enabled             bool
+	IntervalSeconds     int
+	JitterSeconds       int
+	CreatedBy           int64
+	TemplateID          *int64
+	ExtraHeaders        map[string]string
+	BodyOverrideMode    string
+	BodyOverride        map[string]any
 
 	// 配额模式：CheckMode 空串默认 probe；quota/quota_probe 必须关联账号。
 	CheckMode string
@@ -106,17 +108,18 @@ type ChannelMonitorCreateParams struct {
 
 // ChannelMonitorUpdateParams 更新参数（指针字段表示"未提供则不更新"）。
 type ChannelMonitorUpdateParams struct {
-	Name            *string
-	Provider        *string
-	APIMode         *string
-	Endpoint        *string
-	APIKey          *string // 空字符串表示不修改；非空字符串覆盖
-	PrimaryModel    *string
-	ExtraModels     *[]string
-	GroupName       *string
-	Enabled         *bool
-	IntervalSeconds *int
-	JitterSeconds   *int
+	Name                *string
+	Provider            *string
+	APIMode             *string
+	Endpoint            *string
+	APIKey              *string // 空字符串表示不修改；非空字符串覆盖
+	PrimaryModel        *string
+	ExtraModels         *[]string
+	GroupName           *string
+	IntelligenceEnabled *bool
+	Enabled             *bool
+	IntervalSeconds     *int
+	JitterSeconds       *int
 	// 自定义快照字段：指针为 nil 表示不更新，非 nil 覆盖
 	// TemplateID *(*int64)：用 ** 表达三态：nil=不更新；&nil=清空；&&id=设为 id。
 	// 简化处理：用 ClearTemplate 显式标志 + TemplateID（普通指针）
@@ -134,6 +137,7 @@ type ChannelMonitorUpdateParams struct {
 
 // CheckResult 单个模型一次检测的结果。
 type CheckResult struct {
+	Intelligence  *domain.MonitorIntelligenceResult
 	Model         string
 	Status        string // operational / degraded / failed / error
 	LatencyMs     *int
@@ -146,6 +150,8 @@ type CheckResult struct {
 
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
 type UserMonitorView struct {
+	IntelligenceEnabled  bool
+	Intelligence         *domain.MonitorIntelligenceResult
 	ID                   int64
 	Name                 string
 	Provider             string
@@ -164,30 +170,34 @@ type UserMonitorView struct {
 
 // UserMonitorTimelinePoint 用户视图 timeline 单点数据（去除 message 以减小响应体）。
 type UserMonitorTimelinePoint struct {
-	Status        string    `json:"status"`
-	LatencyMs     *int      `json:"latency_ms"`
-	PingLatencyMs *int      `json:"ping_latency_ms"`
-	CheckedAt     time.Time `json:"checked_at"`
+	Intelligence  *domain.MonitorIntelligenceResult `json:"intelligence,omitempty"`
+	Status        string                            `json:"status"`
+	LatencyMs     *int                              `json:"latency_ms"`
+	PingLatencyMs *int                              `json:"ping_latency_ms"`
+	CheckedAt     time.Time                         `json:"checked_at"`
 }
 
 // ExtraModelStatus 附加模型最近一次状态。
 type ExtraModelStatus struct {
-	Model     string
-	Status    string
-	LatencyMs *int
+	Intelligence *domain.MonitorIntelligenceResult
+	Model        string
+	Status       string
+	LatencyMs    *int
 }
 
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。
 type UserMonitorDetail struct {
-	ID        int64
-	Name      string
-	Provider  string
-	GroupName string
-	Models    []ModelDetail
+	IntelligenceEnabled bool
+	ID                  int64
+	Name                string
+	Provider            string
+	GroupName           string
+	Models              []ModelDetail
 }
 
 // ModelDetail 单个模型的可用率/延迟统计。
 type ModelDetail struct {
+	Intelligence    *domain.MonitorIntelligenceResult
 	Model           string
 	LatestStatus    string
 	LatestLatencyMs *int
@@ -199,6 +209,7 @@ type ModelDetail struct {
 
 // ChannelMonitorHistoryRow 历史记录入库行（service 层向 repository 提交的数据）。
 type ChannelMonitorHistoryRow struct {
+	Intelligence  *domain.MonitorIntelligenceResult
 	MonitorID     int64
 	Model         string
 	Status        string
@@ -211,6 +222,7 @@ type ChannelMonitorHistoryRow struct {
 
 // ChannelMonitorHistoryEntry 历史记录查询返回行（含 ent 主键 ID）。
 type ChannelMonitorHistoryEntry struct {
+	Intelligence  *domain.MonitorIntelligenceResult
 	ID            int64
 	Model         string
 	Status        string
@@ -223,6 +235,7 @@ type ChannelMonitorHistoryEntry struct {
 
 // ChannelMonitorLatest 最近一次检测的简明信息（用于 UserMonitorView 聚合）。
 type ChannelMonitorLatest struct {
+	Intelligence  *domain.MonitorIntelligenceResult
 	Model         string
 	Status        string
 	LatencyMs     *int
@@ -245,6 +258,7 @@ type ChannelMonitorAvailability struct {
 // PrimaryStatus / PrimaryLatencyMs 描述主模型最近状态；Availability7d 是主模型 7 天可用率；
 // ExtraModels 描述附加模型最近状态（用于 hover 展示）。
 type MonitorStatusSummary struct {
+	Intelligence     *domain.MonitorIntelligenceResult
 	PrimaryStatus    string // 空字符串表示无历史
 	PrimaryLatencyMs *int
 	Availability7d   float64 // 0-100，无历史时为 0

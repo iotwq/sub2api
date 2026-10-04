@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -24,7 +25,6 @@ func (s *stubCodexRestrictionDetector) Detect(_ *gin.Context, _ *Account, _ Code
 }
 
 func TestOpenAIGatewayService_GetCodexClientRestrictionDetector(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("使用注入的 detector", func(t *testing.T) {
 		expected := &stubCodexRestrictionDetector{
@@ -61,7 +61,6 @@ func TestOpenAIGatewayService_GetCodexClientRestrictionDetector(t *testing.T) {
 }
 
 func TestOpenAIGatewayService_Forward_VersionGateMessage(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	newCtx := func() (*httptest.ResponseRecorder, *gin.Context) {
 		rec := httptest.NewRecorder()
@@ -107,7 +106,6 @@ func TestOpenAIGatewayService_Forward_VersionGateMessage(t *testing.T) {
 }
 
 func TestGetAPIKeyIDFromContext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	t.Run("context 为 nil", func(t *testing.T) {
 		require.Equal(t, int64(0), getAPIKeyIDFromContext(nil))
@@ -171,7 +169,6 @@ func TestLogCodexCLIOnlyDetection_OnlyLogsRejected(t *testing.T) {
 }
 
 func TestLogCodexCLIOnlyDetection_RejectedIncludesRequestDetails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
@@ -204,7 +201,6 @@ func TestLogCodexCLIOnlyDetection_RejectedIncludesRequestDetails(t *testing.T) {
 }
 
 func TestLogOpenAIInstructionsRequiredDebug_LogsRequestDetails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
@@ -239,7 +235,6 @@ func TestLogOpenAIInstructionsRequiredDebug_LogsRequestDetails(t *testing.T) {
 }
 
 func TestLogOpenAIInstructionsRequiredDebug_NonTargetErrorSkipped(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
@@ -318,6 +313,62 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	))
 }
 
+func TestNormalizeWrappedUpstreamRetryStatus(t *testing.T) {
+	retryable := []struct {
+		code string
+		want int
+	}{
+		{code: "401", want: http.StatusUnauthorized},
+		{code: "403", want: http.StatusForbidden},
+		{code: "429", want: http.StatusTooManyRequests},
+		{code: "501", want: http.StatusNotImplemented},
+		{code: "502", want: http.StatusBadGateway},
+		{code: "503", want: http.StatusServiceUnavailable},
+	}
+	for _, tt := range retryable {
+		t.Run(tt.code, func(t *testing.T) {
+			body := []byte(`{"error":{"message":"API returned ` + tt.code + `: upstream temporary failure"}}`)
+			require.Equal(t, tt.want, normalizeWrappedUpstreamRetryStatus(http.StatusBadRequest, body))
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			account := &Account{
+				ID:       101,
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"pool_mode":                    true,
+					"pool_mode_retry_status_codes": []any{float64(tt.want)},
+				},
+			}
+			resp := &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header)}
+			failoverErr := (&OpenAIGatewayService{}).failoverOpenAIUpstreamHTTPError(
+				context.Background(), c, account, resp, body, extractUpstreamErrorMessage(body), "gpt-test",
+			)
+			require.NotNil(t, failoverErr)
+			require.Equal(t, tt.want, failoverErr.StatusCode)
+			require.True(t, failoverErr.RetryableOnSameAccount)
+		})
+	}
+
+	for name, body := range map[string][]byte{
+		"ordinary bad request": []byte(`{"error":{"message":"Missing required parameter: model"}}`),
+		"embedded marker":      []byte(`{"error":{"message":"proxy error: API returned 429: rate limited"}}`),
+		"missing colon":        []byte(`{"error":{"message":"API returned 429 rate limited"}}`),
+		"unlisted status":      []byte(`{"error":{"message":"API returned 500: internal error"}}`),
+		"wrong case":           []byte(`{"error":{"message":"api returned 429: rate limited"}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, http.StatusBadRequest, normalizeWrappedUpstreamRetryStatus(http.StatusBadRequest, body))
+		})
+	}
+
+	require.Equal(t, http.StatusServiceUnavailable, normalizeWrappedUpstreamRetryStatus(
+		http.StatusServiceUnavailable,
+		[]byte(`{"error":{"message":"API returned 429: rate limited"}}`),
+	))
+}
+
 func TestIsOpenAIContextWindowError(t *testing.T) {
 	require.True(t, isOpenAIContextWindowError(
 		"",
@@ -352,6 +403,36 @@ func TestOpenAITransientAndCapacityClassificationIgnoresEchoedJSON(t *testing.T)
 	require.True(t, isOpenAIRequestScopedCapacityShed("", plainText))
 }
 
+func TestChannelMonitorBadRequestFailoverIsMonitorOnly(t *testing.T) {
+	body := []byte(`{"error":{"message":"Upstream request failed","type":"invalid_request_error"}}`)
+	account := &Account{ID: 102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	newContext := func(monitor bool) *gin.Context {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		if monitor {
+			c.Request.Header.Set(ChannelMonitorProbeAttemptsHeader, strconv.Itoa(ChannelMonitorProbeAttempts))
+		}
+		return c
+	}
+	newResponse := func() *http.Response {
+		return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header)}
+	}
+
+	svc := &OpenAIGatewayService{}
+	require.Nil(t, svc.failoverOpenAIUpstreamHTTPError(
+		context.Background(), newContext(false), account, newResponse(), body, extractUpstreamErrorMessage(body), "gpt-test",
+	))
+
+	failoverErr := svc.failoverOpenAIUpstreamHTTPError(
+		context.Background(), newContext(true), account, newResponse(), body, extractUpstreamErrorMessage(body), "gpt-test",
+	)
+	require.NotNil(t, failoverErr)
+	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, failoverErr.RetryableOnSameAccount)
+}
+
 func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	body := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
@@ -366,7 +447,6 @@ func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
 }
 
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)
 	defer restore()
 
@@ -425,7 +505,6 @@ func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing
 }
 
 func TestOpenAIGatewayService_Forward_TransientProcessingErrorTriggersFailover(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -473,7 +552,6 @@ func TestOpenAIGatewayService_Forward_TransientProcessingErrorTriggersFailover(t
 }
 
 func TestOpenAIGatewayService_Forward_ModelCapacityErrorTriggersFailoverAndSameAccountRetry(t *testing.T) {
-	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

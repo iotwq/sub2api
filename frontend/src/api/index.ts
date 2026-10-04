@@ -23,6 +23,14 @@ export { passkeyAPI, type PasskeyCredentialSummary } from './passkey'
 export { default as announcementsAPI } from './announcements'
 export { channelMonitorUserAPI } from './channelMonitor'
 export { chatAPI } from './chat'
+export { communityChatAPI } from './communityChat'
+export type {
+  CommunityChatDirectConversation,
+  CommunityChatDirectUser,
+  CommunityChatDirectUnreadSummary,
+  CommunityChatEvent,
+  CommunityChatMessage,
+} from './communityChat'
 
 // Admin APIs
 export { adminAPI } from './admin'

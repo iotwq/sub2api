@@ -250,6 +250,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SiteLogo:                                               settings.SiteLogo,
 		SiteSubtitle:                                           settings.SiteSubtitle,
 		APIBaseURL:                                             settings.APIBaseURL,
+		OptimizedAPIBaseURL:                                    settings.OptimizedAPIBaseURL,
 		ContactInfo:                                            settings.ContactInfo,
 		DocURL:                                                 settings.DocURL,
 		HomeContent:                                            settings.HomeContent,
@@ -304,9 +305,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAICodexClientVersion:                               settings.OpenAICodexClientVersion,
 		OpenAICodexClientVersionSynced:                         settings.OpenAICodexClientVersionSynced,
 		OpenAICodexVersionAutoSyncEnabled:                      settings.OpenAICodexVersionAutoSyncEnabled,
-		OpenAICodexTicketEnabled:                               settings.OpenAICodexTicketEnabled,
-		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(settings.OpenAICodexTicketHarvestProxyURL),
-		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL) != "",
 		ClaudeCodeClientVersion:                                settings.ClaudeCodeClientVersion,
 		ClaudeCodeClientVersionSynced:                          settings.ClaudeCodeClientVersionSynced,
 		ClaudeCodeVersionAutoSyncEnabled:                       settings.ClaudeCodeVersionAutoSyncEnabled,
@@ -404,6 +402,18 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+		ExcelBPSImageMode:           settings.ExcelBPSImageMode,
+		ExcelBPSImageMaxImageMiB:    settings.ExcelBPSImageMaxImageMiB,
+		ExcelBPSImageMaxImages:      settings.ExcelBPSImageMaxImages,
+		ExcelBPSImageMaxTotalMiB:    settings.ExcelBPSImageMaxTotalMiB,
+		ExcelBPSImageStorageMiB:     settings.ExcelBPSImageStorageMiB,
+		ExcelBPSImageStorageEntries: settings.ExcelBPSImageStorageEntries,
+		ExcelBPSImageTTLMinutes:     settings.ExcelBPSImageTTLMinutes,
+		ExcelBPSImageRelayEnabled:   settings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageBaseURL:        settings.ExcelBPSImageBaseURL,
+		ExcelBPSImageBodyLimitMiB:   settings.ExcelBPSImageBodyLimitMiB,
+		ExcelBPSImageBudgetMiB:      settings.ExcelBPSImageBudgetMiB,
+		ExcelBPSImageMaxRequests:    settings.ExcelBPSImageMaxRequests,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

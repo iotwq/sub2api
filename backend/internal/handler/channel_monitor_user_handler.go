@@ -52,6 +52,8 @@ func (h *ChannelMonitorUserHandler) quotaVisible(c *gin.Context) bool {
 // --- Response ---
 
 type channelMonitorUserListItem struct {
+	IntelligenceEnabled  bool                                 `json:"intelligence_enabled"`
+	Intelligence         *domain.MonitorIntelligenceResult    `json:"intelligence,omitempty"`
 	ID                   int64                                `json:"id"`
 	Name                 string                               `json:"name"`
 	Provider             string                               `json:"provider"`
@@ -71,37 +73,41 @@ type channelMonitorUserListItem struct {
 // channelMonitorUserTimelinePoint 主模型最近一次检测的 timeline 点。
 // 仅用于用户视图 list 响应，admin 视图不使用。
 type channelMonitorUserTimelinePoint struct {
-	Status        string `json:"status"`
-	LatencyMs     *int   `json:"latency_ms"`
-	PingLatencyMs *int   `json:"ping_latency_ms"`
-	CheckedAt     string `json:"checked_at"`
+	Intelligence  *domain.MonitorIntelligenceResult `json:"intelligence,omitempty"`
+	Status        string                            `json:"status"`
+	LatencyMs     *int                              `json:"latency_ms"`
+	PingLatencyMs *int                              `json:"ping_latency_ms"`
+	CheckedAt     string                            `json:"checked_at"`
 }
 
 type channelMonitorUserDetailResponse struct {
-	ID        int64                         `json:"id"`
-	Name      string                        `json:"name"`
-	Provider  string                        `json:"provider"`
-	GroupName string                        `json:"group_name"`
-	Models    []channelMonitorUserModelStat `json:"models"`
+	IntelligenceEnabled bool                          `json:"intelligence_enabled"`
+	ID                  int64                         `json:"id"`
+	Name                string                        `json:"name"`
+	Provider            string                        `json:"provider"`
+	GroupName           string                        `json:"group_name"`
+	Models              []channelMonitorUserModelStat `json:"models"`
 }
 
 type channelMonitorUserModelStat struct {
-	Model           string  `json:"model"`
-	LatestStatus    string  `json:"latest_status"`
-	LatestLatencyMs *int    `json:"latest_latency_ms"`
-	Availability7d  float64 `json:"availability_7d"`
-	Availability15d float64 `json:"availability_15d"`
-	Availability30d float64 `json:"availability_30d"`
-	AvgLatency7dMs  *int    `json:"avg_latency_7d_ms"`
+	Intelligence    *domain.MonitorIntelligenceResult `json:"intelligence,omitempty"`
+	Model           string                            `json:"model"`
+	LatestStatus    string                            `json:"latest_status"`
+	LatestLatencyMs *int                              `json:"latest_latency_ms"`
+	Availability7d  float64                           `json:"availability_7d"`
+	Availability15d float64                           `json:"availability_15d"`
+	Availability30d float64                           `json:"availability_30d"`
+	AvgLatency7dMs  *int                              `json:"avg_latency_7d_ms"`
 }
 
 func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channelMonitorUserListItem {
 	extras := make([]dto.ChannelMonitorExtraModelStatus, 0, len(v.ExtraModels))
 	for _, e := range v.ExtraModels {
 		extras = append(extras, dto.ChannelMonitorExtraModelStatus{
-			Model:     e.Model,
-			Status:    e.Status,
-			LatencyMs: e.LatencyMs,
+			Model:        e.Model,
+			Status:       e.Status,
+			LatencyMs:    e.LatencyMs,
+			Intelligence: e.Intelligence,
 		})
 	}
 	timeline := make([]channelMonitorUserTimelinePoint, 0, len(v.Timeline))
@@ -111,6 +117,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 			LatencyMs:     p.LatencyMs,
 			PingLatencyMs: p.PingLatencyMs,
 			CheckedAt:     p.CheckedAt.UTC().Format(time.RFC3339),
+			Intelligence:  p.Intelligence,
 		})
 	}
 	item := channelMonitorUserListItem{
@@ -118,6 +125,8 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		Name:                 v.Name,
 		Provider:             v.Provider,
 		GroupName:            v.GroupName,
+		IntelligenceEnabled:  v.IntelligenceEnabled,
+		Intelligence:         v.Intelligence,
 		PrimaryModel:         v.PrimaryModel,
 		PrimaryStatus:        v.PrimaryStatus,
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
@@ -143,14 +152,16 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 			Availability15d: m.Availability15d,
 			Availability30d: m.Availability30d,
 			AvgLatency7dMs:  m.AvgLatency7dMs,
+			Intelligence:    m.Intelligence,
 		})
 	}
 	return &channelMonitorUserDetailResponse{
-		ID:        d.ID,
-		Name:      d.Name,
-		Provider:  d.Provider,
-		GroupName: d.GroupName,
-		Models:    models,
+		ID:                  d.ID,
+		Name:                d.Name,
+		Provider:            d.Provider,
+		GroupName:           d.GroupName,
+		IntelligenceEnabled: d.IntelligenceEnabled,
+		Models:              models,
 	}
 }
 

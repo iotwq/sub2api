@@ -281,6 +281,18 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			fs.FailedAccountIDs[account.ID] = struct{}{}
 			continue
 		}
+		if err := h.gatewayService.ValidateTokenPricing(
+			c.Request.Context(), apiKey, reqModel, channelMapping.MappedModel,
+			channelMapping.BillingModelSource, account.GetMappedModel(reqModel),
+		); err != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			reqLog.Warn("gateway.cc.pricing_unavailable", zap.Error(err))
+			status, errType, message := pricingPreflightErrorDetails(reqModel, err)
+			h.chatCompletionsErrorResponse(c, status, errType, message)
+			return
+		}
 
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
@@ -317,7 +329,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			accountReleaseFunc()
 		}
 
-		if err != nil {
+		if err != nil && service.ForwardResultHasBillableUsage(result) {
+			reqLog.Warn("gateway.cc.forward_partial_error_with_billable_usage",
+				zap.Int64("account_id", account.ID),
+				zap.Error(err),
+			)
+		} else if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {
@@ -409,6 +426,19 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 	if lastErr != nil && lastErr.IsCredentialFailure() {
 		status, message := credentialFailoverClientResponse(lastErr)
 		h.chatCompletionsErrorResponse(c, status, "server_error", message)
+		return
+	}
+	if lastErr != nil && lastErr.Reason == service.ExcelBPSRateLimitedReason {
+		service.SetOpsUpstreamError(c, lastErr.StatusCode, lastErr.ClientMessage, "")
+		status := lastErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusTooManyRequests
+		}
+		message := strings.TrimSpace(lastErr.ClientMessage)
+		if message == "" {
+			message = "Excel BPS rate limit exceeded, please retry later"
+		}
+		h.chatCompletionsErrorResponse(c, status, "rate_limit_error", message)
 		return
 	}
 	if lastErr != nil && lastErr.IsOpenAICapacityShed() && strings.TrimSpace(lastErr.ClientMessage) != "" {

@@ -90,6 +90,12 @@ func (_c *ChannelMonitorHistoryCreate) SetQuota(v *domain.MonitorQuotaSnapshot) 
 	return _c
 }
 
+// SetIntelligence sets the "intelligence" field.
+func (_c *ChannelMonitorHistoryCreate) SetIntelligence(v *domain.MonitorIntelligenceResult) *ChannelMonitorHistoryCreate {
+	_c.mutation.SetIntelligence(v)
+	return _c
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (_c *ChannelMonitorHistoryCreate) SetCheckedAt(v time.Time) *ChannelMonitorHistoryCreate {
 	_c.mutation.SetCheckedAt(v)
@@ -236,6 +242,10 @@ func (_c *ChannelMonitorHistoryCreate) createSpec() (*ChannelMonitorHistory, *sq
 	if value, ok := _c.mutation.Quota(); ok {
 		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)
 		_node.Quota = value
+	}
+	if value, ok := _c.mutation.Intelligence(); ok {
+		_spec.SetField(channelmonitorhistory.FieldIntelligence, field.TypeJSON, value)
+		_node.Intelligence = value
 	}
 	if value, ok := _c.mutation.CheckedAt(); ok {
 		_spec.SetField(channelmonitorhistory.FieldCheckedAt, field.TypeTime, value)
@@ -430,6 +440,24 @@ func (u *ChannelMonitorHistoryUpsert) ClearQuota() *ChannelMonitorHistoryUpsert 
 	return u
 }
 
+// SetIntelligence sets the "intelligence" field.
+func (u *ChannelMonitorHistoryUpsert) SetIntelligence(v *domain.MonitorIntelligenceResult) *ChannelMonitorHistoryUpsert {
+	u.Set(channelmonitorhistory.FieldIntelligence, v)
+	return u
+}
+
+// UpdateIntelligence sets the "intelligence" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsert) UpdateIntelligence() *ChannelMonitorHistoryUpsert {
+	u.SetExcluded(channelmonitorhistory.FieldIntelligence)
+	return u
+}
+
+// ClearIntelligence clears the value of the "intelligence" field.
+func (u *ChannelMonitorHistoryUpsert) ClearIntelligence() *ChannelMonitorHistoryUpsert {
+	u.SetNull(channelmonitorhistory.FieldIntelligence)
+	return u
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (u *ChannelMonitorHistoryUpsert) SetCheckedAt(v time.Time) *ChannelMonitorHistoryUpsert {
 	u.Set(channelmonitorhistory.FieldCheckedAt, v)
@@ -619,6 +647,27 @@ func (u *ChannelMonitorHistoryUpsertOne) UpdateQuota() *ChannelMonitorHistoryUps
 func (u *ChannelMonitorHistoryUpsertOne) ClearQuota() *ChannelMonitorHistoryUpsertOne {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearQuota()
+	})
+}
+
+// SetIntelligence sets the "intelligence" field.
+func (u *ChannelMonitorHistoryUpsertOne) SetIntelligence(v *domain.MonitorIntelligenceResult) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetIntelligence(v)
+	})
+}
+
+// UpdateIntelligence sets the "intelligence" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertOne) UpdateIntelligence() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateIntelligence()
+	})
+}
+
+// ClearIntelligence clears the value of the "intelligence" field.
+func (u *ChannelMonitorHistoryUpsertOne) ClearIntelligence() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearIntelligence()
 	})
 }
 
@@ -977,6 +1026,27 @@ func (u *ChannelMonitorHistoryUpsertBulk) UpdateQuota() *ChannelMonitorHistoryUp
 func (u *ChannelMonitorHistoryUpsertBulk) ClearQuota() *ChannelMonitorHistoryUpsertBulk {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearQuota()
+	})
+}
+
+// SetIntelligence sets the "intelligence" field.
+func (u *ChannelMonitorHistoryUpsertBulk) SetIntelligence(v *domain.MonitorIntelligenceResult) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetIntelligence(v)
+	})
+}
+
+// UpdateIntelligence sets the "intelligence" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertBulk) UpdateIntelligence() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateIntelligence()
+	})
+}
+
+// ClearIntelligence clears the value of the "intelligence" field.
+func (u *ChannelMonitorHistoryUpsertBulk) ClearIntelligence() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearIntelligence()
 	})
 }
 

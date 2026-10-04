@@ -186,17 +186,8 @@
                 {{ t('keys.useKeyModal.codexModelCatalog.description') }}
               </p>
               <p class="mt-1 truncate font-mono text-xs text-gray-700 dark:text-gray-300">
-                {{ codexModelCatalogMode === 'remote' ? codexModelCatalogUrl : codexModelCatalogPath }}
+                {{ codexModelCatalogUrl }}
               </p>
-              <select
-                v-model="codexModelCatalogMode"
-                data-testid="codex-model-catalog-mode"
-                :aria-label="t('keys.useKeyModal.codexModelCatalog.mode')"
-                class="input mt-2 text-sm"
-              >
-                <option value="remote" :disabled="codexModelCatalogOversized">{{ t('keys.useKeyModal.codexModelCatalog.remote') }}</option>
-                <option value="file">{{ t('keys.useKeyModal.codexModelCatalog.local') }}</option>
-              </select>
               <p v-if="codexModelCatalogOversized" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 {{ t('keys.useKeyModal.codexModelCatalog.oversized') }}
               </p>
@@ -323,13 +314,9 @@ type CodexModelManifestState = 'idle' | 'loading' | 'ready' | 'error'
 const codexModelManifestState = ref<CodexModelManifestState>('idle')
 const codexModelManifestContent = ref('')
 const codexModelManifestModelCount = ref(0)
-const codexModelCatalogMode = ref<'remote' | 'file'>('remote')
 const codexModelManifestResponseBytes = ref(0)
 const codexModelCatalogOversized = computed(() => codexModelManifestResponseBytes.value > 1024 * 1024)
 const codexModelCatalogUrl = computed(() => buildCodexModelCatalogUrl(props.baseUrl))
-const codexLocalCatalogToml = computed(() => codexModelCatalogMode.value === 'file'
-  ? `model_catalog_json = "${CODEX_MODEL_CATALOG_CONFIG_PATH}"\n`
-  : '')
 let codexModelManifestController: AbortController | null = null
 let codexModelManifestRequestID = 0
 
@@ -338,16 +325,6 @@ const showCodexModelCatalog = computed(() =>
   (activeClientTab.value === 'codex' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
-
-const codexModelCatalogPath = computed(() => {
-  const isWindows = activeTab.value === 'windows'
-  const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
-  return joinConfigPath(configDir, 'codex-models.json', isWindows)
-})
-
-// Codex expands a leading ~/ on every platform but not %userprofile%, which it
-// resolves relative to the config directory, so config.toml always uses ~/.
-const CODEX_MODEL_CATALOG_CONFIG_PATH = '~/.codex/codex-models.json'
 
 const codexManifestContext = computed(() => {
   if (!showCodexModelCatalog.value) return ''
@@ -679,7 +656,6 @@ async function loadCodexModelManifest() {
     codexModelManifestContent.value = result.content
     codexModelManifestModelCount.value = result.modelCount
     codexModelManifestResponseBytes.value = result.responseBytes
-    if (codexModelCatalogOversized.value) codexModelCatalogMode.value = 'file'
     codexModelManifestState.value = 'ready'
   } catch (error) {
     const errorName = error && typeof error === 'object' && 'name' in error
@@ -1035,13 +1011,14 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
 model = "${model}"
 review_model = "${model}"
 ${reasoningEffortLine}disable_response_storage = true
-${codexLocalCatalogToml.value}network_access = "enabled"
+network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
-${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}wire_api = "responses"
+model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"
+wire_api = "responses"
 ${generateCodexProviderAuthConfig(apiKey)}
 
 [features]
@@ -1118,111 +1095,36 @@ $env:XAI_API_KEY="${apiKey}"`
 export XAI_API_KEY="${apiKey}"`
   }
 
-  // Shape follows Grok Build user guide (~/.grok/docs + custom-models) and production-ready Sub2API setups.
-  // Text models only (Responses). Image/video: Imagine model IDs on media endpoints / feature overrides.
-  // Credential order: api_key field → env_key → signed-in session → XAI_API_KEY global fallback.
-  const modelsListUrl = `${baseUrl.replace(/\/+$/, '')}/models`
-  const configContent = `# Grok Build CLI → Sub2API Grok group (API key auth).
-# Docs: ~/.grok/docs/user-guide/05-configuration.md + 11-custom-models.md
-# Verify after save: grok inspect
-#
-# IMPORTANT: api_backend must be "responses" for Sub2API Grok (POST /v1/responses).
-# If omitted, Grok Build defaults to chat_completions (/v1/chat/completions).
-# Keep api_backend = "responses" on every model entry.
-#
-# Prefer env_key over hardcoding api_key (never commit secrets).
-# Also export GROK_MODELS_BASE_URL + XAI_API_KEY in the shell block above.
+  const configContent = `installer = "internal"
+auto_update = false
 
-# Global inference / catalog endpoints (same role as env GROK_MODELS_BASE_URL).
-# When models_base_url is set, Grok uses API-key Bearer auth (no grok login required).
 [endpoints]
-models_base_url = "${baseUrl}"              # inference base; model list defaults to {base}/models
-models_list_url = "${modelsListUrl}"        # optional override (env: GROK_MODELS_LIST_URL)
-xai_api_base_url = "${baseUrl}"             # public xAI API base override for gateway routing
-cli_chat_proxy_base_url = "${baseUrl}"      # CLI chat-proxy base (env: GROK_CLI_CHAT_PROXY_BASE_URL)
-
-# Prefer API key when using a custom gateway (matches Sub2API).
-# Requires XAI_API_KEY env or per-model env_key / api_key.
-[auth]
-preferred_method = "api_key"
-
-[model."grok-4.5"]
-model = "grok-4.5"                          # id sent to the API
-name = "Grok 4.5"                           # shown in /model picker
-description = "Grok 4.5 via Sub2API (Responses)"
-# base_url inherits from [endpoints].models_base_url; override only if needed:
-# base_url = "${baseUrl}"
-env_key = "XAI_API_KEY"                     # or: api_key = "${apiKey}"  (not recommended)
-api_backend = "responses"                   # chat_completions | responses | messages
-context_window = 500000                     # drives auto-compaction timing
-# Optional sampling (global defaults can live under [models] instead):
-# temperature = 0.7
-# top_p = 0.95
-# max_completion_tokens = 8192
-# Server-side (backend) web_search tools — only if your gateway exposes them:
-supports_backend_search = true
-
-[model."grok-build-0.1"]
-model = "grok-build-0.1"
-name = "Grok Build"
-description = "Coding / agent sessions (xAI recommends grok-build* for coding)"
-env_key = "XAI_API_KEY"
-api_backend = "responses"
-context_window = 256000
-supports_backend_search = true
-
-# Text multi-agent / client web_search sub-agent (NOT Imagine image/video).
-[model."grok-4.20-multi-agent-0309"]
-model = "grok-4.20-multi-agent-0309"
-name = "Grok 4.20 Multi Agent (text / web_search)"
-description = "Text multi-agent; use for web_search sub-agent, not image/video"
-env_key = "XAI_API_KEY"
-api_backend = "responses"
-context_window = 1000000
-supports_backend_search = true
-
-[model."grok-4.3"]
-model = "grok-4.3"
-name = "Grok 4.3"
-env_key = "XAI_API_KEY"
-api_backend = "responses"
-context_window = 1000000
-supports_backend_search = true
-
-# Optional short alias for /model grok:
-# [model."grok"]
-# model = "grok-4.5"
-# name = "Grok"
-# env_key = "XAI_API_KEY"
-# api_backend = "responses"
-# context_window = 1000000
-# supports_backend_search = true
+models_base_url = "${baseUrl}"
 
 [models]
-# xAI recommends grok-build* for coding/agent sessions; use grok-4.5 for general chat.
-default = "grok-4.5"
-web_search = "grok-4.5"                     # client-side web_search tool model (must exist as [model.*])
-image_description = "grok-4.5"              # vision/describe-image helper model
-# Optional environment-wide sampling defaults (per-model values win):
-# temperature = 0.7
-# top_p = 0.95
-# max_completion_tokens = 8192
-# max_retries = 8
+default = "grok-4.6"
+default_reasoning_effort = "xhigh"
 
-[session]
-auto_compact_threshold_percent = 80         # auto-compact at this % of context_window (default 85)
+[model."grok-4.6"]
+model = "grok-4.6"
+api_key = "${apiKey}"
+name = "Grok 4.6"
+context_window = 500000
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "medium", "high", "xhigh"]
 
-# Imagine tools: model IDs go to Sub2API media endpoints (not the text [model.*] catalog).
-# Enable only if the Grok group allows image/video generation.
-[features]
-image_gen = true
-video_gen = true
-image_gen_model_override = "grok-imagine-image-quality"   # or grok-imagine-image
-image_edit_model_override = "grok-imagine-edit"
-# Optional feature flags (defaults shown in docs):
-# telemetry = false
-# remote_fetch = true                         # set false for air-gapped / pure-gateway catalogs
-# lsp_tools = false`
+[marketplace]
+default_skills_installs_purged = true
+
+[ui]
+max_thoughts_width = 120
+fork_secondary_model = "grok-4.5"
+yolo = false
+compact_mode = false
+permission_mode = "always-approve"
+
+[cli]
+installer = "internal"`
 
   return [
     { path: envPath, content: envContent },
@@ -1267,7 +1169,7 @@ function generateGrokCodexFiles(baseUrl: string, apiKey: string): FileConfig[] {
 
 model_provider = "sub2api"
 model = "${model}"
-${codexLocalCatalogToml.value}# Optional:
+# Optional:
 # review_model = "${model}"
 # model_reasoning_effort = "medium"
 # model_context_window = 500000
@@ -1278,7 +1180,8 @@ ${codexLocalCatalogToml.value}# Optional:
 [model_providers.sub2api]
 name = "Sub2API Grok"
 base_url = "${baseUrl}"
-${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}# Prefer env_key (variable NAME). Do not combine with experimental_bearer_token.
+model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"
+# Prefer env_key (variable NAME). Do not combine with experimental_bearer_token.
 env_key = "SUB2API_API_KEY"
 # Fallback only if you cannot set env (discouraged — keeps secret on disk):
 # experimental_bearer_token = "${apiKey}"
@@ -1348,11 +1251,12 @@ model_provider = "sub2api"
 model = "${model}"
 review_model = "${model}"
 disable_response_storage = true
-${codexLocalCatalogToml.value}
+
 [model_providers.sub2api]
 name = "Sub2API ${label}"
 base_url = "${baseUrl}"
-${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}env_key = "SUB2API_API_KEY"
+model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"
+env_key = "SUB2API_API_KEY"
 wire_api = "responses"
 requires_openai_auth = false
 supports_websockets = false`
@@ -1382,13 +1286,14 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
 model = "${model}"
 review_model = "${model}"
 ${reasoningEffortLine}disable_response_storage = true
-${codexLocalCatalogToml.value}network_access = "enabled"
+network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
 [model_providers.OpenAI]
 name = "OpenAI"
 base_url = "${baseUrl}"
-${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}wire_api = "responses"
+model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"
+wire_api = "responses"
 supports_websockets = true
 ${generateCodexProviderAuthConfig(apiKey)}
 

@@ -77,7 +77,11 @@ function injectPublicSettings(backendUrl: string): Plugin {
   }
 }
 
-export default defineConfig(({ mode }) => {
+function normalizeModuleId(id: string): string {
+  return id.replace(/\\/g, '/')
+}
+
+export default defineConfig(({ mode, command }) => {
   // 加载环境变量
   const env = loadEnv(mode, process.cwd(), '')
   const backendUrl = env.VITE_DEV_PROXY_TARGET || 'http://localhost:8080'
@@ -86,74 +90,98 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       vue(),
-      checker({
-        vueTsc: true
-      }),
+      ...(command === 'serve'
+        ? [
+            checker({
+              vueTsc: true
+            })
+          ]
+        : []),
       injectPublicSettings(backendUrl)
     ],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-      // 使用 vue-i18n 运行时版本，避免 CSP unsafe-eval 问题
-      'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
-    }
-  },
-  define: {
-    // 启用 vue-i18n JIT 编译，在 CSP 环境下处理消息插值
-    // JIT 编译器生成 AST 对象而非 JS 代码，无需 unsafe-eval
-    __INTLIFY_JIT_COMPILATION__: true
-  },
-  build: {
-    outDir: '../backend/internal/web/dist',
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        /**
-         * 手动分包配置
-         * 分离第三方库并按功能合并应用代码，避免循环依赖
-         */
-        manualChunks(id: string) {
-          if (id.includes('node_modules')) {
-            // Vue 核心库
-            if (
-              id.includes('/vue/') ||
-              id.includes('/vue-router/') ||
-              id.includes('/pinia/') ||
-              id.includes('/@vue/')
-            ) {
-              return 'vendor-vue'
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src'),
+        // 使用 vue-i18n 运行时版本，避免 CSP unsafe-eval 问题
+        'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
+      }
+    },
+    define: {
+      // 启用 vue-i18n JIT 编译，在 CSP 环境下处理消息插值
+      // JIT 编译器生成 AST 对象而非 JS 代码，无需 unsafe-eval
+      __INTLIFY_JIT_COMPILATION__: true
+    },
+    build: {
+      outDir: '../backend/internal/web/dist',
+      emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          /**
+           * 手动分包配置
+           * 只分离第三方库；应用源码交给 Rollup 按路由依赖图自动分包。
+           */
+          manualChunks(id: string) {
+            const moduleId = normalizeModuleId(id)
+
+            if (moduleId.includes('/node_modules/')) {
+              // Vue 核心库
+              if (
+                moduleId.includes('/vue/') ||
+                moduleId.includes('/vue-router/') ||
+                moduleId.includes('/pinia/') ||
+                moduleId.includes('/@vue/')
+              ) {
+                return 'vendor-vue'
+              }
+
+              // 国际化
+              if (moduleId.includes('/vue-i18n/') || moduleId.includes('/@intlify/')) {
+                return 'vendor-i18n'
+              }
+
+              // 图表库
+              if (moduleId.includes('/chart.js/') || moduleId.includes('/vue-chartjs/')) {
+                return 'vendor-chart'
+              }
+
+              // 大型或低频第三方库单独拆分，避免 lazy route 共用一个超大 vendor-misc。
+              if (moduleId.includes('/pdfjs-dist/')) return 'vendor-pdf'
+              // Keep DOCX parsing deps with their lazy importers; forcing them into vendor-misc
+              // can preload broken CommonJS output on unrelated routes such as dashboards.
+              if (
+                moduleId.includes('/mammoth/') ||
+                moduleId.includes('/jszip/') ||
+                moduleId.includes('/lie/') ||
+                moduleId.includes('/pako/') ||
+                moduleId.includes('/readable-stream/') ||
+                moduleId.includes('/setimmediate/') ||
+                moduleId.includes('/@xmldom/') ||
+                moduleId.includes('/sax/') ||
+                moduleId.includes('/underscore/') ||
+                moduleId.includes('/xmlbuilder/')
+              ) {
+                return
+              }
+              if (moduleId.includes('/xlsx/')) return 'vendor-xlsx'
+              if (moduleId.includes('/@airwallex/components-sdk/')) return 'vendor-airwallex'
+              if (moduleId.includes('/@stripe/stripe-js/')) return 'vendor-stripe'
+              if (moduleId.includes('/marked/') || moduleId.includes('/dompurify/')) return 'vendor-markdown'
+              if (moduleId.includes('/qrcode/')) return 'vendor-qrcode'
+              if (moduleId.includes('/driver.js/')) return 'vendor-tour'
+              if (moduleId.includes('/@tanstack/vue-virtual/')) return 'vendor-virtual'
+              if (moduleId.includes('/@vueuse/')) return 'vendor-vueuse'
+              if (moduleId.includes('/axios/')) return 'vendor-http'
+              if (moduleId.includes('/emoji-picker-element/')) return 'vendor-emoji'
+
+              // 其他小型第三方库合并
+              return 'vendor-misc'
             }
 
-            // UI 工具库（较大，单独分离）
-            if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
-              return 'vendor-ui'
-            }
-
-            // 图表库
-            if (id.includes('/chart.js/') || id.includes('/vue-chartjs/')) {
-              return 'vendor-chart'
-            }
-
-            // 国际化
-            if (id.includes('/vue-i18n/') || id.includes('/@intlify/')) {
-              return 'vendor-i18n'
-            }
-
-            // Stripe 仅在支付流程中按需加载，避免进入首页公共依赖。
-            if (id.includes('/@stripe/stripe-js/')) {
-              return 'vendor-stripe'
-            }
-
-            // 其他小型第三方库合并
-            return 'vendor-misc'
+            // 应用代码：按入口点自动分包，不手动干预。
           }
-
-          // 应用代码：按入口点自动分包，不手动干预
-          // 这样可以避免循环依赖，同时保持合理的 chunk 数量
         }
       }
-    }
-  },
+    },
     server: {
       host: '0.0.0.0',
       port: devPort,

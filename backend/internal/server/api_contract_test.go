@@ -624,6 +624,12 @@ func TestAPIContracts(t *testing.T) {
 							"image_size_source": null,
 							"image_size_breakdown": null,
 							"media_type": null,
+							"video_count": 0,
+							"video_resolution": null,
+							"video_duration_seconds": null,
+							"video_input_duration_seconds": 0,
+							"video_output_cost": 0,
+							"video_input_cost": 0,
 							"cache_ttl_overridden": false,
 							"created_at": "2025-01-02T03:04:05Z",
 							"user_agent": null
@@ -680,12 +686,13 @@ func TestAPIContracts(t *testing.T) {
 					service.SettingKeyOIDCConnectUserInfoIDPath:       "",
 					service.SettingKeyOIDCConnectUserInfoUsernamePath: "",
 
-					service.SettingKeySiteName:     "Sub2API",
-					service.SettingKeySiteLogo:     "",
-					service.SettingKeySiteSubtitle: "Subtitle",
-					service.SettingKeyAPIBaseURL:   "https://api.example.com",
-					service.SettingKeyContactInfo:  "support",
-					service.SettingKeyDocURL:       "https://docs.example.com",
+					service.SettingKeySiteName:            "Sub2API",
+					service.SettingKeySiteLogo:            "",
+					service.SettingKeySiteSubtitle:        "Subtitle",
+					service.SettingKeyAPIBaseURL:          "https://api.example.com",
+					service.SettingKeyOptimizedAPIBaseURL: "https://cn-api.example.com",
+					service.SettingKeyContactInfo:         "support",
+					service.SettingKeyDocURL:              "https://docs.example.com",
 
 					service.SettingKeyDefaultConcurrency:   "5",
 					service.SettingKeyDefaultBalance:       "1.25",
@@ -821,6 +828,7 @@ func TestAPIContracts(t *testing.T) {
 						"site_logo": "",
 						"site_subtitle": "Subtitle",
 						"api_base_url": "https://api.example.com",
+						"optimized_api_base_url": "https://cn-api.example.com",
 						"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"contact_info": "support",
@@ -897,9 +905,6 @@ func TestAPIContracts(t *testing.T) {
 						"table_page_size_options": [10, 20, 50, 100],
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
-					"openai_codex_ticket_enabled": false,
-					"openai_codex_ticket_harvest_proxy_url": "",
-					"openai_codex_ticket_harvest_proxy_configured": false,
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
@@ -1030,7 +1035,19 @@ func TestAPIContracts(t *testing.T) {
 					"wechat_connect_redirect_url": "",
 					"wechat_connect_frontend_redirect_url": "/auth/wechat/callback",
 					"wechat_connect_scopes": "snsapi_login",
-					"allow_user_view_error_requests": false
+					"allow_user_view_error_requests": false,
+					"excel_bps_image_relay_enabled": false,
+					"excel_bps_image_mode": "relay",
+					"excel_bps_image_max_image_mib": 20,
+					"excel_bps_image_max_images": 20,
+					"excel_bps_image_max_total_mib": 32,
+					"excel_bps_image_storage_mib": 1024,
+					"excel_bps_image_storage_entries": 512,
+					"excel_bps_image_ttl_minutes": 30,
+					"excel_bps_image_base_url": "",
+					"excel_bps_image_body_limit_mib": 64,
+					"excel_bps_image_budget_mib": 1024,
+					"excel_bps_image_max_requests": 128
 				}
 			}`,
 		},
@@ -1179,6 +1196,7 @@ func TestAPIContracts(t *testing.T) {
 					"site_logo": "",
 					"site_subtitle": "Subscription to API Conversion Platform",
 					"api_base_url": "",
+					"optimized_api_base_url": "",
 					"api_key_acl_trust_forwarded_ip": false,
 					"forwarded_client_ip_headers": [],
 					"contact_info": "",
@@ -1236,9 +1254,6 @@ func TestAPIContracts(t *testing.T) {
 					"rewrite_message_cache_control": false,
 					"enable_client_dateline_normalization": true,
 					"antigravity_user_agent_version": "",
-					"openai_codex_ticket_enabled": false,
-					"openai_codex_ticket_harvest_proxy_url": "",
-					"openai_codex_ticket_harvest_proxy_configured": false,
 					"min_codex_version": "",
 					"max_codex_version": "",
 					"codex_cli_only_blacklist": "",
@@ -1391,7 +1406,19 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_dingtalk_grant_on_signup": false,
 					"auth_source_default_dingtalk_grant_on_first_bind": false,
 					"force_email_on_third_party_signup": false,
-					"allow_user_view_error_requests": false
+					"allow_user_view_error_requests": false,
+					"excel_bps_image_relay_enabled": false,
+					"excel_bps_image_mode": "relay",
+					"excel_bps_image_max_image_mib": 20,
+					"excel_bps_image_max_images": 20,
+					"excel_bps_image_max_total_mib": 32,
+					"excel_bps_image_storage_mib": 1024,
+					"excel_bps_image_storage_entries": 512,
+					"excel_bps_image_ttl_minutes": 30,
+					"excel_bps_image_base_url": "",
+					"excel_bps_image_body_limit_mib": 64,
+					"excel_bps_image_budget_mib": 1024,
+					"excel_bps_image_max_requests": 128
 				}
 			}`,
 		},
@@ -1501,7 +1528,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingService := service.NewSettingService(settingRepo, cfg)
 
 	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
+	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
 	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil)
@@ -2588,6 +2615,18 @@ func (r *stubUsageLogRepo) Create(ctx context.Context, log *service.UsageLog) (b
 
 func (r *stubUsageLogRepo) GetByID(ctx context.Context, id int64) (*service.UsageLog, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (r *stubUsageLogRepo) GetByRequestIDAndAPIKey(ctx context.Context, requestID string, apiKeyID int64) (*service.UsageLog, error) {
+	for _, logs := range r.userLogs {
+		for i := range logs {
+			if logs[i].RequestID == requestID && logs[i].APIKeyID == apiKeyID {
+				log := logs[i]
+				return &log, nil
+			}
+		}
+	}
+	return nil, service.ErrUsageLogNotFound
 }
 
 func (r *stubUsageLogRepo) Delete(ctx context.Context, id int64) error {

@@ -207,7 +207,7 @@ type CostBreakdown struct {
 	CacheReadCost             float64
 	TotalCost                 float64
 	ActualCost                float64 // 应用倍率后的实际费用
-	BillingMode               string  // 计费模式（"token"/"per_request"/"image"），由 CalculateCostUnified 填充
+	BillingMode               string  // 计费模式（"token"/"per_request"/"image"/"video"），由计费入口填充
 	LongContextBillingApplied bool
 }
 
@@ -1478,7 +1478,7 @@ type CostInput struct {
 	LongContextBillingEnabled *bool
 }
 
-// CalculateCostUnified 统一计费入口，支持三种计费模式。
+// CalculateCostUnified 统一计费入口。视频按秒计费由媒体网关传入已核验时长处理。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
 func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
 	if input.Resolver == nil {
@@ -1514,11 +1514,13 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	var breakdown *CostBreakdown
 	var err error
 	switch resolved.Mode {
-	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
+	case BillingModePerRequest, BillingModeImage:
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
 		if err == nil && resolved.channelPricing != nil {
 			applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, resolved.channelPricing.ReasoningEffortMultipliers))
 		}
+	case BillingModeVideo:
+		return nil, fmt.Errorf("video billing requires verified media duration for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	default: // BillingModeToken
 		breakdown, err = s.calculateTokenCost(resolved, input)
 	}
@@ -2217,7 +2219,7 @@ func (s *BillingService) CalculateVideoCost(model string, resolution string, vid
 		return &CostBreakdown{}
 	}
 	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
-	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	durationSeconds = NormalizeVideoBillingDurationForModel(model, durationSeconds)
 
 	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
 	totalCost := perSecondPrice * float64(durationSeconds) * float64(videoCount)
@@ -2320,11 +2322,8 @@ func (s *BillingService) getDefaultVideoPrice(model string, resolution string) f
 		return price
 	}
 
-	// The bundled LiteLLM schema does not expose an output video generation price.
-	// Keep the historical model default as the fallback (interpreted as a per-second
-	// rate; today only Grok models reach video billing, so this path is a safety net),
-	// while letting group-level video prices override it independently from image prices.
-	return s.getDefaultImagePrice(model, ImageBillingSize2K)
+	// 非 Grok 视频没有可信的通用默认价格，必须由渠道按次价格或分组视频价格明确配置。
+	return 0
 }
 
 func getDefaultGrokImagineImagePrice(model string, imageSize string) (float64, bool) {

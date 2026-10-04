@@ -68,9 +68,13 @@ export default {
   keys: {
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
+    pricingNoticeTitle: 'Actual cost calculation',
+    pricingNoticeRatio: 'Recharge ratio',
+    pricingNotice: 'This site uses a 1:6 recharge ratio, so the effective multiplier is the current group multiplier divided by 6; actual image and video prices are also the billed prices divided by 6.',
     searchPlaceholder: 'Search name or key...',
     endpoints: {
-      title: 'API Endpoints',
+      title: 'Direct URL',
+      optimized: 'China Optimized URL',
       default: 'Default',
       copied: 'Copied',
       copiedHint: 'Copied to clipboard',
@@ -155,6 +159,7 @@ export default {
     lastUsedAt: 'Last Used',
     lastUsedIP: 'Last Used IP',
     useKey: 'Use Key',
+    chatWithKey: 'Chat with Key',
     useKeyModal: {
       title: 'Use API Key',
       description:
@@ -207,13 +212,13 @@ export default {
         claudeDescription: 'Configure Claude Code to send Messages API traffic through your Sub2API Grok group.',
         codexDescription: 'Configure Codex to send Responses API traffic through your Sub2API Grok group.',
         configTomlHint:
-          'Official path: ~/.grok/config.toml (or $GROK_HOME). Fill [endpoints] (models_base_url / models_list_url / xai_api_base_url / cli_chat_proxy_base_url), [auth] preferred_method=api_key, [models], [session], and [features] image/video overrides. Prefer env_key over api_key; every text model needs api_backend=responses. Back up before merge, then run grok inspect.',
+          'Official path: ~/.grok/config.toml (or $GROK_HOME). The template includes the current API key and service URL; back up the existing file before replacing it, and do not commit the configuration containing the key.',
         codexConfigTomlHint:
           'Official Codex: wire_api = "responses" only; prefer env_key over experimental_bearer_token; supports_websockets = false for non-OpenAI gateways (Sub2API can still accept client WS and bridge to HTTP/SSE). Back up ~/.codex/config.toml before merge.',
         note:
-          'Export GROK_MODELS_BASE_URL and XAI_API_KEY, save the full config.toml (endpoints/auth/models/session/features) as ~/.grok/config.toml, run grok inspect, then /model grok-4.5 (or grok-build-0.1 for coding).',
+          'Save the complete template as ~/.grok/config.toml and run grok inspect to use grok-4.6 by default. The environment variables above remain available for the current terminal session.',
         noteWindows:
-          'Set GROK_MODELS_BASE_URL and XAI_API_KEY, save the full config.toml as %USERPROFILE%\\.grok\\config.toml, run grok inspect, then /model grok-4.5 (or grok-build-0.1 for coding).',
+          'Save the complete template as %USERPROFILE%\\.grok\\config.toml and run grok inspect to use grok-4.6 by default. The environment variables above remain available for the current terminal session.',
         claudeNote:
           'Choose one method: terminal env for this session, or ~/.claude/settings.json for persistence. Do not commit files that contain your API key.',
         codexNote:
@@ -245,12 +250,9 @@ export default {
         note: 'Export SUB2API_API_KEY before starting Codex. The downloaded catalog contains model metadata only, not your API key.',
       },
       codexModelCatalog: {
-        mode: 'Catalog source',
-        remote: 'Remote catalog (Codex 0.156.0+)',
-        local: 'Local file (older clients)',
-        oversized: 'The complete catalog exceeds the 1 MiB remote limit. Local file mode is selected; download it to the configured path.',
+        oversized: 'The catalog exceeds the 1 MiB remote loading limit. Ask an administrator to reduce the models available to this key. You can still download the catalog for reference.',
         title: 'Codex model catalog',
-        description: 'Codex loads and refreshes the remote catalog using your configured authentication. For local file mode, fetch the catalog below and save it at the configured path.',
+        description: 'Codex 0.156.0+ loads and refreshes the remote catalog using your configured authentication. You can also fetch and download a copy below.',
         fetch: 'Fetch catalog',
         retry: 'Retry',
         download: 'Download catalog',
@@ -351,6 +353,7 @@ export default {
     accountCost: 'Cost',
     userBilled: 'User billed',
     accountBilled: 'Account billed',
+    videoFailureRefund: 'Video failure refund',
     resetNow: 'Now',
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',
@@ -427,6 +430,14 @@ export default {
     imageOutputTokens: 'Image Output Tokens',
     imageOutputTokenPrice: 'Image Output Price',
     imageOutputCost: 'Image Output Cost',
+    videoCount: 'Video count',
+    videoOutputDuration: 'Output duration',
+    videoResolution: 'Video resolution',
+    videoOutputUnitPrice: 'Output video price per second',
+    videoOutputCost: 'Output video cost',
+    videoInputDuration: 'Reference video billed duration',
+    videoInputCost: 'Reference video cost',
+    videoInputActualCost: 'Reference video user charge',
     imageSizeSource: 'Size source',
     imageSizeBreakdown: 'Size breakdown',
     imageSizeSourceOutput: 'Upstream output',
@@ -494,6 +505,24 @@ export default {
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
+    intelligence: {
+      title: 'Intelligence check',
+      enable: 'Enable intelligence check',
+      hint: 'Applies to this monitor’s group and models. Each cycle runs an ordinary probe, then a separate candy question if the probe succeeds. Intelligence results and timing do not affect channel status, latest latency, or slow-response checks. This adds requests and reasoning usage; an interval of at least 5 minutes is recommended.',
+      scope: 'This result only indicates whether the candy question was answered correctly, not model identity or overall ability.',
+      history: 'Last 60 intelligence checks',
+      passed: 'Intelligence qualified',
+      failed: 'Intelligence unqualified',
+      inconclusive: 'Intelligence check incomplete',
+      untested: 'Not tested',
+      candyAnswer: 'Candy question answer: {answer}',
+      answerNotRecorded: 'Not recorded',
+      responseIncomplete: 'Truncated or incomplete response; unable to judge',
+      emptyResponse: 'No usable answer received',
+      missingFinalAnswer: 'No unique final answer in the requested format; unable to judge',
+      requestFailed: 'Request failed; unable to judge',
+      incompatible: 'Intelligence checking requires an active probe and does not support full body replacement.',
+    },
     status: {
       operational: 'Operational',
       degraded: 'Degraded',
@@ -842,6 +871,23 @@ export default {
     passwordTooShort: 'Password must be at least 8 characters long',
     passwordChangeSuccess: 'Password changed successfully',
     passwordChangeFailed: 'Failed to change password',
+    newapi: {
+      title: 'CC Switch / NewAPI Balance Access',
+      description: 'Generate a long-lived credential for cc-switch to read your current account balance.',
+      userId: 'User ID',
+      accessToken: 'Access Token',
+      copyUserId: 'Copy User ID',
+      copyToken: 'Copy Access Token',
+      generate: 'Generate / Reset Token',
+      generating: 'Generating...',
+      tokenUnavailable: 'Existing tokens cannot be displayed again. Generate a new one when needed.',
+      showOnce: 'The new token is shown once. Copy and store it now.',
+      confirmTitle: 'Generate a new balance access token?',
+      confirmMessage: 'The old token will stop working immediately and cc-switch will no longer query with it.',
+      confirm: 'Generate Token',
+      generateSuccess: 'Balance access token generated',
+      generateFailed: 'Failed to generate balance access token'
+    },
     // TOTP 2FA
     totp: {
       title: 'Two-Factor Authentication (2FA)',

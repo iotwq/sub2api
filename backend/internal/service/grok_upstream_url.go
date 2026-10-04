@@ -70,6 +70,18 @@ func redactedGrokBaseURLValidator(validator xai.BaseURLValidator) xai.BaseURLVal
 	}
 }
 
+func buildGrokModelsURL(account *Account, cfg *config.Config) (string, error) {
+	validator, err := grokBaseURLValidator(account, cfg)
+	if err != nil {
+		return "", err
+	}
+	validatedBaseURL, err := validator(account.GetGrokBaseURL())
+	if err != nil {
+		return "", fmt.Errorf("invalid base url: %w", err)
+	}
+	return buildOpenAIEndpointURL(validatedBaseURL, "/v1/models"), nil
+}
+
 func buildGrokResponsesURL(account *Account, cfg *config.Config, settings ...*SettingService) (string, error) {
 	validator, err := grokBaseURLValidator(account, cfg)
 	if err != nil {

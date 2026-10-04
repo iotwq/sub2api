@@ -9,7 +9,24 @@ import (
 
 type requestMetadataContextKey struct{}
 
+type requiredOpenAIAccountContextKey struct{}
+
 var requestMetadataKey = requestMetadataContextKey{}
+
+func WithRequiredOpenAIAccount(ctx context.Context, accountID int64) context.Context {
+	if ctx == nil || accountID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, requiredOpenAIAccountContextKey{}, accountID)
+}
+
+func requiredOpenAIAccountIDFromContext(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	accountID, _ := ctx.Value(requiredOpenAIAccountContextKey{}).(int64)
+	return accountID
+}
 
 type RequestMetadata struct {
 	IsMaxTokensOneHaikuRequest *bool

@@ -154,6 +154,28 @@ func TestResolveOpenAIForwardModel(t *testing.T) {
 	}
 }
 
+func TestResolveOpenAIMessagesUpstreamModel_UsesChannelBodyBeforeAccountMapping(t *testing.T) {
+	account := &Account{
+		Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"channel-alias": "priced-upstream-model",
+			},
+		},
+	}
+
+	got := ResolveOpenAIMessagesUpstreamModel(
+		account,
+		"client-model",
+		"channel-alias",
+		"dispatch-fallback",
+	)
+
+	if got != "priced-upstream-model" {
+		t.Fatalf("ResolveOpenAIMessagesUpstreamModel(...) = %q, want %q", got, "priced-upstream-model")
+	}
+}
+
 func TestResolveOpenAICompactForwardModel(t *testing.T) {
 	tests := []struct {
 		name          string

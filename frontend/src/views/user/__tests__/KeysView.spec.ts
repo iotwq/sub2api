@@ -49,6 +49,7 @@ const messages: Record<string, string> = {
   'keys.currentConcurrency': 'Current Concurrency',
   'keys.lastUsedAt': 'Last Used',
   'keys.lastUsedIP': 'Last Used IP',
+  'keys.pricingNotice': 'This site uses a 1:6 recharge ratio, so the effective multiplier is the current group multiplier divided by 6.',
   'keys.rateLimitColumn': 'Rate Limit',
   'keys.searchPlaceholder': 'Search name or key...',
   'keys.status.active': 'Active',
@@ -220,6 +221,18 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
+const EndpointPopoverStub = {
+  name: 'EndpointPopover',
+  props: ['apiBaseUrl', 'optimizedApiBaseUrl', 'customEndpoints'],
+  template: `
+    <div
+      data-test="endpoint-popover"
+      :data-api-base-url="apiBaseUrl"
+      :data-optimized-api-base-url="optimizedApiBaseUrl"
+    />
+  `,
+}
+
 const mountView = async () => {
   const wrapper = mount(KeysView, {
     global: {
@@ -240,7 +253,7 @@ const mountView = async () => {
         Icon: IconStub,
         UseKeyModal: true,
         BulkEditKeysModal: true,
-        EndpointPopover: true,
+        EndpointPopover: EndpointPopoverStub,
         GroupBadge: true,
         GroupOptionItem: true,
         Teleport: true,
@@ -337,6 +350,7 @@ describe('user KeysView column settings', () => {
   it('uses the default API key columns with low-frequency columns hidden', async () => {
     const wrapper = await mountView()
 
+    expect(wrapper.get('[data-test="pricing-notice"] p').text()).toBe(messages['keys.pricingNotice'])
     expect(visibleColumnKeys(wrapper)).toEqual([
       'name',
       'key',
@@ -412,6 +426,22 @@ describe('user KeysView column settings', () => {
     await flushPromises()
     expect(table.props('selectedKeys')).toEqual([])
     wrapper.unmount()
+  })
+
+  it('passes the optimized address only to the endpoint display', async () => {
+    getPublicSettings.mockResolvedValueOnce({
+      api_base_url: 'https://direct.example.com',
+      optimized_api_base_url: 'https://optimized.example.com',
+      custom_endpoints: [],
+    })
+
+    const wrapper = await mountView()
+    const endpoints = wrapper.get('[data-test="endpoint-popover"]')
+
+    expect(endpoints.attributes('data-api-base-url')).toBe('https://direct.example.com')
+    expect(endpoints.attributes('data-optimized-api-base-url')).toBe(
+      'https://optimized.example.com',
+    )
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {

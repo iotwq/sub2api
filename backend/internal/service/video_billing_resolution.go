@@ -31,6 +31,18 @@ func NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds int) int {
 	return durationSeconds
 }
 
+// NormalizeVideoBillingDurationForModel keeps the upstream's duration range;
+// the xAI 15-second limit must not truncate Wan / ViralDance 30-second tasks.
+func NormalizeVideoBillingDurationForModel(model string, durationSeconds int) int {
+	if spec, ok := lookupViraleeVideoSpec(model); ok {
+		if durationSeconds <= 0 {
+			return spec.defaultSeconds
+		}
+		return min(durationSeconds, spec.maxSeconds)
+	}
+	return NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+}
+
 // LookupVideoBillingResolution 归一化分辨率并报告是否为已知档位。
 // 配置解析路径必须用它而不是 OrDefault：把无法识别的档位（如 "4k"、拼错的
 // "1080i"）静默折算成 480p，会让管理员配的高分辨率单价被挂到低分辨率档上。
@@ -54,4 +66,28 @@ func NormalizeVideoBillingResolutionOrDefault(resolution string) string {
 		return normalized
 	}
 	return VideoBillingResolution480P
+}
+
+func normalizeSD20VideoResolution(resolution string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(resolution)) {
+	case "480p":
+		return VideoBillingResolution480P, true
+	case "720p":
+		return VideoBillingResolution720P, true
+	case "1080p":
+		return VideoBillingResolution1080P, true
+	default:
+		return "", false
+	}
+}
+
+func sd20VideoBillingResolutions(model string) []string {
+	switch normalizeOpenAIVideoModel(model) {
+	case openAIVideoModelFireflyV2Fast:
+		return []string{VideoBillingResolution480P, VideoBillingResolution720P}
+	case openAIVideoModelFireflyV2:
+		return []string{VideoBillingResolution480P, VideoBillingResolution720P, VideoBillingResolution1080P}
+	default:
+		return nil
+	}
 }

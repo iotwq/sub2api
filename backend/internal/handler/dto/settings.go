@@ -153,6 +153,7 @@ type SystemSettings struct {
 	SiteLogo                    string           `json:"site_logo"`
 	SiteSubtitle                string           `json:"site_subtitle"`
 	APIBaseURL                  string           `json:"api_base_url"`
+	OptimizedAPIBaseURL         string           `json:"optimized_api_base_url"`
 	ContactInfo                 string           `json:"contact_info"`
 	DocURL                      string           `json:"doc_url"`
 	HomeContent                 string           `json:"home_content"`
@@ -202,27 +203,24 @@ type SystemSettings struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	OpenAITTFTMode                          string `json:"openai_ttft_mode"`
-	EnableFingerprintUnification            bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough               bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                        bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection  bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                 string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks           string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection      bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl              bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization       bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion             string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                    string `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion                string `json:"openai_codex_client_version"`
-	OpenAICodexClientVersionSynced          string `json:"openai_codex_client_version_synced"`
-	OpenAICodexVersionAutoSyncEnabled       bool   `json:"openai_codex_version_auto_sync_enabled"`
-	OpenAICodexTicketEnabled                bool   `json:"openai_codex_ticket_enabled"`
-	OpenAICodexTicketHarvestProxyURL        string `json:"openai_codex_ticket_harvest_proxy_url"`
-	OpenAICodexTicketHarvestProxyConfigured bool   `json:"openai_codex_ticket_harvest_proxy_configured"`
-	ClaudeCodeClientVersion                 string `json:"claude_code_client_version"`
-	ClaudeCodeClientVersionSynced           string `json:"claude_code_client_version_synced"`
-	ClaudeCodeVersionAutoSyncEnabled        bool   `json:"claude_code_version_auto_sync_enabled"`
+	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
+	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                       bool   `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection bool   `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                string `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks          string `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection     bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl             bool   `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization      bool   `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion            string `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                   string `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion               string `json:"openai_codex_client_version"`
+	OpenAICodexClientVersionSynced         string `json:"openai_codex_client_version_synced"`
+	OpenAICodexVersionAutoSyncEnabled      bool   `json:"openai_codex_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                string `json:"claude_code_client_version"`
+	ClaudeCodeClientVersionSynced          string `json:"claude_code_client_version_synced"`
+	ClaudeCodeVersionAutoSyncEnabled       bool   `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -359,7 +357,19 @@ type SystemSettings struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds,omitempty"`
 
 	// 允许终端用户在用量页查看自己的失败请求
-	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	AllowUserViewErrorRequests  bool   `json:"allow_user_view_error_requests"`
+	ExcelBPSImageMode           string `json:"excel_bps_image_mode"`
+	ExcelBPSImageMaxImageMiB    int    `json:"excel_bps_image_max_image_mib"`
+	ExcelBPSImageMaxImages      int    `json:"excel_bps_image_max_images"`
+	ExcelBPSImageMaxTotalMiB    int    `json:"excel_bps_image_max_total_mib"`
+	ExcelBPSImageStorageMiB     int    `json:"excel_bps_image_storage_mib"`
+	ExcelBPSImageStorageEntries int    `json:"excel_bps_image_storage_entries"`
+	ExcelBPSImageTTLMinutes     int    `json:"excel_bps_image_ttl_minutes"`
+	ExcelBPSImageRelayEnabled   bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL        string `json:"excel_bps_image_base_url"`
+	ExcelBPSImageBodyLimitMiB   int    `json:"excel_bps_image_body_limit_mib"`
+	ExcelBPSImageBudgetMiB      int    `json:"excel_bps_image_budget_mib"`
+	ExcelBPSImageMaxRequests    int    `json:"excel_bps_image_max_requests"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -396,6 +406,7 @@ type PublicSettings struct {
 	SiteLogo                            string                   `json:"site_logo"`
 	SiteSubtitle                        string                   `json:"site_subtitle"`
 	APIBaseURL                          string                   `json:"api_base_url"`
+	OptimizedAPIBaseURL                 string                   `json:"optimized_api_base_url"`
 	ContactInfo                         string                   `json:"contact_info"`
 	DocURL                              string                   `json:"doc_url"`
 	HomeContent                         string                   `json:"home_content"`
@@ -403,6 +414,7 @@ type PublicSettings struct {
 	HideCcsImportButton                 bool                     `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled         bool                     `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL             string                   `json:"purchase_subscription_url"`
+	ImageWorkspaceURL                   string                   `json:"image_workspace_url"`
 	TableDefaultPageSize                int                      `json:"table_default_page_size"`
 	TablePageSizeOptions                []int                    `json:"table_page_size_options"`
 	CustomMenuItems                     []CustomMenuItem         `json:"custom_menu_items"`

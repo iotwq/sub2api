@@ -68,9 +68,13 @@ export default {
   keys: {
     title: 'API 密钥',
     description: '管理您的 API 密钥和访问令牌',
+    pricingNoticeTitle: '实际费用换算',
+    pricingNoticeRatio: '充值比例',
+    pricingNotice: '本站充值比例为1:6，所以实际倍率为当前分组倍率除6；图片和视频的实际价格也是计费价格除6',
     searchPlaceholder: '搜索名称或Key...',
     endpoints: {
-      title: 'API 端点',
+      title: '直连地址',
+      optimized: '国内优化地址',
       default: '默认',
       copied: '已复制',
       copiedHint: '已复制到剪贴板',
@@ -155,6 +159,7 @@ export default {
     lastUsedAt: '上次使用时间',
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
+    chatWithKey: '用这个 Key 去聊天',
     useKeyModal: {
       title: '使用 API 密钥',
       description: '将以下环境变量添加到您的终端配置文件或直接在终端中运行。',
@@ -211,13 +216,13 @@ export default {
         claudeDescription: '配置 Claude Code，让 Messages API 请求通过当前 Sub2API Grok 分组发送。',
         codexDescription: '配置 Codex，让 Responses API 请求通过当前 Sub2API Grok 分组发送。',
         configTomlHint:
-          '官方路径：~/.grok/config.toml（或 $GROK_HOME）。请填写 [endpoints]（models_base_url / models_list_url / xai_api_base_url / cli_chat_proxy_base_url）、[auth] preferred_method=api_key、[models]、[session]、[features] 图片/视频覆盖。优先 env_key，勿硬编码 api_key；文本模型必须 api_backend=responses。合并前备份，保存后运行 grok inspect。',
+          '官方路径：~/.grok/config.toml（或 $GROK_HOME）。模板已写入当前 API 密钥和服务地址；覆盖前请备份原文件，且不要把含密钥的配置提交到仓库。',
         codexConfigTomlHint:
           'Codex 官方：wire_api 仅支持 "responses"；优先 env_key，勿与 experimental_bearer_token 混用；非 OpenAI 网关默认 supports_websockets = false（Sub2API 仍可接客户端 WS 并桥接到 HTTP/SSE）。合并前备份 ~/.codex/config.toml。',
         note:
-          '导出 GROK_MODELS_BASE_URL 与 XAI_API_KEY，将完整 config.toml（endpoints/auth/models/session/features）保存为 ~/.grok/config.toml，运行 grok inspect，再用 /model 选择 grok-4.5（编程场景可用 grok-build-0.1）。',
+          '将完整模板保存为 ~/.grok/config.toml，运行 grok inspect 后即可使用默认 grok-4.6；上方环境变量可用于当前终端会话。',
         noteWindows:
-          '设置 GROK_MODELS_BASE_URL 与 XAI_API_KEY，将完整 config.toml 保存为 %USERPROFILE%\\.grok\\config.toml，运行 grok inspect，再用 /model 选择 grok-4.5（编程场景可用 grok-build-0.1）。',
+          '将完整模板保存为 %USERPROFILE%\\.grok\\config.toml，运行 grok inspect 后即可使用默认 grok-4.6；上方环境变量可用于当前终端会话。',
         claudeNote:
           '二选一：终端环境变量仅当前会话；~/.claude/settings.json 可持久化。请勿把含 API Key 的文件提交到仓库。',
         codexNote:
@@ -249,12 +254,9 @@ export default {
         note: '启动 Codex 前先导出 SUB2API_API_KEY。下载的目录只包含模型元数据，不包含 API Key。'
       },
       codexModelCatalog: {
-        mode: '目录来源',
-        remote: '远程目录（Codex 0.156.0+）',
-        local: '本地文件（旧版客户端）',
-        oversized: '完整目录超过远程加载的 1 MiB 限制，已改为本地文件。请下载目录并保存到配置中的路径。',
+        oversized: '目录超过远程加载的 1 MiB 限制，请联系管理员减少此密钥可用的模型。仍可下载目录供查阅。',
         title: 'Codex 模型目录',
-        description: 'Codex 会使用配置中的认证信息加载并刷新远程目录。使用本地文件模式时，请在下方获取目录并保存到配置中的路径。',
+        description: 'Codex 0.156.0+ 会使用配置中的认证信息加载并刷新远程目录。也可在下方获取并下载目录副本。',
         fetch: '获取目录',
         retry: '重试',
         download: '下载目录',
@@ -356,6 +358,7 @@ export default {
     accountCost: '成本',
     userBilled: '用户扣费',
     accountBilled: '账号计费',
+    videoFailureRefund: '视频失败退款',
     resetNow: '现在',
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',
@@ -432,6 +435,14 @@ export default {
     imageOutputTokens: '图片输出 Token',
     imageOutputTokenPrice: '图片输出单价',
     imageOutputCost: '图片输出费用',
+    videoCount: '视频数量',
+    videoOutputDuration: '输出视频时长',
+    videoResolution: '视频分辨率',
+    videoOutputUnitPrice: '输出视频每秒价格',
+    videoOutputCost: '输出视频费用',
+    videoInputDuration: '参考视频计费时长',
+    videoInputCost: '参考视频费用',
+    videoInputActualCost: '参考视频实际扣费',
     imageSizeSource: '尺寸来源',
     imageSizeBreakdown: '尺寸明细',
     imageSizeSourceOutput: '上游输出',
@@ -499,6 +510,24 @@ export default {
 
   // Shared keys for channel monitor (admin + user views)
   monitorCommon: {
+    intelligence: {
+      title: '智力检测',
+      enable: '开启智力检测',
+      hint: '仅作用于当前监控项的分组和模型。每轮先普通探活，成功后另发糖果题；智力结果与耗时不影响渠道状态、最新延迟或响应缓慢判断。会增加请求和推理用量，建议检测间隔至少 5 分钟。',
+      scope: '结果仅代表本次糖果题是否答对，不代表模型身份或综合能力。',
+      history: '最近 60 次智力检测',
+      passed: '智力合格',
+      failed: '智力不合格',
+      inconclusive: '智力检测未完成',
+      untested: '未检测',
+      candyAnswer: '糖果题答案：{answer}',
+      answerNotRecorded: '未记录',
+      responseIncomplete: '响应被截断或未完成，无法判定',
+      emptyResponse: '未收到有效回答',
+      missingFinalAnswer: '未按要求给出唯一最终答案，无法判定',
+      requestFailed: '请求失败，无法判定',
+      incompatible: '智力检测需使用主动探活，且请求体不能使用完全替换模式。',
+    },
     status: {
       operational: '正常',
       degraded: '降级',
@@ -846,6 +875,23 @@ export default {
     passwordTooShort: '密码至少需要 8 个字符',
     passwordChangeSuccess: '密码修改成功',
     passwordChangeFailed: '密码修改失败',
+    newapi: {
+      title: 'CC Switch / NewAPI 余额查询',
+      description: '生成长期余额查询凭证，用于 cc-switch 读取当前账户余额。',
+      userId: 'User ID',
+      accessToken: 'Access Token',
+      copyUserId: '复制 User ID',
+      copyToken: '复制 Access Token',
+      generate: '生成 / 重置 Token',
+      generating: '生成中...',
+      tokenUnavailable: '现有 Token 不会再次显示，需要时请重新生成。',
+      showOnce: '新 Token 只显示一次，请立即复制并妥善保存。',
+      confirmTitle: '生成新的余额查询 Token？',
+      confirmMessage: '生成后，旧 Token 会立即失效，cc-switch 中的旧配置将停止查询余额。',
+      confirm: '生成新 Token',
+      generateSuccess: '余额查询 Token 已生成',
+      generateFailed: '余额查询 Token 生成失败'
+    },
     // TOTP 2FA
     totp: {
       title: '双因素认证 (2FA)',

@@ -343,16 +343,18 @@ const mergeDataPayloads = (payloads: AdminDataPayload[]): AdminDataPayload => {
   }
   if (payloads.length === 1) return firstPayload
 
+  const skippedShadows = payloads.reduce((sum, item) => {
+    const count = Number(item.skipped_shadows || 0)
+    return Number.isFinite(count) ? sum + count : sum
+  }, 0)
+
   return {
     type: payloads.find((item) => typeof item.type === 'string')?.type,
     version: payloads.find((item) => typeof item.version === 'number')?.version,
     exported_at: firstPayload.exported_at || new Date().toISOString(),
     proxies: payloads.flatMap((item) => item.proxies),
     accounts: payloads.flatMap((item) => item.accounts),
-    skipped_shadows: payloads.reduce((sum, item) => {
-      const count = Number(item.skipped_shadows || 0)
-      return Number.isFinite(count) ? sum + count : sum
-    }, 0)
+    ...(skippedShadows > 0 ? { skipped_shadows: skippedShadows } : {})
   }
 }
 
@@ -426,14 +428,28 @@ const readImportRequest = async (sourceFile: File): Promise<ImportRequestState> 
     return readZipImportRequest(sourceFile)
   }
 
-  try {
-    return classifyTextImport(await readFileAsText(sourceFile), sourceFile.name)
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new Error(t('admin.accounts.dataImportParseFailedFile', { name: sourceFile.name }))
+  const text = await readFileAsText(sourceFile)
+  const trimmed = text.trim()
+  if (!looksLikeJSON(trimmed)) {
+    if (isLikelyRawCodexContent(trimmed)) {
+      return { kind: 'codex', contents: [trimmed] }
     }
-    throw error
+    throw new Error(t('admin.accounts.dataImportParseFailedFile', { name: sourceFile.name }))
   }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(t('admin.accounts.dataImportParseFailedFile', { name: sourceFile.name }))
+  }
+  if (isValidDataPayload(parsed)) {
+    return { kind: 'data', payload: normalizeDataPayload(parsed, sourceFile.name) }
+  }
+  if (isCodexSessionPayloadLike(parsed)) {
+    return { kind: 'codex', contents: [trimmed] }
+  }
+  throw new Error(t('admin.accounts.dataImportInvalidFile', { name: sourceFile.name }))
 }
 
 const readSelectedImportRequest = async (): Promise<ImportRequestState> => {

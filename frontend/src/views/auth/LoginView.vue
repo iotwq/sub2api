@@ -1,25 +1,24 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
-      <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+    <div class="login-view">
+      <div class="login-heading">
+        <p class="login-kicker">{{ t('auth.access.workspace') }}</p>
+        <h2>
           {{ t('auth.welcomeBack') }}
         </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        <p class="login-description">
           {{ t('auth.signInToAccount') }}
         </p>
       </div>
-      <!-- Login Form -->
-      <form @submit.prevent="handleLogin" class="space-y-5">
-        <!-- Email Input -->
+
+      <form @submit.prevent="handleLogin" class="login-form">
         <div>
-          <label for="email" class="input-label">
+          <label for="email" class="input-label login-label">
             {{ t('auth.emailLabel') }}
           </label>
-          <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="mail" size="md" class="text-gray-400 dark:text-dark-500" />
+          <div class="login-field">
+            <div class="login-field-icon">
+              <Icon name="mail" size="md" />
             </div>
             <input
               id="email"
@@ -29,21 +28,20 @@
               autofocus
               autocomplete="email"
               :disabled="authActionDisabled"
-              class="input pl-11"
+              class="input login-input pl-11"
               :class="{ 'input-error': errors.email }"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
         </div>
 
-        <!-- Password Input -->
         <div>
-          <label for="password" class="input-label">
+          <label for="password" class="input-label login-label">
             {{ t('auth.passwordLabel') }}
           </label>
-          <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
+          <div class="login-field">
+            <div class="login-field-icon">
+              <Icon name="lock" size="md" />
             </div>
             <input
               id="password"
@@ -52,7 +50,7 @@
               required
               autocomplete="current-password"
               :disabled="authActionDisabled"
-              class="input pl-11 pr-11"
+              class="input login-input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
               :placeholder="t('auth.passwordPlaceholder')"
             />
@@ -60,18 +58,20 @@
               type="button"
               @click="showPassword = !showPassword"
               :disabled="authActionDisabled"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              class="login-password-toggle"
+              :title="showPassword ? t('auth.hidePassword') : t('auth.showPassword')"
+              :aria-label="showPassword ? t('auth.hidePassword') : t('auth.showPassword')"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
-          <div class="mt-1 flex items-center justify-between">
+          <div class="login-password-meta">
             <span></span>
             <router-link
               v-if="passwordResetEnabled && !backendModeEnabled"
               to="/forgot-password"
-              class="text-sm font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+              class="login-text-link"
             >
               {{ t('auth.forgotPassword') }}
             </router-link>
@@ -97,33 +97,13 @@
           />
         </div>
 
-        <!-- Submit Button -->
         <button
           type="submit"
           :disabled="authActionDisabled || (turnstileEnabled && !turnstileToken)"
-          class="btn btn-primary w-full"
+          class="btn login-submit w-full"
         >
-          <svg
-            v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              class="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-            ></circle>
-            <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <Icon v-else name="login" size="md" class="mr-2" />
+          <span v-if="isLoading" class="login-spinner" aria-hidden="true"></span>
+          <Icon v-else name="login" size="md" />
           {{ isLoading ? t('auth.signingIn') : t('auth.signIn') }}
         </button>
 
@@ -139,13 +119,13 @@
           @open="showAgreementModal = true"
         />
 
-        <div v-if="showPasskeyLogin || showOAuthLogin" class="space-y-3 pt-1">
-          <div class="flex items-center gap-3">
-            <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
-            <span class="text-xs text-gray-500 dark:text-dark-400">
+        <div v-if="showPasskeyLogin || showOAuthLogin" class="login-oauth">
+          <div class="login-divider">
+            <div></div>
+            <span>
               {{ t('auth.oauthOrContinue') }}
             </span>
-            <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
+            <div></div>
           </div>
 
           <button
@@ -198,11 +178,11 @@
 
     <!-- Footer -->
     <template v-if="!backendModeEnabled && publicSettingsLoaded && registrationEnabled" #footer>
-      <p class="text-gray-500 dark:text-dark-400">
+      <p class="login-footer">
         {{ t('auth.dontHaveAccount') }}
         <router-link
           to="/register"
-          class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+          class="login-footer-link"
         >
           {{ t('auth.signUp') }}
         </router-link>
@@ -734,6 +714,377 @@ function handle2FACancel(): void {
 </script>
 
 <style scoped>
+.login-view {
+  display: grid;
+  gap: 28px;
+  animation: login-view-in 560ms 180ms both cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.login-view,
+.login-view * {
+  letter-spacing: 0;
+}
+
+.login-heading {
+  text-align: left;
+}
+
+.login-heading > * {
+  animation: login-content-in 520ms both ease-out;
+}
+
+.login-heading h2 { animation-delay: 70ms; }
+.login-heading .login-description { animation-delay: 120ms; }
+
+.login-kicker {
+  margin: 0 0 10px;
+  color: #238c73;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.login-heading h2 {
+  margin: 0;
+  color: #111613;
+  font-size: 34px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.login-description {
+  margin: 10px 0 0;
+  color: #69746d;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.login-form {
+  display: grid;
+  gap: 20px;
+}
+
+.login-form > * {
+  animation: login-content-in 520ms both ease-out;
+}
+
+.login-form > :nth-child(1) { animation-delay: 150ms; }
+.login-form > :nth-child(2) { animation-delay: 200ms; }
+.login-form > :nth-child(3) { animation-delay: 250ms; }
+.login-form > :nth-child(4) { animation-delay: 300ms; }
+.login-form > :nth-child(5) { animation-delay: 350ms; }
+
+.login-label {
+  margin-bottom: 7px;
+  color: #3f4a43;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.login-field {
+  position: relative;
+}
+
+.login-field::before {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: #238c73;
+  content: '';
+  opacity: 0;
+  transform: scaleY(0.5);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.login-field:focus-within::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.login-field-icon {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 14px;
+  pointer-events: none;
+  color: #718078;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.login-field:focus-within .login-field-icon {
+  color: #238c73;
+  transform: scale(1.05);
+}
+
+.login-input {
+  height: 48px;
+  border: 1px solid #c9d2cc;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #111613;
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.login-input::placeholder {
+  color: #98a29c;
+}
+
+.login-input:hover:not(:disabled) {
+  border-color: #9ba9a1;
+}
+
+.login-input:focus {
+  border-color: #238c73;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(35, 140, 115, 0.13);
+}
+
+.login-input.input-error {
+  border-color: #d95c52;
+  box-shadow: 0 0 0 3px rgba(217, 92, 82, 0.1);
+}
+
+.login-input:disabled {
+  background: rgba(220, 226, 222, 0.7);
+  color: #77817b;
+}
+
+.login-password-toggle {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: 44px;
+  align-items: center;
+  justify-content: center;
+  color: #718078;
+  transition: color 160ms ease;
+}
+
+.login-password-toggle:hover:not(:disabled),
+.login-password-toggle:focus-visible {
+  color: #1a5f4f;
+  outline: none;
+}
+
+.login-password-meta {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+.login-text-link,
+.login-footer-link {
+  color: #16765f;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.login-text-link:hover,
+.login-text-link:focus-visible,
+.login-footer-link:hover,
+.login-footer-link:focus-visible {
+  color: #0b4f3e;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  outline: none;
+}
+
+.login-submit {
+  min-height: 48px;
+  border: 1px solid #72f5d5;
+  border-radius: 4px;
+  background: #72f5d5;
+  background-image: none;
+  color: #07110d;
+  font-size: 13px;
+  font-weight: 850;
+  box-shadow: 0 8px 20px rgba(35, 140, 115, 0.16);
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.login-submit:hover:not(:disabled),
+.login-submit:focus-visible {
+  border-color: #58dfbf;
+  background: #58dfbf;
+  background-image: none;
+  box-shadow: 0 10px 24px rgba(35, 140, 115, 0.22);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.login-submit:focus-visible {
+  box-shadow: 0 0 0 3px rgba(35, 140, 115, 0.18);
+}
+
+.login-submit:disabled {
+  border-color: #b9c8c0;
+  background: #cbd6d0;
+  color: #6b7770;
+}
+
+.login-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(7, 17, 13, 0.24);
+  border-top-color: #07110d;
+  border-radius: 50%;
+  animation: login-spin 0.8s linear infinite;
+}
+
+.login-oauth {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.login-divider div {
+  height: 1px;
+  flex: 1;
+  background: #cfd7d2;
+}
+
+.login-divider span {
+  color: #7c8780;
+  font-size: 10px;
+}
+
+.login-oauth :deep(.btn-secondary) {
+  min-height: 46px;
+  border: 1px solid #c9d2cc;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.54);
+  color: #2e3932;
+  box-shadow: 0 4px 12px rgba(17, 22, 19, 0.04);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.login-oauth :deep(.btn-secondary:hover:not(:disabled)),
+.login-oauth :deep(.btn-secondary:focus-visible) {
+  border-color: #91a198;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 7px 16px rgba(17, 22, 19, 0.08);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.login-footer {
+  margin: 0;
+  color: #69746d;
+  font-size: 13px;
+}
+
+:global(.dark) .login-kicker {
+  color: #72f5d5;
+}
+
+:global(.dark) .login-heading h2 {
+  color: #f2f6f3;
+}
+
+:global(.dark) .login-description,
+:global(.dark) .login-footer {
+  color: #8f9b94;
+}
+
+:global(.dark) .login-label {
+  color: #c1cbc5;
+}
+
+:global(.dark) .login-input {
+  border-color: #303b35;
+  background: #111613;
+  color: #f0f5f1;
+}
+
+:global(.dark) .login-input:hover:not(:disabled) {
+  border-color: #506159;
+}
+
+:global(.dark) .login-input:focus {
+  border-color: #72f5d5;
+  box-shadow: 0 0 0 3px rgba(114, 245, 213, 0.1);
+}
+
+:global(.dark) .login-field-icon,
+:global(.dark) .login-password-toggle {
+  color: #77857d;
+}
+
+:global(.dark) .login-field:focus-within .login-field-icon {
+  color: #72f5d5;
+}
+
+:global(.dark) .login-field::before {
+  background: #72f5d5;
+}
+
+:global(.dark) .login-password-toggle:hover:not(:disabled),
+:global(.dark) .login-password-toggle:focus-visible {
+  color: #72f5d5;
+}
+
+:global(.dark) .login-text-link,
+:global(.dark) .login-footer-link {
+  color: #72f5d5;
+}
+
+:global(.dark) .login-divider div {
+  background: #303b35;
+}
+
+:global(.dark) .login-divider span {
+  color: #748078;
+}
+
+:global(.dark) .login-oauth :deep(.btn-secondary) {
+  border-color: #303b35;
+  background: #111613;
+  color: #d9e2dc;
+}
+
+:global(.dark) .login-oauth :deep(.btn-secondary:hover:not(:disabled)),
+:global(.dark) .login-oauth :deep(.btn-secondary:focus-visible) {
+  border-color: #52645b;
+  background: #171e1a;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes login-view-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes login-content-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -743,5 +1094,33 @@ function handle2FACancel(): void {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+@media (max-width: 560px) {
+  .login-view {
+    gap: 24px;
+  }
+
+  .login-heading h2 {
+    font-size: 29px;
+  }
+
+  .login-form {
+    gap: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-view,
+  .login-heading > *,
+  .login-form > *,
+  .login-field::before {
+    animation: none;
+    transition: none;
+  }
+
+  .login-spinner {
+    animation-duration: 1.6s;
+  }
 }
 </style>

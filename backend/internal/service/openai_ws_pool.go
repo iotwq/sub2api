@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -81,6 +82,7 @@ type openAIWSAcquireRequest struct {
 	ForceNewConn bool
 	// ForcePreferredConn: 强制本次只使用 PreferredConnID，禁止漂移到其它连接。
 	ForcePreferredConn bool
+	tlsProfile         *tlsfingerprint.Profile
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
@@ -91,6 +93,8 @@ type openAIWSHandshakeCompatibilityKey struct {
 	threadID            string
 	clientRequestID     string
 	codexWindowID       string
+	conversationID      string
+	transportKey        string
 }
 
 type openAIWSConnLease struct {
@@ -849,7 +853,8 @@ type openAIWSPoolMetrics struct {
 type openAIWSConnPool struct {
 	cfg *config.Config
 	// 通过接口解耦底层 WS 客户端实现，默认使用 coder/websocket。
-	clientDialer openAIWSClientDialer
+	clientDialer     openAIWSClientDialer
+	observeHandshake func(*Account, http.Header)
 
 	accounts sync.Map // key: int64(accountID), value: *openAIWSAccountPool
 	seq      atomic.Uint64
@@ -1142,10 +1147,15 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 	if queueWait == nil {
 		queueWait = &openAIWSAcquireQueueWait{}
 	}
+	profile, profileErr := codexProtectionTLSProfile(req.Account, p.cfg)
+	if profileErr != nil {
+		return nil, profileErr
+	}
+	req.tlsProfile = profile
 
 retryAcquire:
 	accountID := req.Account.ID
-	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
+	compatibility := openAIWSAcquireCompatibility(req)
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
@@ -2126,7 +2136,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 			return nil, err
 		}
 	}
-	conn, status, handshakeHeaders, err := p.clientDialer.Dial(ctx, req.WSURL, headers, req.ProxyURL)
+	conn, status, handshakeHeaders, err := p.clientDialer.Dial(withOpenAIWSTLSProfile(ctx, req.Account.ID, req.tlsProfile), req.WSURL, headers, req.ProxyURL)
 	if err != nil {
 		var handshakeErr *openAIWSHandshakeError
 		var responseBody []byte
@@ -2147,12 +2157,15 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 			Err:             errors.New("openai ws dialer returned nil connection"),
 		}
 	}
+	if status == http.StatusSwitchingProtocols && p.observeHandshake != nil {
+		p.observeHandshake(req.Account, handshakeHeaders)
+	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders)
 	accountID := req.Account.ID
 	evict := func() { p.evictConn(accountID, id) }
 	pooledConn.onPeerClosed.Store(&evict)
-	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
+	pooledConn.handshakeCompatibility = openAIWSAcquireCompatibility(req)
 	pooledConn.routingAffinity = normalizeOpenAIWSRoutingAffinity(req.Headers)
 	return pooledConn, nil
 }
@@ -2315,6 +2328,7 @@ func (p *openAIWSConnPool) dialTimeout() time.Duration {
 
 func cloneOpenAIWSAcquireRequest(req openAIWSAcquireRequest) openAIWSAcquireRequest {
 	copied := req
+	copied.tlsProfile = req.tlsProfile.Clone()
 	copied.Headers = cloneHeader(req.Headers)
 	copied.WSURL = stringsTrim(req.WSURL)
 	copied.ProxyURL = stringsTrim(req.ProxyURL)
@@ -2333,7 +2347,15 @@ func cloneOpenAIWSAcquireRequestPtr(req *openAIWSAcquireRequest) *openAIWSAcquir
 func sameOpenAIWSPrewarmTarget(a, b openAIWSAcquireRequest) bool {
 	return stringsTrim(a.WSURL) == stringsTrim(b.WSURL) &&
 		stringsTrim(a.ProxyURL) == stringsTrim(b.ProxyURL) &&
-		normalizeOpenAIWSHandshakeCompatibility(a.Account, a.Headers) == normalizeOpenAIWSHandshakeCompatibility(b.Account, b.Headers)
+		openAIWSAcquireCompatibility(a) == openAIWSAcquireCompatibility(b)
+}
+
+func openAIWSAcquireCompatibility(req openAIWSAcquireRequest) openAIWSHandshakeCompatibilityKey {
+	key := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers)
+	if req.Account != nil {
+		key.transportKey = openAIWSTransportKey(req.Account.ID, req.WSURL, req.ProxyURL, req.tlsProfile)
+	}
+	return key
 }
 
 func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
@@ -2366,18 +2388,24 @@ func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Head
 		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
 	}
 	mode := activeCodexFingerprintMode(account)
-	if mode == codexFingerprintOff {
+	if mode == codexFingerprintOff && !codexProtectionEnabled(account) {
 		return key
 	}
 	key.codexInstallationID = normalizeOpenAIWSStableIdentityHeader(headers, "x-codex-installation-id")
-	if mode == codexFingerprintDevice {
+	if mode == codexFingerprintDevice && !codexProtectionEnabled(account) {
 		return key
 	}
 	key.sessionIDHyphen = normalizeOpenAIWSStableIdentityHeader(headers, "session-id")
 	key.sessionIDUnderscore = normalizeOpenAIWSStableIdentityHeader(headers, "session_id")
 	key.threadID = normalizeOpenAIWSStableIdentityHeader(headers, "thread-id")
-	key.clientRequestID = normalizeOpenAIWSStableIdentityHeader(headers, "x-client-request-id")
+	// A per-request trace ID must not invalidate a protected session's connection.
+	if !codexProtectionEnabled(account) {
+		key.clientRequestID = normalizeOpenAIWSStableIdentityHeader(headers, "x-client-request-id")
+	}
 	key.codexWindowID = normalizeOpenAIWSStableIdentityHeader(headers, "x-codex-window-id")
+	if codexProtectionEnabled(account) {
+		key.conversationID = normalizeOpenAIWSStableIdentityHeader(headers, "conversation_id")
+	}
 	return key
 }
 

@@ -10,30 +10,32 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 	"github.com/tidwall/gjson"
 )
 
 // monitorHTTPClient 共享一个 http.Client，避免每次检测重建 transport。
 // 自定义 Transport 在 dial 时强制再次校验 IP，防止 DNS rebinding 绕过 validateEndpoint。
-var monitorHTTPClient = newSSRFSafeHTTPClient(monitorRequestTimeout)
+var monitorHTTPClient = newSSRFSafeHTTPClient(monitorProbeRequestTimeout, monitorProbeRequestTimeout)
 
 // monitorPingHTTPClient 用于 endpoint origin 的 HEAD ping，超时更短。
-var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout)
+var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout, monitorResponseHeaderTimeout)
 
 // newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
 // 仅供监控模块对外发起请求使用——所有目标都应是公网 endpoint。
-func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
+func newSSRFSafeHTTPClient(timeout, responseHeaderTimeout time.Duration) *http.Client {
 	tr := &http.Transport{
 		DialContext:           safeDialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          16,
 		IdleConnTimeout:       monitorIdleConnTimeout,
 		TLSHandshakeTimeout:   monitorTLSHandshakeTimeout,
-		ResponseHeaderTimeout: monitorResponseHeaderTimeout,
+		ResponseHeaderTimeout: responseHeaderTimeout,
 	}
 	return &http.Client{Timeout: timeout, Transport: servertiming.WrapRoundTripper(tr)}
 }
@@ -41,6 +43,7 @@ func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 // CheckOptions 承载一次检测的自定义入参。
 // 所有字段都是可选（零值即等价于"用默认行为"）。
 type CheckOptions struct {
+	IntelligenceEnabled bool
 	// APIMode 仅对 OpenAI provider 生效；空串等同 chat_completions。
 	APIMode string
 	// ExtraHeaders 用户自定义 HTTP 头（merge 到 adapter 默认 headers，用户优先）。
@@ -57,6 +60,29 @@ type CheckOptions struct {
 //
 // opts 承载模板 / 监控快照带来的自定义配置。nil 等同于 "off + 无 extra headers"。
 func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions) *CheckResult {
+	// 智力检测与 Replace 不兼容，仍交给单次检测返回配置错误。
+	if !monitorIntelligenceEnabled(opts) || bodyOverrideMode(opts) == MonitorBodyOverrideModeReplace {
+		return runSingleCheckForModel(ctx, provider, endpoint, apiKey, model, opts)
+	}
+
+	healthOpts := *opts
+	healthOpts.IntelligenceEnabled = false
+	res := runSingleCheckForModel(ctx, provider, endpoint, apiKey, model, &healthOpts)
+	res.Intelligence = &domain.MonitorIntelligenceResult{Status: "inconclusive", Reason: "request_failed"}
+	if !isMonitorSuccessStatus(res.Status) || ctx.Err() != nil {
+		return res
+	}
+
+	// 糖果题只补充智力结果；状态、延迟、消息和检测时间均保留普通探测的值。
+	res.Intelligence = runSingleCheckForModel(ctx, provider, endpoint, apiKey, model, opts).Intelligence
+	return res
+}
+
+func isMonitorSuccessStatus(status string) bool {
+	return status == MonitorStatusOperational || status == MonitorStatusDegraded
+}
+
+func runSingleCheckForModel(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions) *CheckResult {
 	res := &CheckResult{
 		Model:     model,
 		Status:    MonitorStatusError,
@@ -65,11 +91,24 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	challenge := generateChallenge()
 	mode := bodyOverrideMode(opts)
+	if monitorIntelligenceEnabled(opts) {
+		res.Intelligence = &domain.MonitorIntelligenceResult{Status: "inconclusive", Reason: "request_failed"}
+		if err := validateMonitorIntelligence(true, MonitorCheckModeProbe, mode); err != nil {
+			res.Message = err.Error()
+			res.Intelligence.Reason = "incompatible_configuration"
+			return res
+		}
+		challenge.Prompt = monitorCandyPrompt
+	}
 
 	start := time.Now()
-	respText, rawBody, statusCode, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	respText, rawBody, statusCode, probeLatencyMs, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
+	if statusCode >= 200 && statusCode < 300 && probeLatencyMs != nil && !monitorIntelligenceEnabled(opts) {
+		latencyMs = *probeLatencyMs
+		latency = time.Duration(latencyMs) * time.Millisecond
+	}
 	res.LatencyMs = &latencyMs
 
 	if err != nil {
@@ -78,6 +117,9 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		return res
 	}
 	if statusCode < 200 || statusCode >= 300 {
+		if fallback := retryOpenAICodexMonitorWithResponses(ctx, provider, endpoint, apiKey, model, opts, statusCode, rawBody); fallback != nil {
+			return fallback
+		}
 		// 错误路径：用 rawBody 而非 respText（gjson textPath 抽取在错误响应里通常为空，
 		// 会丢掉真正的上游错误信息，例如 `{"error":{"message":"No available accounts ..."}}`）。
 		res.Status = MonitorStatusError
@@ -86,6 +128,16 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		return res
 	}
 
+	if monitorIntelligenceEnabled(opts) {
+		res.Intelligence = judgeMonitorCandy(respText, rawBody)
+		if strings.TrimSpace(respText) == "" || !gjson.Valid(rawBody) || gjson.Get(rawBody, "error").Type != gjson.Null {
+			res.Status = MonitorStatusFailed
+			res.Message = "upstream returned no usable answer"
+			return res
+		}
+		res.Status = MonitorStatusOperational
+		return res
+	}
 	// Replace 模式：跳过 challenge 校验（用户 body 是静态的，challenge 没法嵌入）。
 	// 改用「HTTP 2xx + 响应文本（adapter.textPath 抽取）非空」作为 operational 判定。
 	// 响应文本为空则降级为 failed（视为上游回了 200 但没实际内容）。
@@ -105,6 +157,49 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	}
 
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
+}
+
+func retryOpenAICodexMonitorWithResponses(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions, statusCode int, rawBody string) *CheckResult {
+	if provider != MonitorProviderOpenAI || statusCode != http.StatusNotFound {
+		return nil
+	}
+	if defaultAPIMode(checkAPIMode(opts)) != MonitorAPIModeChatCompletions || bodyOverrideMode(opts) == MonitorBodyOverrideModeReplace {
+		return nil
+	}
+	if getNormalizedCodexModel(model) == "" || !isLocalGatewayModelNotFound(rawBody) {
+		return nil
+	}
+
+	fallbackOpts := cloneCheckOptionsWithAPIMode(opts, MonitorAPIModeResponses)
+	res := runSingleCheckForModel(ctx, provider, endpoint, apiKey, model, fallbackOpts)
+	if !isMonitorSuccessStatus(res.Status) {
+		return nil
+	}
+	res.Message = withResponsesFallbackMessage(res.Message)
+	return res
+}
+
+func isLocalGatewayModelNotFound(rawBody string) bool {
+	body := strings.ToLower(rawBody)
+	return strings.Contains(body, "model_not_found") ||
+		strings.Contains(body, "not supported by any configured account in this group")
+}
+
+func cloneCheckOptionsWithAPIMode(opts *CheckOptions, apiMode string) *CheckOptions {
+	if opts == nil {
+		return &CheckOptions{APIMode: apiMode}
+	}
+	cloned := *opts
+	cloned.APIMode = apiMode
+	return &cloned
+}
+
+func withResponsesFallbackMessage(message string) string {
+	prefix := "chat_completions model_not_found; retried via responses"
+	if strings.TrimSpace(message) == "" {
+		return prefix
+	}
+	return truncateMessage(prefix + "; " + message)
 }
 
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
@@ -208,7 +303,7 @@ var providerAdapters = map[string]providerAdapter{
 		buildHeaders: func(apiKey string) map[string]string {
 			return map[string]string{"x-goog-api-key": apiKey}
 		},
-		textPath: "candidates.0.content.parts.0.text",
+		extractText: extractGeminiMonitorText,
 	},
 }
 
@@ -282,30 +377,110 @@ func providerAdapterFor(provider, apiMode string) (providerAdapter, string, bool
 //   - extractedText: 按 textPath 抽出的成功文本，仅在 status 2xx 时有意义；非 2xx 时通常为空串
 //   - rawBody: 完整响应体的字符串形式（已被 monitorResponseMaxBytes 截断），用于错误路径保留上游真实回包
 //   - status: HTTP 状态码
+//   - probeLatencyMs: 本站网关返回的最终成功账号单次耗时；外部端点或无效值为 nil
 //   - err: 网络 / 序列化错误
-func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status int, err error) {
+func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt string, opts *CheckOptions) (extractedText, rawBody string, status int, probeLatencyMs *int, err error) {
 	requestedAPIMode := checkAPIMode(opts)
 	if err := validateAPIMode(provider, requestedAPIMode); err != nil {
-		return "", "", 0, err
+		return "", "", 0, nil, err
 	}
 	adapter, apiMode, ok := providerAdapterFor(provider, requestedAPIMode)
 	if !ok {
-		return "", "", 0, fmt.Errorf("unsupported provider %q", provider)
+		return "", "", 0, nil, fmt.Errorf("unsupported provider %q", provider)
 	}
 	body, err := buildRequestBody(adapter, provider, apiMode, model, prompt, opts)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, nil, err
+	}
+	if monitorIntelligenceEnabled(opts) {
+		body, err = prepareMonitorIntelligenceBody(body, provider, apiMode)
+		if err != nil {
+			return "", "", 0, nil, err
+		}
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
+	if provider == MonitorProviderOpenAI || provider == MonitorProviderAnthropic || provider == MonitorProviderGrok {
+		headers[ChannelMonitorProbeAttemptsHeader] = strconv.Itoa(ChannelMonitorProbeAttempts)
+	}
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	maxResponseBytes := int64(monitorResponseMaxBytes)
+	if monitorIntelligenceEnabled(opts) {
+		maxResponseBytes = 256 * 1024
+	}
+	respBytes, status, probeLatencyMs, err := postRawJSON(ctx, full, body, headers, maxResponseBytes)
 	if err != nil {
-		return "", "", status, err
+		return "", "", status, probeLatencyMs, err
 	}
+	return extractProviderResponseText(respBytes, adapter, provider, apiMode), string(respBytes), status, probeLatencyMs, nil
+}
+
+func extractProviderResponseText(respBytes []byte, adapter providerAdapter, provider, apiMode string) string {
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
-		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
+		return extractOpenAIResponsesText(respBytes)
 	}
-	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, nil
+	if adapter.extractText != nil {
+		if text := adapter.extractText(respBytes); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	if text := extractJSONTextResult(gjson.GetBytes(respBytes, adapter.textPath)); strings.TrimSpace(text) != "" {
+		return text
+	}
+	if text := extractOpenAIResponsesText(respBytes); strings.TrimSpace(text) != "" {
+		return text
+	}
+	for _, path := range []string{"choices.0.message.content", "choices.0.text", "content"} {
+		if text := extractJSONTextResult(gjson.GetBytes(respBytes, path)); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func extractJSONTextResult(result gjson.Result) string {
+	if !result.Exists() {
+		return ""
+	}
+	if result.IsArray() {
+		return extractTextBlocks(result)
+	}
+	if result.Type == gjson.String || result.Type == gjson.Number || result.Type == gjson.True || result.Type == gjson.False {
+		return result.String()
+	}
+	return ""
+}
+
+func extractTextBlocks(blocks gjson.Result) string {
+	if !blocks.IsArray() {
+		return ""
+	}
+
+	var texts []string
+	blocks.ForEach(func(_, block gjson.Result) bool {
+		if block.Type == gjson.String || block.Type == gjson.Number {
+			if text := block.String(); strings.TrimSpace(text) != "" {
+				texts = append(texts, text)
+			}
+			return true
+		}
+		if !block.IsObject() {
+			return true
+		}
+
+		blockType := block.Get("type").String()
+		if blockType != "" && blockType != "text" && blockType != "output_text" {
+			return true
+		}
+		if text := block.Get("text").String(); strings.TrimSpace(text) != "" {
+			texts = append(texts, text)
+			return true
+		}
+		if text := extractJSONTextResult(block.Get("content")); strings.TrimSpace(text) != "" {
+			texts = append(texts, text)
+		}
+		return true
+	})
+	return strings.Join(texts, "")
 }
 
 func extractMonitorResponseText(adapter providerAdapter, respBytes []byte) string {
@@ -532,10 +707,10 @@ func hasNonEmptyBodyValue(v any) bool {
 
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string, maxResponseBytes int64) ([]byte, int, *int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
-		return nil, 0, fmt.Errorf("build request: %w", err)
+		return nil, 0, nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -545,15 +720,24 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 
 	resp, err := monitorHTTPClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("do request: %w", err)
+		return nil, 0, nil, fmt.Errorf("do request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("read body: %w", err)
+		return nil, resp.StatusCode, nil, fmt.Errorf("read body: %w", err)
 	}
-	return respBody, resp.StatusCode, nil
+	return respBody, resp.StatusCode, parseChannelMonitorProbeLatency(resp.Header), nil
+}
+
+func parseChannelMonitorProbeLatency(header http.Header) *int {
+	raw := strings.TrimSpace(header.Get(ChannelMonitorProbeLatencyHeader))
+	latencyMs, err := strconv.Atoi(raw)
+	if err != nil || latencyMs < 0 {
+		return nil
+	}
+	return &latencyMs
 }
 
 // joinURL 保留 base 的上游路径前缀，并避免重复追加已有的 API 路径前缀。
