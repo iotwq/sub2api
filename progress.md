@@ -9605,3 +9605,23 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
 
 - 本轮纳入当前工作区已有的全部项目变更，未同步 `upstream`、未部署、未重建镜像。
 - 回滚点为提交前本地 `HEAD`；可使用 `git revert <本轮提交哈希>` 创建可审计的反向提交，或在部署前固定使用既有镜像摘要回退。
+
+## 2026-10-07 - Task: 同步 Wei-Shaw/sub2api 最新提交
+
+### What was done
+
+- 将上游 `Wei-Shaw/sub2api` 的最新 8 个提交合并到当前 `main`，包含版本 0.2.14、EasyPay 回调防伪、初始化管理员凭据加固、前端依赖审计修复和远程 Codex 模型目录 API-key 发现。
+- 合并 `frontend/package.json` 时保留本地 `three` 依赖，并采用上游 Vue 3.5.43 与 `source-map-js` 安全覆盖规则。
+- 修复本地 Codex 配置生成器缺失的远程模型目录模式声明，并同步更新配置断言，保持现有不写入 `model_catalog_json` 的行为。
+
+### Testing
+
+- `go test -mod=readonly ./internal/setup ./internal/payment/provider ./internal/service -run 'Test(EasyPay|PaymentResume|Setup|Validate)' -count=1 -timeout=10m` 通过。
+- `pnpm exec vitest run src/components/keys/__tests__/UseKeyModal.spec.ts src/views/admin/__tests__/SettingsView.spec.ts --reporter=dot`：84 项通过。
+- `pnpm exec vue-tsc --noEmit`、`git diff --check` 和 `git diff --cached --check` 通过；保留测试中的既有 jsdom/router 警告。
+
+### Notes
+
+- 合并提交：`2d6043c25`；随后追加兼容性修复提交并推送到 `origin/main`。
+- 本轮未部署、未重建镜像、未修改数据库或生产配置；根目录桌面应用 bundle 继续保持未跟踪。
+- 回滚点为合并前提交 `54ae6320ccaed6480750cdb6db18941ad10cd9c6`；可使用 `git revert 2d6043c25` 及后续修复提交逐项回滚。
