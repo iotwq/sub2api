@@ -9625,3 +9625,22 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
 - 合并提交：`2d6043c25`；随后追加兼容性修复提交并推送到 `origin/main`。
 - 本轮未部署、未重建镜像、未修改数据库或生产配置；根目录桌面应用 bundle 继续保持未跟踪。
 - 回滚点为合并前提交 `54ae6320ccaed6480750cdb6db18941ad10cd9c6`；可使用 `git revert 2d6043c25` 及后续修复提交逐项回滚。
+
+## 2026-10-07 - Task: 构建并推送 0.2.14 双架构镜像
+
+### What was done
+
+- 基于当前 `main`（`d9fe9fdbf300`）构建并推送 `iotwq/china-api:latest` 与固定标签 `iotwq/china-api:0.2.14-20261007-170451`。
+- 两个标签共用索引摘要 `sha256:8a90b7a4707f24a782eff7ac9b743059d077a9853dd50370a2a4163131ffd4d4`，包含 `linux/amd64`（`sha256:a8c126fbc3c5319e6e0bec35378ea2af8d19cf968f3467844503c0e9e6af2f27`）和 `linux/arm64`（`sha256:174125d8128b1f1be6535b39ad79751fee5f4913d64d9e392afe5ba77a96e7df`）。
+
+### Testing
+
+- Docker Buildx 双架构构建和两个标签推送退出 0；镜像内国际化检查、`vue-tsc`、Vite 生产构建及两个架构 Go embed 编译通过。
+- `docker buildx imagetools inspect` 核对两个远端标签，索引摘要和架构 manifest 一致。
+- 按固定索引摘要拉取 amd64/arm64 镜像，并在无网络、只读文件系统、非 root、去除 capabilities 的条件下执行 `/app/sub2api --version`，两个架构均返回版本 0.2.14、提交 `d9fe9fdbf300` 和构建时间 `2026-10-07T09:04:51Z`。
+- Docker Hub 首次拉取遇到认证/CDN EOF，重试成功；证据目录为 `/tmp/sub2api-publish-20261007`。
+
+### Notes
+
+- 本轮未修改业务源码、Dockerfile、部署配置、数据库或线上服务；仅追加 `progress.md` 发布记录。
+- 回滚点为发布前 `iotwq/china-api:latest@sha256:04607a3bb87893fc19756175aa07220081cc76ae291ace70fc182835da07c6e7`。恢复 latest 可执行：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:04607a3bb87893fc19756175aa07220081cc76ae291ace70fc182835da07c6e7`；本轮未执行回滚或部署。
