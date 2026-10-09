@@ -9644,3 +9644,37 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
 
 - 本轮未修改业务源码、Dockerfile、部署配置、数据库或线上服务；仅追加 `progress.md` 发布记录。
 - 回滚点为发布前 `iotwq/china-api:latest@sha256:04607a3bb87893fc19756175aa07220081cc76ae291ace70fc182835da07c6e7`。恢复 latest 可执行：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:04607a3bb87893fc19756175aa07220081cc76ae291ace70fc182835da07c6e7`；本轮未执行回滚或部署。
+
+## 2026-10-09 - Task: 合并 Wei-Shaw/sub2api 最新 0.2.15 提交
+
+### What was done
+
+- 合并上游 `3f1a2ea0a` 至 `3a6fd1c9db07203ca308aaba69e502bc1f35b307` 的 146 个提交（86 个非合并提交），同步版本 0.2.15、278 个上游变更文件；采用保留历史的非快进合并。
+- 接入 Cline / Command Code，统一供应商平台清单与协议路由；同步 WS 分组定价/图片用量、工具和历史消息兼容、智谱监控、远程模型目录、TPS 指标及前端交互修复。Go 更新至 1.27.2，并同步上游依赖与 CI 安全兼容改动。
+- 解决 5 个冲突文件，保留本站 BPS Responses/Chat、OAuth/TLS/并发保护、请求完整性 enforce、312 检测、智力测试与延迟隔离、图片/视频转换与结算、群聊/私信、余额查询；不恢复 292/332 或 model_catalog_json。
+- 保留本站缺价结算错误规则，适配新增供应商 Claude 计价测试；修正 embed 测试对旧 Logo 路径的引用，运行逻辑与品牌素材不改。
+
+### Testing
+
+- `pnpm install --frozen-lockfile`、`pnpm exec vitest run --reporter=dot`：382 文件、3007 项通过；`pnpm run lint:check`、`pnpm run build`（国际化、vue-tsc、Vite）通过。
+- `go test -mod=readonly -tags=unit ./... -count=1 -timeout=15m` 最终全量通过；首轮唯一失败为上游新增 CN/OpenCode Claude 缺价测试预期与本站保护不同，适配后复测通过。
+- service/handler 的 BPS、OAuth 保护、并发取消、监控智力与延迟、WS 当前分组定价、web_search 历史、加密恢复、供应商计价和图片映射定向 race 通过；apicompat / basispoints / openai_ws_v2 / tlsfingerprint 四包完整 race 通过。初轮缺价断言失败保留在证据目录，未计为通过。
+- `CI=1 go test -mod=readonly -tags=integration ./internal/repository` 按两组定向选择运行：平台迁移/非法平台校验/TPS，以及计费原子性/幂等/删除 Key 后扣款/图片超预估结算/BPS 403 事务，均通过。各组使用独立临时 PostgreSQL 18.1 / Redis 8.4，未操作生产数据库，不宣称全部数据库用例通过。
+- `go test -mod=readonly -tags=embed ./internal/web -count=1 -timeout=3m`、embed 后端编译和 `--version`（0.2.15）通过。首次 embed 回归因旧测试请求已不存在的 logo.png 而失败，改用本站已有 dragon-logo.png 后通过。
+- `git diff --check`、`git diff --cached --check` 通过；无未解决冲突。完整日志在 `/tmp/sub2api-sync-20261009.eTSVXe`，保留首次失败与最终成功证据。
+
+### Notes
+
+- 本轮 278 个上游文件的状态、用途及来源逐项列于 `docs/upstream-sync-20261009-files.md` 的「文件与用途」；该清单是本轮改动文件列表的一部分。
+- `backend/internal/service/account_test_service.go`：后台测试日志标识与供应商路由合并，保留本地 Header 初始化。
+- `backend/internal/service/channel_monitor_checker.go`：智谱路径合并，保留本地重试、智力请求/答案及延迟隔离。
+- `backend/internal/service/openai_gateway_forward.go`：统一协议路由/web_search/加密恢复合并，保留 BPS 优先分流和 enforce 门控。
+- `frontend/src/api/__tests__/settings.authSourceDefaults.spec.ts`：按平台清单更新默认额度断言并保留本站空额度验证。
+- `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts`：保留 API-key 远程目录和不生成本地目录路径的断言，兼容上游 features 排列。
+- `backend/internal/service/openai_gateway_provider_claude_billing_test.go`：缺价断言改为本站结算错误、不写零元成功账单。
+- `backend/internal/web/embed_test.go`：同步裸 API 绕过前端回退测试，静态资源使用本站现有 Logo。
+- `docs/upstream-sync-20261009-files.md`：记录 146 个来源提交、278 个文件用途及回滚方式。
+- `docs/UPSTREAM_SYNC.md`：追加合并范围、验证、部署影响与回滚边界。
+- `progress.md`：仅末尾追加本轮记录。
+- 新增迁移 242 移除两项平台 CHECK，校验转入应用层；监控约束保留。部署前须备份数据库，源码回滚不会恢复已执行迁移。本轮不推送 GitHub、不发布镜像、不部署或请求真实上游；无关桌面 bundle 保持未跟踪。
+- 恢复分支 `codex/pre-upstream-sync-20261009-v0.2.15` 指向 `7775571f4bf513081ff651843b4553112f545554`。可执行 `git worktree add --detach /tmp/sub2api-pre-sync-20261009 codex/pre-upstream-sync-20261009-v0.2.15` 创建独立恢复工作区；当前分支撤销本轮合并应对合并提交执行 `git revert -m 1 <merge-commit>`。本轮未回滚，不删除数据库数据。

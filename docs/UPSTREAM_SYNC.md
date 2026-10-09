@@ -1389,3 +1389,16 @@ docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha
 ```sh
 docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:9791acb5fa4531543ae2c3670f0e6a6732786f648caa7c00f893652661296b79
 ```
+
+## 2026-10-09 同步原项目 0.2.15
+
+- 按用户要求合并 Wei-Shaw/sub2api 的 `upstream/main` 至 `3a6fd1c9db07203ca308aaba69e502bc1f35b307`，版本更新为 `0.2.15`；相对上次上游基线 `3f1a2ea0a` 新增 146 个提交（86 个非合并提交），涉及 278 个上游文件。来源和逐文件说明见 [合并清单](upstream-sync-20261009-files.md)。
+- 包含 Cline / Command Code 接入、平台清单与协议路由统一、聚合平台 Claude 计价和余额冷却、WS 按轮读取当前分组定价及图片输入用量、Chat/Responses 工具/角色/拒绝消息转换、OAuth web_search 历史声明、加密推理恢复、智谱监控路径、远程模型目录隔离/映射、TPS 展示及前端异步竞态和交互修复。Go 工具链和构建镜像更新为 1.27.2，相关依赖安全更新随上游同步。
+- 解决五个冲突文件：保留后台测试的 Header 初始化；保留监控重试、智力答案和普通探测延迟隔离；加密恢复保留本站 enforce 模式禁止裁剪约束；默认额度测试按 13 平台更新；Codex 配置断言保留远程 API-key 发现，不恢复 model_catalog_json。Basispoints、OAuth/TLS/并发保护、312 观测、图片/视频路由与结算、群聊/私聊、余额查询继续保留，未恢复 292/332 打票。
+- 本站缺少模型价格仍返回结算错误，不写零元成功记录。上游新增 CN/OpenCode Claude 缺价测试按这一既有策略适配；显式分组/渠道价格和新增聚合平台原价覆盖仍验证通过。embed 静态资源测试改用本站实际保留的 dragon-logo.png，不恢复旧品牌图片。
+- 验证通过：前端冻结依赖安装，382 文件 / 3007 项测试，lint、翻译完整性、vue-tsc 与生产构建；后端 `go test -mod=readonly -tags=unit ./... -count=1 -timeout=15m`；BPS、OAuth 保护、并发取消、监控智力/延迟、WS 分组定价、加密恢复和图片路由定向 race；apicompat / basispoints / openai_ws_v2 / tlsfingerprint 四包完整 race；embed 测试、生产编译与 0.2.15 版本执行。前端保留已有大 chunk 提示，未扩大性能优化范围。
+- 隔离 PostgreSQL 18.1 / Redis 8.4 验证通过：完整迁移装配、242 可重复执行和保留监控约束、非法平台拒绝且无写入副作用、TPS 统计/查询超时；独立临时数据库另测原子记账、去重、请求中删除 Key 后继续扣款、图片超过预估/释放后重试、BPS 403 账号配置竞态与事务。未使用生产数据库。
+- 首轮全量和定向 race 因上游缺价测试预期不符合本站策略而失败，已适配测试并复测通过；embed 首轮因引用不存在的 logo.png 失败，改为实际素材后复测通过。失败日志保留，没有改动计费或品牌运行逻辑来迎合断言。证据目录为 `/tmp/sub2api-sync-20261009.eTSVXe`。
+- 新增迁移 `242_drop_platform_check_constraints.sql`：移除 user_platform_quotas 和 composite_model_routes 的数据库平台白名单 CHECK，平台校验转由应用层、repository 和 Ent 共用注册清单执行。监控 provider CHECK 保留。部署前备份数据库，应用启动会自动执行未应用迁移；代码回滚不恢复数据库约束，新平台数据存在时不可直接加回旧白名单约束。
+- 本轮仅完成本地代码合并和提交，不推送 GitHub、不构建或推送 Docker 镜像、不部署、不修改生产数据库或执行真实付费上游请求。原无关桌面 bundle 保持未跟踪。
+- 回滚点：`codex/pre-upstream-sync-20261009-v0.2.15` / `7775571f4bf513081ff651843b4553112f545554`。可在独立目录恢复：`git worktree add --detach /tmp/sub2api-pre-sync-20261009 codex/pre-upstream-sync-20261009-v0.2.15`；撤销本轮合并可对合并提交执行 `git revert -m 1 <merge-commit>`，不能把源码回滚当作数据库回滚。本轮未执行回滚。
