@@ -648,6 +648,10 @@ func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.C
 	if c != nil && strings.EqualFold(strings.TrimSpace(c.GetHeader("X-Sub2API-Disable-Image-Bridge")), "true") {
 		return false
 	}
+	// 该工具是 OpenAI Responses 专属能力，其他平台上游不识别。
+	if account == nil || account.Platform != PlatformOpenAI {
+		return false
+	}
 	if override := account.CodexImageGenerationBridgeOverride(); override != nil {
 		return *override
 	}
