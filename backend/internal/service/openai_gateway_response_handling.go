@@ -1811,7 +1811,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 				return nil, fmt.Errorf("normalize Basispoints usage: %w", normalizeErr)
 			}
 		}
-		body = ensureOpenAIResponseObjectCreatedAt(restoredBody)
+		body = ensureOpenAIResponseObjectCreatedAt(body)
 	} else {
 		if originalModel != mappedModel {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
