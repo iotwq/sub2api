@@ -60,6 +60,16 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	// Chat Completions treats `none` as an omitted reasoning field during the
+	// generic Responses conversion. Preserve the explicit low-thinking intent
+	// for Gemini compatibility, where it maps to thinkingLevel=minimal.
+	if strings.EqualFold(strings.TrimSpace(ccReq.ReasoningEffort), "none") ||
+		(ccReq.Reasoning != nil && strings.EqualFold(strings.TrimSpace(ccReq.Reasoning.Effort), "none")) {
+		if anthropicReq.OutputConfig == nil {
+			anthropicReq.OutputConfig = &apicompat.AnthropicOutputConfig{}
+		}
+		anthropicReq.OutputConfig.Effort = "none"
+	}
 	anthropicReq.Stream = clientStream
 
 	claudeBody, err := json.Marshal(anthropicReq)
