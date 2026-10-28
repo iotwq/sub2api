@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -65,8 +66,10 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	}
 
 	var agModels []gemini.Model
+	var agModelIDs []string
 	if groupPlatform != service.PlatformOpenAI || hasForcePlatform {
-		agModelIDs, err := h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity)
+		var err error
+		agModelIDs, err = h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity)
 		if err != nil {
 			googleError(c, http.StatusServiceUnavailable, "Unable to list Antigravity models")
 			return
@@ -79,6 +82,27 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	if forcePlatform == service.PlatformAntigravity {
 		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
 		return
+	}
+
+	if groupPlatform != service.PlatformOpenAI || hasForcePlatform {
+		// 分组内 Gemini 账号都声明了 model_mapping 时，列表与 /v1/models 同源（含白名单口径），不透传单个账号的上游列表。
+		if declared, err := h.geminiCompatService.DeclaredModelIDs(c.Request.Context(), apiKey.GroupID); err == nil && len(declared) > 0 {
+			ids := append([]string{}, declared...)
+			for _, id := range agModelIDs {
+				if !slices.Contains(declared, id) {
+					ids = append(ids, id)
+				}
+			}
+			if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+				ids = apiKey.Group.ModelAllowlist.FilterForListing(ids)
+			}
+			declaredModels := make([]gemini.Model, 0, len(ids))
+			for _, id := range ids {
+				declaredModels = append(declaredModels, gemini.FallbackModel(id))
+			}
+			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: declaredModels})
+			return
+		}
 	}
 
 	var account *service.Account
@@ -274,6 +298,20 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	if forcePlatform == service.PlatformAntigravity || effectivePlatform == service.PlatformAntigravity {
 		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
 		return
+	}
+
+	if groupPlatform != service.PlatformOpenAI || hasForcePlatform {
+		// 分组内 Gemini 账号都声明了 model_mapping 时，按列表接口的同一来源判断模型是否存在。
+		if declared, err := h.geminiCompatService.DeclaredModelIDs(c.Request.Context(), apiKey.GroupID); err == nil && len(declared) > 0 {
+			if agModelIDs, agErr := h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, true); agErr == nil {
+				if service.DeclaredModelsCover(declared, modelName) || service.DeclaredModelsCover(agModelIDs, modelName) {
+					c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
+					return
+				}
+				googleError(c, http.StatusNotFound, "models/"+modelName+" is not found")
+				return
+			}
+		}
 	}
 
 	var account *service.Account
