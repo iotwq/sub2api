@@ -1293,7 +1293,7 @@ onBeforeUnmount(() => {
 }
 
 .dark .sidebar-section-title::after {
-  background: rgb(55 65 81);
+  background: rgb(46 46 51);
 }
 
 .sidebar-section-title-text-collapsed {

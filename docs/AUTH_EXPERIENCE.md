@@ -15,7 +15,7 @@ The authentication routes continue the visual language established by the `/home
 
 - Email and password fields use stable 48px controls with explicit labels, restrained borders, and visible focus/error states.
 - The password visibility control has localized title and accessible-label text.
-- The primary sign-in action uses the homepage mint signal color and retains loading, disabled, Turnstile, agreement, and 2FA behavior.
+- The primary sign-in action uses the shared monochrome stage accent (black on white in light mode, white on black in dark mode; see `FRONTEND_THEME.md`) and retains loading, disabled, Turnstile, agreement, and 2FA behavior.
 - OAuth buttons keep their provider actions while adopting the same shape, border, and workspace color system.
 - Registration and password recovery links remain in their existing routes.
 

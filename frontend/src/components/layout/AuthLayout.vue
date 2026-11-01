@@ -86,7 +86,7 @@ const currentYear = computed(() => new Date().getFullYear())
   display: grid;
   min-height: 100svh;
   grid-template-columns: minmax(420px, 0.92fr) minmax(520px, 1.08fr);
-  background: #070908;
+  background: rgb(var(--stage-bg-rgb));
   isolation: isolate;
 }
 
@@ -101,9 +101,9 @@ const currentYear = computed(() => new Date().getFullYear())
   height: 100svh;
   min-height: 620px;
   overflow: hidden;
-  border-right: 1px solid rgba(216, 255, 237, 0.14);
-  background: #070908;
-  color: #f4f7f3;
+  border-right: 1px solid rgb(var(--stage-ink-rgb) / 0.14);
+  background: rgb(var(--stage-bg-rgb));
+  color: var(--stage-text);
 }
 
 .auth-visual::after {
@@ -114,7 +114,7 @@ const currentYear = computed(() => new Date().getFullYear())
   left: 0;
   height: 18%;
   pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(114, 245, 213, 0.06), transparent);
+  background: linear-gradient(180deg, transparent, rgb(var(--stage-ink-rgb) / 0.05), transparent);
   content: '';
   animation: auth-scan 8s linear infinite;
 }
@@ -137,8 +137,8 @@ const currentYear = computed(() => new Date().getFullYear())
   z-index: 1;
   pointer-events: none;
   background:
-    linear-gradient(180deg, #070908 0%, rgba(7, 9, 8, 0.18) 28%, rgba(7, 9, 8, 0.16) 62%, #070908 100%),
-    linear-gradient(90deg, rgba(7, 9, 8, 0.22), transparent 56%, rgba(7, 9, 8, 0.5));
+    linear-gradient(180deg, rgb(var(--stage-bg-rgb)) 0%, rgb(var(--stage-bg-rgb) / 0.18) 28%, rgb(var(--stage-bg-rgb) / 0.16) 62%, rgb(var(--stage-bg-rgb)) 100%),
+    linear-gradient(90deg, rgb(var(--stage-bg-rgb) / 0.22), transparent 56%, rgb(var(--stage-bg-rgb) / 0.5));
 }
 
 .auth-grid {
@@ -146,8 +146,8 @@ const currentYear = computed(() => new Date().getFullYear())
   pointer-events: none;
   opacity: 0.5;
   background-image:
-    linear-gradient(rgba(161, 202, 188, 0.09) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(161, 202, 188, 0.09) 1px, transparent 1px);
+    linear-gradient(rgb(var(--stage-ink-rgb) / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--stage-ink-rgb) / 0.07) 1px, transparent 1px);
   background-size: 64px 64px;
   mask-image: linear-gradient(to bottom, black, transparent 74%);
 }
@@ -161,7 +161,7 @@ const currentYear = computed(() => new Date().getFullYear())
   min-width: 0;
   align-items: center;
   gap: 11px;
-  color: #fff;
+  color: var(--stage-text);
   text-decoration: none;
 }
 
@@ -173,9 +173,9 @@ const currentYear = computed(() => new Date().getFullYear())
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 1px solid rgba(216, 255, 237, 0.22);
+  border: 1px solid rgb(var(--stage-ink-rgb) / 0.22);
   border-radius: 6px;
-  background: #111613;
+  background: var(--stage-surface);
 }
 
 .auth-brand-mark img {
@@ -202,7 +202,7 @@ const currentYear = computed(() => new Date().getFullYear())
 .auth-brand-copy small {
   overflow: hidden;
   max-width: 250px;
-  color: #839089;
+  color: var(--stage-faint);
   font-size: 9px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -224,7 +224,7 @@ const currentYear = computed(() => new Date().getFullYear())
   align-items: center;
   gap: 9px;
   margin: 0 0 14px;
-  color: #72f5d5;
+  color: var(--stage-accent);
   font-size: 10px;
   font-weight: 900;
 }
@@ -235,8 +235,8 @@ const currentYear = computed(() => new Date().getFullYear())
   height: 7px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: #72f5d5;
-  box-shadow: 0 0 14px rgba(114, 245, 213, 0.9);
+  background: var(--stage-accent);
+  box-shadow: 0 0 14px rgb(var(--stage-ink-rgb) / 0.6);
   animation: auth-pulse 1.8s ease-in-out infinite;
 }
 
@@ -252,7 +252,7 @@ const currentYear = computed(() => new Date().getFullYear())
 .auth-visual-copy > p:last-of-type {
   max-width: 500px;
   margin: 18px 0 0;
-  color: #9da9a2;
+  color: var(--stage-muted);
   font-size: 14px;
   line-height: 1.75;
 }
@@ -262,8 +262,8 @@ const currentYear = computed(() => new Date().getFullYear())
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 28px 0 0;
   padding: 0;
-  border-top: 1px solid rgba(216, 255, 237, 0.18);
-  border-bottom: 1px solid rgba(216, 255, 237, 0.18);
+  border-top: 1px solid rgb(var(--stage-ink-rgb) / 0.18);
+  border-bottom: 1px solid rgb(var(--stage-ink-rgb) / 0.18);
   list-style: none;
 }
 
@@ -271,8 +271,8 @@ const currentYear = computed(() => new Date().getFullYear())
   display: grid;
   min-width: 0;
   gap: 7px;
-  border-right: 1px solid rgba(216, 255, 237, 0.12);
-  color: #cbd5cf;
+  border-right: 1px solid rgb(var(--stage-ink-rgb) / 0.12);
+  color: var(--stage-text);
   font-size: 10px;
   font-weight: 750;
   padding: 12px 10px;
@@ -283,7 +283,7 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .auth-pipeline span {
-  color: #536059;
+  color: var(--stage-faint);
   font-size: 8px;
   font-weight: 800;
 }
@@ -298,7 +298,7 @@ const currentYear = computed(() => new Date().getFullYear())
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  color: #72f5d5;
+  color: var(--stage-accent);
   font-size: 9px;
   font-weight: 850;
 }
@@ -310,7 +310,7 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .auth-visual-status strong {
-  color: #58645e;
+  color: var(--stage-faint);
   font-size: 8px;
   font-weight: 800;
 }
@@ -319,8 +319,8 @@ const currentYear = computed(() => new Date().getFullYear())
   position: relative;
   min-width: 0;
   min-height: 100svh;
-  background: #eef2ed;
-  color: #111613;
+  background: rgb(var(--stage-ink-rgb) / 0.04);
+  color: var(--stage-text);
   isolation: isolate;
   overflow: hidden;
 }
@@ -335,8 +335,8 @@ const currentYear = computed(() => new Date().getFullYear())
   inset: 0;
   z-index: 0;
   background-image:
-    linear-gradient(rgba(35, 140, 115, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(35, 140, 115, 0.045) 1px, transparent 1px);
+    linear-gradient(rgb(var(--stage-ink-rgb) / 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--stage-ink-rgb) / 0.04) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: linear-gradient(135deg, black 0%, transparent 72%);
 }
@@ -359,7 +359,7 @@ const currentYear = computed(() => new Date().getFullYear())
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: #67726b;
+  color: var(--stage-muted);
   font-size: 11px;
   font-weight: 750;
   text-decoration: none;
@@ -368,7 +368,7 @@ const currentYear = computed(() => new Date().getFullYear())
 
 .auth-back-link:hover,
 .auth-back-link:focus-visible {
-  color: #111613;
+  color: var(--stage-text);
   outline: none;
 }
 
@@ -386,52 +386,25 @@ const currentYear = computed(() => new Date().getFullYear())
 
 .auth-panel {
   width: 100%;
-  border-top: 1px solid rgba(17, 22, 19, 0.2);
-  border-bottom: 1px solid rgba(17, 22, 19, 0.14);
+  border-top: 1px solid rgb(var(--stage-ink-rgb) / 0.2);
+  border-bottom: 1px solid rgb(var(--stage-ink-rgb) / 0.14);
   padding: 34px 0 32px;
   animation: auth-panel-in 620ms 120ms both cubic-bezier(0.22, 1, 0.36, 1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 
 .auth-footer-slot {
   min-height: 24px;
   margin-top: 20px;
-  color: #69746d;
+  color: var(--stage-muted);
   font-size: 13px;
   text-align: center;
 }
 
 .auth-copyright {
   margin: 30px 0 0;
-  color: #8b958f;
+  color: var(--stage-faint);
   font-size: 10px;
   text-align: center;
-}
-
-:global(.dark) .auth-workspace {
-  background: #0d110f;
-  color: #f0f5f1;
-}
-
-:global(.dark) .auth-workspace::before {
-  background-image:
-    linear-gradient(rgba(114, 245, 213, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(114, 245, 213, 0.04) 1px, transparent 1px);
-}
-
-:global(.dark) .auth-back-link,
-:global(.dark) .auth-footer-slot {
-  color: #8f9a93;
-}
-
-:global(.dark) .auth-back-link:hover,
-:global(.dark) .auth-back-link:focus-visible {
-  color: #fff;
-}
-
-:global(.dark) .auth-panel {
-  border-color: rgba(216, 255, 237, 0.14);
-  box-shadow: inset 0 1px 0 rgba(216, 255, 237, 0.04);
 }
 
 @keyframes auth-pulse {
@@ -495,7 +468,7 @@ const currentYear = computed(() => new Date().getFullYear())
     height: 220px;
     min-height: 0;
     border-right: 0;
-    border-bottom: 1px solid rgba(216, 255, 237, 0.14);
+    border-bottom: 1px solid rgb(var(--stage-ink-rgb) / 0.14);
   }
 
   .auth-brand {

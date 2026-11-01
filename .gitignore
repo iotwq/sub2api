@@ -148,6 +148,7 @@ docs/*
 !docs/API_DOCS.md
 !docs/HOME_THREE_SCENE.md
 !docs/AUTH_EXPERIENCE.md
+!docs/FRONTEND_THEME.md
 !docs/OPENAI_GEMINI_NATIVE.md
 !docs/MODEL_CHAT.md
 !docs/CHANNEL_MONITOR.md

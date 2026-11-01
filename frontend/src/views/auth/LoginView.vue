@@ -738,14 +738,14 @@ function handle2FACancel(): void {
 
 .login-kicker {
   margin: 0 0 10px;
-  color: #238c73;
+  color: var(--stage-muted);
   font-size: 9px;
   font-weight: 900;
 }
 
 .login-heading h2 {
   margin: 0;
-  color: #111613;
+  color: var(--stage-text);
   font-size: 34px;
   font-weight: 850;
   line-height: 1.1;
@@ -753,7 +753,7 @@ function handle2FACancel(): void {
 
 .login-description {
   margin: 10px 0 0;
-  color: #69746d;
+  color: var(--stage-muted);
   font-size: 14px;
   line-height: 1.6;
 }
@@ -775,7 +775,7 @@ function handle2FACancel(): void {
 
 .login-label {
   margin-bottom: 7px;
-  color: #3f4a43;
+  color: var(--stage-text);
   font-size: 12px;
   font-weight: 750;
 }
@@ -792,7 +792,7 @@ function handle2FACancel(): void {
   left: 0;
   width: 2px;
   border-radius: 2px;
-  background: #238c73;
+  background: var(--stage-accent);
   content: '';
   opacity: 0;
   transform: scaleY(0.5);
@@ -814,37 +814,37 @@ function handle2FACancel(): void {
   align-items: center;
   padding-left: 14px;
   pointer-events: none;
-  color: #718078;
+  color: var(--stage-faint);
   transition: color 160ms ease, transform 160ms ease;
 }
 
 .login-field:focus-within .login-field-icon {
-  color: #238c73;
+  color: var(--stage-text);
   transform: scale(1.05);
 }
 
 .login-input {
   height: 48px;
-  border: 1px solid #c9d2cc;
+  border: 1px solid rgb(var(--stage-ink-rgb) / 0.2);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #111613;
+  background: var(--stage-surface);
+  color: var(--stage-text);
   font-size: 14px;
   box-shadow: none;
 }
 
 .login-input::placeholder {
-  color: #98a29c;
+  color: var(--stage-faint);
 }
 
 .login-input:hover:not(:disabled) {
-  border-color: #9ba9a1;
+  border-color: rgb(var(--stage-ink-rgb) / 0.4);
 }
 
 .login-input:focus {
-  border-color: #238c73;
+  border-color: var(--stage-accent);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(35, 140, 115, 0.13);
+  box-shadow: 0 0 0 3px rgb(var(--stage-ink-rgb) / 0.12);
 }
 
 .login-input.input-error {
@@ -853,8 +853,8 @@ function handle2FACancel(): void {
 }
 
 .login-input:disabled {
-  background: rgba(220, 226, 222, 0.7);
-  color: #77817b;
+  background: rgb(var(--stage-ink-rgb) / 0.06);
+  color: var(--stage-faint);
 }
 
 .login-password-toggle {
@@ -867,13 +867,13 @@ function handle2FACancel(): void {
   width: 44px;
   align-items: center;
   justify-content: center;
-  color: #718078;
+  color: var(--stage-faint);
   transition: color 160ms ease;
 }
 
 .login-password-toggle:hover:not(:disabled),
 .login-password-toggle:focus-visible {
-  color: #1a5f4f;
+  color: var(--stage-text);
   outline: none;
 }
 
@@ -887,7 +887,7 @@ function handle2FACancel(): void {
 
 .login-text-link,
 .login-footer-link {
-  color: #16765f;
+  color: var(--stage-text);
   font-size: 12px;
   font-weight: 800;
   text-decoration: none;
@@ -897,7 +897,7 @@ function handle2FACancel(): void {
 .login-text-link:focus-visible,
 .login-footer-link:hover,
 .login-footer-link:focus-visible {
-  color: #0b4f3e;
+  color: var(--stage-muted);
   text-decoration: underline;
   text-underline-offset: 3px;
   outline: none;
@@ -905,42 +905,42 @@ function handle2FACancel(): void {
 
 .login-submit {
   min-height: 48px;
-  border: 1px solid #72f5d5;
+  border: 1px solid var(--stage-accent);
   border-radius: 4px;
-  background: #72f5d5;
+  background: var(--stage-accent);
   background-image: none;
-  color: #07110d;
+  color: var(--stage-accent-fg);
   font-size: 13px;
   font-weight: 850;
-  box-shadow: 0 8px 20px rgba(35, 140, 115, 0.16);
+  box-shadow: 0 8px 20px rgb(var(--stage-ink-rgb) / 0.14);
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .login-submit:hover:not(:disabled),
 .login-submit:focus-visible {
-  border-color: #58dfbf;
-  background: #58dfbf;
+  border-color: var(--stage-muted);
+  background: var(--stage-muted);
   background-image: none;
-  box-shadow: 0 10px 24px rgba(35, 140, 115, 0.22);
+  box-shadow: 0 10px 24px rgb(var(--stage-ink-rgb) / 0.2);
   outline: none;
   transform: translateY(-1px);
 }
 
 .login-submit:focus-visible {
-  box-shadow: 0 0 0 3px rgba(35, 140, 115, 0.18);
+  box-shadow: 0 0 0 3px rgb(var(--stage-ink-rgb) / 0.2);
 }
 
 .login-submit:disabled {
-  border-color: #b9c8c0;
-  background: #cbd6d0;
-  color: #6b7770;
+  border-color: rgb(var(--stage-ink-rgb) / 0.12);
+  background: rgb(var(--stage-ink-rgb) / 0.12);
+  color: var(--stage-faint);
 }
 
 .login-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(7, 17, 13, 0.24);
-  border-top-color: #07110d;
+  border: 2px solid rgb(var(--stage-bg-rgb) / 0.3);
+  border-top-color: var(--stage-accent-fg);
   border-radius: 50%;
   animation: login-spin 0.8s linear infinite;
 }
@@ -960,113 +960,37 @@ function handle2FACancel(): void {
 .login-divider div {
   height: 1px;
   flex: 1;
-  background: #cfd7d2;
+  background: rgb(var(--stage-ink-rgb) / 0.14);
 }
 
 .login-divider span {
-  color: #7c8780;
+  color: var(--stage-faint);
   font-size: 10px;
 }
 
 .login-oauth :deep(.btn-secondary) {
   min-height: 46px;
-  border: 1px solid #c9d2cc;
+  border: 1px solid rgb(var(--stage-ink-rgb) / 0.2);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.54);
-  color: #2e3932;
-  box-shadow: 0 4px 12px rgba(17, 22, 19, 0.04);
+  background: var(--stage-surface);
+  color: var(--stage-text);
+  box-shadow: 0 4px 12px rgb(var(--stage-ink-rgb) / 0.04);
   transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
 .login-oauth :deep(.btn-secondary:hover:not(:disabled)),
 .login-oauth :deep(.btn-secondary:focus-visible) {
-  border-color: #91a198;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 7px 16px rgba(17, 22, 19, 0.08);
+  border-color: rgb(var(--stage-ink-rgb) / 0.4);
+  background: var(--stage-surface);
+  box-shadow: 0 7px 16px rgb(var(--stage-ink-rgb) / 0.1);
   outline: none;
   transform: translateY(-1px);
 }
 
 .login-footer {
   margin: 0;
-  color: #69746d;
+  color: var(--stage-muted);
   font-size: 13px;
-}
-
-:global(.dark) .login-kicker {
-  color: #72f5d5;
-}
-
-:global(.dark) .login-heading h2 {
-  color: #f2f6f3;
-}
-
-:global(.dark) .login-description,
-:global(.dark) .login-footer {
-  color: #8f9b94;
-}
-
-:global(.dark) .login-label {
-  color: #c1cbc5;
-}
-
-:global(.dark) .login-input {
-  border-color: #303b35;
-  background: #111613;
-  color: #f0f5f1;
-}
-
-:global(.dark) .login-input:hover:not(:disabled) {
-  border-color: #506159;
-}
-
-:global(.dark) .login-input:focus {
-  border-color: #72f5d5;
-  box-shadow: 0 0 0 3px rgba(114, 245, 213, 0.1);
-}
-
-:global(.dark) .login-field-icon,
-:global(.dark) .login-password-toggle {
-  color: #77857d;
-}
-
-:global(.dark) .login-field:focus-within .login-field-icon {
-  color: #72f5d5;
-}
-
-:global(.dark) .login-field::before {
-  background: #72f5d5;
-}
-
-:global(.dark) .login-password-toggle:hover:not(:disabled),
-:global(.dark) .login-password-toggle:focus-visible {
-  color: #72f5d5;
-}
-
-:global(.dark) .login-text-link,
-:global(.dark) .login-footer-link {
-  color: #72f5d5;
-}
-
-:global(.dark) .login-divider div {
-  background: #303b35;
-}
-
-:global(.dark) .login-divider span {
-  color: #748078;
-}
-
-:global(.dark) .login-oauth :deep(.btn-secondary) {
-  border-color: #303b35;
-  background: #111613;
-  color: #d9e2dc;
-}
-
-:global(.dark) .login-oauth :deep(.btn-secondary:hover:not(:disabled)),
-:global(.dark) .login-oauth :deep(.btn-secondary:focus-visible) {
-  border-color: #52645b;
-  background: #171e1a;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
 }
 
 @keyframes login-spin {

@@ -17,6 +17,7 @@ The default `/home` page uses a full-bleed Three.js scene as the primary first-s
 - A central orchestrator connects to reasoning, tools, memory, and evaluation nodes through four curved data paths.
 - Twelve visible packets move along those paths to make task flow legible rather than adding unrelated ambient motion.
 - Pointer movement changes the network viewing angle without moving or resizing the page layout.
+- The scene is monochrome (white and zinc greys on a transparent canvas) and is tuned for a dark backdrop. In light mode `html:not(.dark) .home-three-scene` applies `filter: invert(1)` so the glow renders as dark lines on a white page.
 - Users with `prefers-reduced-motion: reduce` get a single rendered frame instead of a continuous animation loop.
 - The canvas resizes with its container through `ResizeObserver`.
 - WebGL resources are disposed when the component unmounts.

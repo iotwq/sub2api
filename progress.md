@@ -9678,3 +9678,122 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
 - `progress.md`：仅末尾追加本轮记录。
 - 新增迁移 242 移除两项平台 CHECK，校验转入应用层；监控约束保留。部署前须备份数据库，源码回滚不会恢复已执行迁移。本轮不推送 GitHub、不发布镜像、不部署或请求真实上游；无关桌面 bundle 保持未跟踪。
 - 恢复分支 `codex/pre-upstream-sync-20261009-v0.2.15` 指向 `7775571f4bf513081ff651843b4553112f545554`。可执行 `git worktree add --detach /tmp/sub2api-pre-sync-20261009 codex/pre-upstream-sync-20261009-v0.2.15` 创建独立恢复工作区；当前分支撤销本轮合并应对合并提交执行 `git revert -m 1 <merge-commit>`。本轮未回滚，不删除数据库数据。
+
+## 2026-11-01 - Task: 全站前端主色统一为黑白灰并支持深浅模式
+
+### What was done
+- 全站主色由中国红改为黑白灰，深色模式为黑底白字，浅色模式为白底黑字；原先官网和登录页的薄荷绿强调色一并去掉。
+- 主按钮、徽章、侧边栏高亮、统计图标等通用样式随模式自动切换；开关的“开/关”两态在深色模式下保持可区分。
+- 官网、登录页、认证页外壳原本只有深色底，现在统一随深浅模式切换；3D 场景改为银白单色，浅色模式下反色显示。
+- 密钥用量页去掉红色渐变和龙纹水印的红色描边，改为中性灰。
+- 危险、成功、警告等语义色和图表数据色保持不变。
+- 同步更新 docs，并新增主题配色说明。
+
+### Testing
+- vue-tsc --noEmit 通过（退出码 0）。
+- eslint（仅检查，不自动修复）对本轮改动的 5 个 Vue/JS 文件通过。
+- vitest 全量 400 个文件、3301 项通过。
+- vite build 通过，输出到 node_modules 下的临时目录后已删除，未触碰被跟踪的 backend/internal/web/dist；编译后 CSS 中 --primary-* 与 --stage-* 变量、bg-primary-600、btn-primary 输出符合预期。
+- 浏览器预览（后端未启动）：/home、/login 在浅色与深色下，/key-usage 在浅色下，以及注入的通用组件样板（按钮、徽章、开关、统计卡、侧边栏高亮、输入框）在浅色与深色下，显示均正常；登录页桌面宽度的左右分栏已确认。
+- 未验证：需要登录的控制台和管理后台页面（后端未启动）、/key-usage 深色模式、平板与手机宽度下的官网和登录页、进度条类 progress-bar（仓库内无使用）。
+- 未验证：品牌 Logo 仍是红色龙形素材（dragon-logo.png / dragon-logo.svg），本轮未改，需要新的设计素材。
+
+### Notes
+- 改动文件：
+  - frontend/tailwind.config.js：primary、gray、accent、dark 改为中性灰阶，primary-500/600/700 读取随模式变化的变量，去掉红色光晕和渐变。
+  - frontend/src/style.css：新增 --primary-* 与 --stage-* 变量；重写主按钮、徽章、侧边栏高亮、统计图标；body 底色由粉色改为灰；.btn 焦点环改为 focus-visible；china-red-bg 改名为 brand-bg。
+  - frontend/src/views/HomeView.vue：官网配色改读 --stage-* 变量，删除研究区单独的深色覆盖，移除彩色节点。
+  - frontend/src/views/auth/LoginView.vue：登录页配色改读 --stage-* 变量，删除单独的深色覆盖块。
+  - frontend/src/components/layout/AuthLayout.vue：认证页外壳配色改读 --stage-* 变量，删除单独的深色覆盖块。
+  - frontend/src/components/home/HomeThreeScene.vue：场景颜色改为银白灰，浅色模式加反色滤镜。
+  - frontend/src/views/KeyUsageView.vue：背景类改名为 brand-bg，输入框聚焦环改为灰色。
+  - frontend/public/pattern-dragon.svg：描边色由红改为灰。
+  - docs/FRONTEND_THEME.md：新增主题配色与变量说明。
+  - docs/AUTH_EXPERIENCE.md、docs/HOME_THREE_SCENE.md：更新配色与反色滤镜描述。
+  - .gitignore：为 docs/FRONTEND_THEME.md 增加白名单。
+  - progress.md：仅追加本轮记录。
+- 本地预览配置 .claude/launch.json 已被 git 忽略，不进仓库；沙箱不允许我删除它，如不需要可手动删除。
+- 回滚点：以 HEAD 为基准，对上述文件执行 git diff 确认只含本轮改动后再逐个 git checkout HEAD -- <文件>；若某文件在本轮开始前已有未提交改动，不要整文件还原，只回退主题相关片段（色板取值、--primary-*/--stage-* 变量、brand-bg 命名）。docs/FRONTEND_THEME.md 为新增文件，回滚时直接删除并移除 .gitignore 中对应白名单行。
+
+## 2026-11-01 - Task: 用模拟后端检查控制台与管理后台的深浅色配色并修复
+
+### What was done
+- 用本地模拟后端（不连数据库、不进仓库）分别以用户和管理员身份登录，在浅色和深色下检查控制台和管理后台主要页面。
+- 修复深色模式下约 150 个组件的淡底色和边框看不见的问题：主色 800/900/950 改为随模式切换，深色下取中灰。
+- 修复浅色模式下主色 50/100/200 淡底色在白底上几乎看不见的问题：调深一级灰。
+- 系统设置页顶部标签栏、新手引导弹窗、公告滚动条、密钥用量页骨架屏中残留的旧蓝灰色和青色强调改为中性灰；引导弹窗“下一步”按钮改为黑白主按钮样式。
+
+### Testing
+- 模拟后端下用页面内对比度扫描检查（逐个文字元素计算前景/背景对比度，并检测淡底色与父背景几乎相同的元素）：
+  - 用户端 /dashboard /keys /usage /redeem /profile /subscriptions：深色修复后低于 3:1 的文字为 0，看不见的淡底色为 0；浅色无主色相关问题。
+  - 管理后台 /admin/dashboard /admin/users /admin/groups /admin/accounts /admin/subscriptions /admin/settings /admin/usage：深色为 0 项；浅色只剩 text-gray-400 辅助文字约 2.5:1，改色前同样如此，本轮未改。
+- 截图确认：用户仪表盘（浅色）、个人设置（深色）、管理控制台（深色）、系统设置（深色）、新手引导弹窗样板（深色）。引导弹窗“下一步”按钮在浅色为黑底白字、深色为白底黑字，已关闭过渡动画后测量确认。
+- vue-tsc 通过；eslint 对本轮改动的 Vue/JS 文件通过；vitest 全量 400 个文件、3301 项通过；vite build 通过（输出到临时目录后已删除）。
+- 未验证：模拟数据里表格多为空，没看到表格行、状态徽章和编辑弹窗（账号创建/编辑弹窗是主色用得最多的地方）；/affiliate /available-channels /purchase /orders /monitor 首轮扫描时页面渲染出错，结果无效，未复查；平板和手机宽度未查；真实新手引导流程没能触发，只用相同样式类做了样板检查。
+
+### Notes
+- 改动文件：
+  - frontend/tailwind.config.js：primary-800/900/950 改读变量；primary-50/100/200 调深一级；primary-300 调整以免与 200 重复。
+  - frontend/src/style.css：新增 --primary-800/900/950 的浅色与深色取值。
+  - frontend/src/views/admin/SettingsView.vue：深色标签栏背景、边框、悬停渐变由蓝灰改为中性灰；浅色悬停渐变改为中性灰；当前标签下划线由青蓝渐变改为跟随文字色。
+  - frontend/src/styles/onboarding.css：深色引导弹窗配色由蓝灰改为中性灰；“下一步”按钮由青色改为黑白。
+  - frontend/src/components/common/AnnouncementBell.vue、AnnouncementPopup.vue：滚动条渐变由蓝灰改为中性灰。
+  - frontend/src/views/KeyUsageView.vue：深色骨架屏渐变由蓝灰改为中性灰。
+  - docs/FRONTEND_THEME.md：补充 800/900/950 变量说明、其他中性化位置和未覆盖项。
+  - progress.md：仅追加本轮记录。
+- 模拟后端 .claude/mock-api.mjs 和预览配置 .claude/launch.json 在被 git 忽略的目录里，不进仓库。
+- 回滚点：SettingsView.vue 在本轮开始前已有约 64 行未提交改动，不要整文件还原，只回退 .settings-tabs-shell、.settings-tab::before、.settings-tab-active::after 和文件末尾深色样式块里的颜色值。onboarding.css、AnnouncementBell.vue、AnnouncementPopup.vue 的未提交差异全部来自本轮，可用 git checkout HEAD -- <文件> 整文件还原。tailwind.config.js、style.css、KeyUsageView.vue 同时含上一轮主题改动，只回退本轮新增的 --primary-800/900/950、primary-50/100/200/300 取值和骨架屏渐变。
+
+## 2026-11-01 - Task: 补模拟表格数据，检查账号弹窗、主要表格并复查首轮无效页面
+
+### What was done
+- 模拟后端补上表格行数据（账号、用户、分组、订阅、使用记录、代理、订单、推广、可用渠道、充值方式和套餐），刻意覆盖正常、错误、停用、限流、过期等多种状态。
+- 复查 /affiliate、/purchase、/orders、/monitor、/available-channels。首轮无效是因为模拟后端对这几个接口返回的数据结构不对，修正后页面全部正常渲染。
+- 检查账号、用户、分组、订阅、使用记录、代理等管理表格，以及用户端密钥表和使用记录表。
+- 检查“添加账号”弹窗，以及 4 种账号（OpenAI OAuth、Claude Token、Gemini Key、OpenAI Key）的“编辑账号”弹窗。
+- 修复：所有表格共用的表格组件在深色模式下，表头和左右固定列写死了旧的偏蓝灰色，显示成藏青色色条，已改为与表格本体一致的中性灰；侧边栏分组标题分隔线同样改为中性灰。
+
+### Testing
+- 页面内对比度扫描（同前两轮）：
+  - 5 个复查页面：深色 0 项；浅色只剩 text-gray-400 辅助文字约 2.5:1（改色前就如此）。/purchase 有一处“确认支付 ¥0.00”禁用按钮约 2.5:1，禁用态不要求对比度。
+  - 8 个表格页（/admin/accounts /admin/users /admin/groups /admin/subscriptions /admin/usage /admin/proxies /keys /usage）：深色 0 项，且页面无报错；浅色同上只剩 text-gray-400 辅助文字。
+  - 添加账号弹窗和 4 种编辑账号弹窗：深色 0 项；浅色只剩 text-gray-400 辅助文字。添加账号弹窗深色下未激活的步骤序号“2”约 2.2:1，改色前约 1.8:1，未改。
+- 截图确认：账号表格（深色修复前后、浅色）、充值页（深色，选中金额和支付方式）、添加账号弹窗（浅色、深色）、编辑账号弹窗（深色开关开/关、浅色滚动中段）。
+- 表格固定列修复后测量：深色固定列 rgb(21,21,24) 与表格本体一致，表头 rgb(31,31,35)。
+- vue-tsc 通过；eslint 对本轮 2 个文件通过；vitest 全量 400 个文件、3301 项通过；vite build 通过（输出到临时目录后已删除）。
+- 未验证：图表（Chart.js）网格线和提示框仍用旧的偏蓝灰色，本轮未改；平板和手机宽度未查；兑换码、公告、渠道、风控等其余管理页面未逐页检查。
+
+### Notes
+- 改动文件：
+  - frontend/src/components/common/DataTable.vue：表头和左右固定列的浅色、深色、悬停背景由旧灰改为中性灰。
+  - frontend/src/components/layout/AppSidebar.vue：深色分组标题分隔线由旧灰改为中性灰。
+  - docs/FRONTEND_THEME.md：补充表格组件和侧边栏修复，以及图表旧灰、信息卡片蓝色、平台品牌色这几项保留说明。
+  - progress.md：仅追加本轮记录。
+- 模拟后端 .claude/mock-api.mjs 本轮扩充了表格数据，仍在被 git 忽略的目录里，不进仓库。
+- 回滚点：DataTable.vue 和 AppSidebar.vue 的未提交差异全部来自本轮，可用 git checkout HEAD -- <文件> 整文件还原。docs/FRONTEND_THEME.md 为前两轮新增的未跟踪文件，只删除本轮新增的几条说明即可。
+
+## 2026-11-01 - Task: 图表网格线、提示框和小组件的旧蓝灰色改为中性灰，并统一提交
+
+### What was done
+- 图表（管理控制台、用户仪表盘、账号统计弹窗、渠道监控趋势图、运维监控 5 个图表）的网格线、坐标轴文字和提示框颜色，由旧的偏蓝灰色改为中性灰。
+- 渠道监控矩阵的悬浮提示、阿里云验证码按钮、公告面板深色滚动条同样改为中性灰。验证码组件只改样式，不涉及验证逻辑。
+- 社区聊天表情面板保留原有深色海军蓝，因为它与社区聊天页自身的深色设计一致；表示“未知/空闲”的灰色属于数据或状态色，保留。
+- 四轮配色改动一起提交到本地 main（未推送），只提交本人改动：progress.md 只提交这四轮记录，SettingsView.vue 只提交标签栏配色的 4 处改动，其余文件里别人未提交的改动留在工作区不动。
+
+### Testing
+- 运行时读取图表实际收到的配色参数：管理控制台和用户仪表盘的趋势图，深色网格线 #3f3f46、坐标文字 #e4e4e7，浅色网格线 #e4e4e7、坐标文字 #3f3f46；截图确认深色趋势图网格为中性灰。
+- 构建产物 CSS 中已不再出现旧深色灰 rgb(17 24 39)、rgb(31 41 55)、rgb(55 65 81)。
+- vue-tsc 通过；eslint 对本轮 14 个文件通过；vitest 全量 400 个文件、3301 项通过；vite build 通过（输出到临时目录后已删除）。
+- 未验证：运维监控页的 5 个图表、渠道监控矩阵提示、阿里云验证码按钮没有在页面上实际看到（需要更多模拟数据或第三方脚本），只做了代码检查和构建产物检查。图表提示框需要鼠标悬停才出现，未截图。
+
+### Notes
+- 改动文件：
+  - frontend/src/views/admin/DashboardView.vue、frontend/src/components/charts/TokenUsageTrend.vue、frontend/src/components/admin/account/AccountStatsModal.vue、frontend/src/components/account/AccountStatsModal.vue：图表网格线和坐标文字改为中性灰。
+  - frontend/src/features/channel-monitor-v2/MonitorTrendChart.vue：图表网格线、坐标文字和提示框改为中性灰。
+  - frontend/src/views/admin/ops/components/OpsLatencyChart.vue、OpsThroughputTrendChart.vue、OpsErrorTrendChart.vue、OpsSwitchRateTrendChart.vue、OpsErrorDistributionChart.vue：图表网格线、坐标文字和提示框改为中性灰。
+  - frontend/src/features/channel-monitor-v2/RelayPulseMatrix.vue：两种悬浮提示的浅色和深色配色改为中性灰。
+  - frontend/src/components/AliyunCaptchaWidget.vue：验证码按钮的浅色和深色配色改为中性灰。
+  - frontend/src/components/common/AnnouncementBell.vue、AnnouncementPopup.vue：深色滚动条改为中性灰。
+  - docs/FRONTEND_THEME.md：更新已中性化位置和保留项说明。
+  - progress.md：仅追加本轮记录。
+- 回滚点：四轮配色改动已合并为一个本地提交（标题 feat(frontend): switch theme to monochrome light/dark palette），整体回滚用 git revert 该提交；该提交不含别人未提交的改动，回滚不会影响它们。

@@ -48,8 +48,8 @@ onMounted(async () => {
   scene.add(root)
 
   const coreMaterial = trackMaterial(new THREE.MeshStandardMaterial({
-    color: 0x89ffe5,
-    emissive: 0x1bc9a2,
+    color: 0xf4f4f5,
+    emissive: 0x9a9aa3,
     emissiveIntensity: 2.8,
     metalness: 0.2,
     roughness: 0.18
@@ -58,7 +58,7 @@ onMounted(async () => {
   network.add(core)
 
   const coreShellMaterial = trackMaterial(new THREE.MeshBasicMaterial({
-    color: 0xd9fff6,
+    color: 0xf4f4f5,
     transparent: true,
     opacity: 0.28,
     wireframe: true,
@@ -72,7 +72,7 @@ onMounted(async () => {
   network.add(coreShell)
 
   const haloMaterial = trackMaterial(new THREE.MeshBasicMaterial({
-    color: 0x65f4d2,
+    color: 0xe4e4e7,
     transparent: true,
     opacity: 0.44,
     blending: THREE.AdditiveBlending,
@@ -94,7 +94,7 @@ onMounted(async () => {
     new THREE.Vector3(-1.08, -2.02, 0.12),
     new THREE.Vector3(-2.58, 0.74, -0.18)
   ]
-  const nodeColors = [0xd9ff66, 0xff786b, 0x8ea5ff, 0xffffff]
+  const nodeColors = [0xffffff, 0xd4d4d8, 0xa1a1aa, 0xf4f4f5]
   const nodeMeshes = nodePositions.map((position, index) => {
     const group = new THREE.Group()
     group.position.copy(position)
@@ -126,7 +126,7 @@ onMounted(async () => {
   })
 
   const connectionMaterial = trackMaterial(new THREE.MeshBasicMaterial({
-    color: 0x7ff6da,
+    color: 0xd4d4d8,
     transparent: true,
     opacity: 0.18,
     blending: THREE.AdditiveBlending,
@@ -186,7 +186,7 @@ onMounted(async () => {
   const points = new THREE.Points(
     pointGeometry,
     trackMaterial(new THREE.PointsMaterial({
-      color: 0xb8d7ce,
+      color: 0xd4d4d8,
       size: 0.026,
       transparent: true,
       opacity: 0.45,
@@ -195,14 +195,14 @@ onMounted(async () => {
   )
   scene.add(points)
 
-  scene.add(new THREE.AmbientLight(0xb9fff0, 0.45))
-  const coreLight = new THREE.PointLight(0x63f6d5, 12, 8)
+  scene.add(new THREE.AmbientLight(0xffffff, 0.45))
+  const coreLight = new THREE.PointLight(0xffffff, 12, 8)
   coreLight.position.set(0, 0.2, 2.2)
   scene.add(coreLight)
-  const warmLight = new THREE.PointLight(0xff6d61, 7, 7)
+  const warmLight = new THREE.PointLight(0xd4d4d8, 7, 7)
   warmLight.position.set(3.2, -1.8, 2.4)
   scene.add(warmLight)
-  const limeLight = new THREE.PointLight(0xd9ff66, 5, 6)
+  const limeLight = new THREE.PointLight(0xa1a1aa, 5, 6)
   limeLight.position.set(2.4, 2.1, 1.8)
   scene.add(limeLight)
 
@@ -289,5 +289,10 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* 场景按深色底调校（发光叠加）；浅色模式反色，使其在白底上呈深色线条 */
+html:not(.dark) .home-three-scene {
+  filter: invert(1);
 }
 </style>

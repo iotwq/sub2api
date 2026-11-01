@@ -1,5 +1,5 @@
 <template>
-  <div class="china-red-bg relative flex min-h-screen flex-col overflow-hidden">
+  <div class="brand-bg relative flex min-h-screen flex-col overflow-hidden">
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
       <div class="absolute -right-40 -top-40 h-80 w-80 rounded-full bg-primary-400/20 blur-3xl"></div>
       <div class="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-primary-500/15 blur-3xl"></div>
@@ -948,8 +948,8 @@ onUnmounted(() => {
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .input-ring:focus {
-  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
-  border-color: #14b8a6;
+  box-shadow: 0 0 0 3px rgba(113, 113, 122, 0.25);
+  border-color: #71717a;
   outline: none;
 }
 
@@ -972,7 +972,7 @@ onUnmounted(() => {
   border-radius: 8px;
 }
 :global(.dark) .skeleton {
-  background: linear-gradient(90deg, #334155 25%, #1e293b 50%, #334155 75%);
+  background: linear-gradient(90deg, #2e2e33 25%, #1f1f23 50%, #2e2e33 75%);
   background-size: 200% 100%;
 }
 
