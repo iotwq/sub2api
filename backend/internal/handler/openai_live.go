@@ -121,6 +121,16 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.errorResponse(c, status, code, message)
 		return
 	}
+	reservationRelease, err := reserveKnownCost(c, h.billingCacheService, apiKey, subscription, estimatedCost.ActualCost)
+	if err != nil {
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.errorResponse(c, status, code, message)
+		return
+	}
+	defer reservationRelease()
 
 	userRelease, acquired, err := h.concurrencyHelper.TryAcquireUserSlot(
 		c.Request.Context(),

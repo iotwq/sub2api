@@ -7,6 +7,10 @@ import (
 
 const openAICodexTicketExtraKeyPrefix = "codex_turn_ticket:"
 
+// CodexSignalExtraKey is retained only so legacy observations remain private
+// when old account records are edited or exported.
+const CodexSignalExtraKey = "codex_signal"
+
 // IsOpenAICodexTicketExtraKey identifies server-managed ticket material.
 func IsOpenAICodexTicketExtraKey(key string) bool {
 	return strings.HasPrefix(key, openAICodexTicketExtraKeyPrefix)

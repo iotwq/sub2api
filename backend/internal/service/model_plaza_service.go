@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 // PlazaOfficialPricing 模型广场展示用的官方参考价（USD per token），与计费同源：
@@ -19,12 +21,15 @@ type PlazaOfficialPricing struct {
 	Intervals []PricingInterval
 }
 
-// PlazaModel 模型广场中单个模型条目：按实收口径合成的展示定价 + 官方参考价。
+// PlazaModel 模型广场中单个模型条目：渠道优先的模型价格 + 官方参考价。
 type PlazaModel struct {
 	Name            string
 	Platform        string
 	Pricing         *ChannelModelPricing
 	OfficialPricing *PlazaOfficialPricing
+	MediaType       string // image/video; distinguishes per-request media from other requests.
+	// mappedModel is only used for price lookup; the public DTO exposes Name.
+	mappedModel string
 	// LongContextBasis 多档时的计价基准（整单 / 仅超出部分），单档为空。
 	LongContextBasis ContextPricingBasis
 	// TimePricing 计费会生效的分时倍率时段；无分时为 nil。
@@ -34,8 +39,7 @@ type PlazaModel struct {
 // PlazaGroup 模型广场中以分组为顶层的条目。
 //
 // 与 AvailableGroupRef 相比多了 Description 与 Models；Models 来自该分组关联渠道的
-// 支持模型（普通分组按分组平台隔离，Composite 分组展开关联渠道已配置的
-// 具体平台），与「可用渠道」页口径一致。
+// 支持模型以及分组账号模型（普通分组按平台隔离，Composite 展开具体平台）。
 type PlazaGroup struct {
 	ID                 int64
 	Name               string
@@ -63,11 +67,11 @@ type PlazaGroup struct {
 
 // ModelPlazaService 聚合模型广场数据。
 //
-// 模型枚举来自渠道配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表
-// 查询给出（与扣费走同一条解析链与计费函数），图片/按次模型沿用渠道/分组档位价。
+// 模型枚举来自渠道配置与分组账号；价格优先渠道配置，缺失时使用默认/官方价。
 type ModelPlazaService struct {
 	channelRepo    ChannelRepository
 	groupRepo      GroupRepository
+	accountRepo    AccountRepository
 	pricingService *PricingService
 	billingService *BillingService
 	resolver       *ModelPricingResolver
@@ -77,6 +81,7 @@ type ModelPlazaService struct {
 func NewModelPlazaService(
 	channelRepo ChannelRepository,
 	groupRepo GroupRepository,
+	accountRepo AccountRepository,
 	pricingService *PricingService,
 	billingService *BillingService,
 	resolver *ModelPricingResolver,
@@ -84,6 +89,7 @@ func NewModelPlazaService(
 	return &ModelPlazaService{
 		channelRepo:    channelRepo,
 		groupRepo:      groupRepo,
+		accountRepo:    accountRepo,
 		pricingService: pricingService,
 		billingService: billingService,
 		resolver:       resolver,
@@ -92,12 +98,10 @@ func NewModelPlazaService(
 
 // ListGroups 返回模型广场数据：每个活跃分组附带其可用模型与定价。
 //
-// 模型枚举口径与 ListAvailable 一致（Active 渠道、SupportedModels ∪ 全局定价回落、
-// 平台隔离），仅把顶层从渠道换成分组：
+// 枚举活跃渠道与分组账号模型，按平台隔离并遵守分组模型名单：
 //   - 渠道按 lower(name) 排序后遍历，保证同名模型去重结果确定；
 //   - 同分组同名模型「先见者胜」，仅当已存条目无定价而新条目有定价时升级替换；
-//   - token 模型的单价与阶梯按实收口径合成（见 ResolveContextPricingSchedule），
-//     图片计费模型的档位价按实收口径合成（见 plazaImageDisplayPricing）；
+//   - token 单价与阶梯优先渠道定价，图片/按次模型沿用渠道档位价；
 //   - 每个模型附带官方参考价（查不到为 nil）；
 //   - 只返回 Models 非空的分组；分组按 RateMultiplier 升序（同倍率按名称），
 //     组内模型按名称排序。
@@ -149,6 +153,9 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		platform string
 		name     string
 	}
+	keyFor := func(platform, name string) modelKey {
+		return modelKey{platform: platform, name: strings.ToLower(name)}
+	}
 	// modelIdx[groupID][platform+modelName] = index into byGroup[groupID].Models
 	modelIdx := make(map[int64]map[modelKey]int, len(groups))
 	for i := range channels {
@@ -158,7 +165,6 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		}
 		ch.normalizeBillingModelSource()
 		supported := ch.SupportedModels()
-		fillGlobalPricingFallback(s.pricingService, supported)
 
 		for _, gid := range ch.GroupIDs {
 			pg, ok := byGroup[gid]
@@ -179,10 +185,10 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 				} else if m.Platform != pg.Platform {
 					continue
 				}
-				key := modelKey{platform: m.Platform, name: m.Name}
+				key := keyFor(m.Platform, m.Name)
 				if at, seen := idx[key]; seen {
 					// 先见者胜；仅当已存条目无定价而新条目有定价时升级。
-					if pg.Models[at].Pricing == nil && m.Pricing != nil {
+					if pricingNeedsFallback(pg.Models[at].Pricing) && !pricingNeedsFallback(m.Pricing) {
 						pg.Models[at].Pricing = m.Pricing
 					}
 					continue
@@ -201,6 +207,50 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
 		pg := byGroup[gid]
+		g := groupEnt[gid]
+		accountModels, err := s.accountModels(ctx, g, pg.Models)
+		if err != nil {
+			return nil, fmt.Errorf("list group %d models: %w", gid, err)
+		}
+		idx := modelIdx[gid]
+		if idx == nil {
+			idx = make(map[modelKey]int)
+		}
+		publicNames := make(map[modelKey]bool, len(accountModels))
+		mappedTargets := make(map[modelKey]bool)
+		for _, m := range accountModels {
+			key := keyFor(m.Platform, m.Name)
+			publicNames[key] = true
+			if m.mappedModel != "" {
+				target := keyFor(m.Platform, m.mappedModel)
+				mappedTargets[target] = true
+				if at, exists := idx[target]; exists {
+					m.Pricing = pg.Models[at].Pricing
+				}
+			}
+			if at, exists := idx[key]; exists {
+				pg.Models[at].Name = m.Name
+				pg.Models[at].mappedModel = m.mappedModel
+				if pricingNeedsFallback(pg.Models[at].Pricing) {
+					pg.Models[at].Pricing = m.Pricing
+				}
+			} else {
+				idx[key] = len(pg.Models)
+				pg.Models = append(pg.Models, m)
+			}
+		}
+		if len(mappedTargets) > 0 || g.ModelAllowlistEnabled() {
+			visible := pg.Models[:0]
+			for _, m := range pg.Models {
+				key := keyFor(m.Platform, m.Name)
+				// A target-only price card is not another public model. Keep it
+				// when an account also exposes it directly (including whitelist entries).
+				if (!mappedTargets[key] || publicNames[key]) && g.ModelAllowlist.Allows(m.Name) {
+					visible = append(visible, m)
+				}
+			}
+			pg.Models = visible
+		}
 		if len(pg.Models) == 0 {
 			continue
 		}
@@ -210,10 +260,14 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			}
 			return pg.Models[i].Platform < pg.Models[j].Platform
 		})
-		g := groupEnt[gid]
 		for j := range pg.Models {
 			s.fillDisplayPricing(ctx, &pg.Models[j], g)
-			pg.Models[j].OfficialPricing = s.lookupOfficialPricing(ctx, pg.Models[j].Name, officialMemo)
+			pg.Models[j].MediaType = plazaMediaType(pg.Models[j])
+			priceName := pg.Models[j].Name
+			if pg.Models[j].mappedModel != "" {
+				priceName = pg.Models[j].mappedModel
+			}
+			pg.Models[j].OfficialPricing = s.lookupOfficialPricing(ctx, priceName, officialMemo)
 		}
 		out = append(out, *pg)
 	}
@@ -227,21 +281,36 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	return out, nil
 }
 
-// fillDisplayPricing 把模型的展示定价换成实收口径：
-// token 模型取计费阶梯表（单价与档位均由真实计费函数得出），
-// 图片/按次模型（或阶梯表不可用时）沿用渠道定价与分组图片档位价。
+// fillDisplayPricing 优先展示渠道价格，无渠道价格时回落默认/官方目录。
+// 只在展示副本中移除分组价卡，不改变实际计费的优先级。
 func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaModel, g *Group) {
-	if groupPricing := matchGroupModelPricing(g, m.Name); groupPricing != nil {
-		m.Pricing = groupPricing
-		// 分组模型级固定价就是实收价，不能再被分组图片兜底档位覆盖。
-		// 否则模型广场会显示 image_price_1k/2k/4k，而实际按 model_pricing 扣费。
-		if groupPricing.BillingMode == BillingModeImage || groupPricing.BillingMode == BillingModePerRequest {
-			return
+	modelName := m.Name
+	if m.mappedModel != "" {
+		modelName = m.mappedModel
+	}
+	if g != nil {
+		clone := *g
+		clone.ModelPricing = nil
+		g = &clone
+	}
+	if g != nil && s.resolver != nil && s.resolver.channelService != nil {
+		pricingCtx := WithResolvedTargetPlatform(ctx, m.Platform)
+		if configured := s.resolver.lookupChannelPricingNormalized(pricingCtx, g.ID, m.Name); !pricingNeedsFallback(configured) {
+			m.Pricing = configured
+			modelName = m.Name
+		} else if pricingNeedsFallback(m.Pricing) {
+			m.Pricing = s.resolver.lookupChannelPricingNormalized(pricingCtx, g.ID, modelName)
 		}
+	}
+	fallback := []SupportedModel{{Name: modelName, Platform: m.Platform, Pricing: m.Pricing}}
+	fillGlobalPricingFallback(s.pricingService, fallback)
+	m.Pricing = fallback[0].Pricing
+	if m.Pricing != nil && m.Pricing.BillingMode != "" && m.Pricing.BillingMode != BillingModeToken {
+		return
 	}
 	if s.billingService != nil && s.resolver != nil {
 		sched, err := s.billingService.ResolveContextPricingSchedule(ctx, s.resolver, ContextPricingScheduleInput{
-			Model:    m.Name,
+			Model:    modelName,
 			Group:    g,
 			Platform: m.Platform,
 		})
@@ -254,7 +323,6 @@ func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaMode
 			return
 		}
 	}
-	m.Pricing = plazaImageDisplayPricing(m.Pricing, g)
 }
 
 // plazaPricingFromSchedule 把阶梯表压成展示用的 ChannelModelPricing：
@@ -297,53 +365,6 @@ func plazaIntervalsFromTiers(tiers []ContextPricingTier) []PricingInterval {
 	return intervals
 }
 
-// plazaImageDisplayPricing 为图片计费模型合成展示定价，使档位价与实收口径一致：
-// 每档（1K/2K/4K）单价 = 分组图片价 > 渠道同档位价 > 渠道默认按次价，无价的档不展示。
-// 分组未配任何图片价、或定价非图片模式时原样返回。返回克隆，不修改入参
-// （渠道定价指针指向缓存共享数据）。
-func plazaImageDisplayPricing(p *ChannelModelPricing, g *Group) *ChannelModelPricing {
-	if p == nil || g == nil || p.BillingMode != BillingModeImage {
-		return p
-	}
-	if g.ImagePrice1K == nil && g.ImagePrice2K == nil && g.ImagePrice4K == nil {
-		return p
-	}
-	channelTierPrice := func(label string) *float64 {
-		for i := range p.Intervals {
-			if p.Intervals[i].TierLabel == label && p.Intervals[i].PerRequestPrice != nil {
-				return p.Intervals[i].PerRequestPrice
-			}
-		}
-		return p.PerRequestPrice
-	}
-	tiers := []struct {
-		label      string
-		groupPrice *float64
-	}{
-		{"1K", g.ImagePrice1K},
-		{"2K", g.ImagePrice2K},
-		{"4K", g.ImagePrice4K},
-	}
-	clone := *p
-	clone.Intervals = make([]PricingInterval, 0, len(tiers))
-	for i, t := range tiers {
-		price := t.groupPrice
-		if price == nil {
-			price = channelTierPrice(t.label)
-		}
-		if price == nil {
-			continue
-		}
-		v := *price
-		clone.Intervals = append(clone.Intervals, PricingInterval{
-			TierLabel:       t.label,
-			PerRequestPrice: &v,
-			SortOrder:       i,
-		})
-	}
-	return &clone
-}
-
 // lookupOfficialPricing 查询模型的官方参考价（与计费同源：LiteLLM → 内置兜底 → 模型策略），
 // 带 memo 避免同名模型重复解析。官方阶梯按无分组、无渠道的口径查阶梯表。
 // billingService 为 nil（测试场景）或查不到时返回 nil。
@@ -379,4 +400,25 @@ func (s *ModelPlazaService) lookupOfficialPricing(ctx context.Context, modelName
 	}
 	memo[modelName] = result
 	return result
+}
+
+func plazaMediaType(m PlazaModel) string {
+	if m.Pricing == nil || m.Pricing.BillingMode == "" || m.Pricing.BillingMode == BillingModeToken {
+		return ""
+	}
+	if m.Pricing.BillingMode == BillingModeImage {
+		return "image"
+	}
+	grokVideo := xai.CanonicalImagineVideoModel(m.Name)
+	if m.Pricing.BillingMode == BillingModeVideo || IsOpenAIVideoModel(m.Name) || grokVideo == xai.DefaultImagineVideoModel || grokVideo == xai.DefaultImagineVideo15Model {
+		return "video"
+	}
+	if isOpenAIImageGenerationModel(m.Name) || isAPIKeyCompatibleImageModel(m.Name) {
+		return "image"
+	}
+	if m.mappedModel != "" {
+		m.Name, m.mappedModel = m.mappedModel, ""
+		return plazaMediaType(m)
+	}
+	return ""
 }

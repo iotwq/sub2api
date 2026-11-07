@@ -886,9 +886,6 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		dialCtx, cancelDial := context.WithTimeout(ctx, s.openAIWSDialTimeout())
 		upstreamConn, statusCode, handshakeHeaders, err = dialer.Dial(withOpenAIWSTLSProfile(dialCtx, account.ID, tlsProfile), wsURL, headers, proxyURL)
 		cancelDial()
-		if err == nil && upstreamConn != nil && statusCode == http.StatusSwitchingProtocols {
-			s.observeCodexSignal(account, handshakeHeaders)
-		}
 		if err == nil {
 			break
 		}

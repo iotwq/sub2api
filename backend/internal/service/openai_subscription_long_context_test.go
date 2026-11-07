@@ -13,6 +13,8 @@ import (
 
 func TestOpenAISubscriptionLongContextExempt(t *testing.T) {
 	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	require.False(t, openAISubscriptionLongContextExempt(oauth, &OpenAIForwardResult{Model: "gpt-6.1-sol"}, false))
+	require.True(t, openAISubscriptionLongContextExempt(oauth, &OpenAIForwardResult{Model: "gpt-6.1-terra"}, false), "the Sol-specific switch must not disable Terra's upstream exemption")
 	for _, tt := range []struct {
 		name    string
 		account *Account
@@ -41,9 +43,60 @@ func TestOpenAISubscriptionLongContextExempt(t *testing.T) {
 		{name: "Terra订阅访问令牌", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken}, result: &OpenAIForwardResult{Model: "gpt-6.1-terra"}, want: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, openAISubscriptionLongContextExempt(tt.account, tt.result))
+			require.Equal(t, tt.want, openAISubscriptionLongContextExempt(tt.account, tt.result, true))
 		})
 	}
+}
+
+func TestApplyGPT61SolSubscriptionOptimizationIsGroupScoped(t *testing.T) {
+	account := Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	enabled := &Group{Platform: PlatformOpenAI, GPT61SolSubscriptionOptimizationEnabled: true}
+	disabled := &Group{Platform: PlatformOpenAI}
+
+	optimized, changed, err := applyGPT61SolSubscriptionOptimization(
+		[]byte(`{"models":[{"slug":"gpt-6.1-sol","context_window":272000,"max_context_window":872000}]}`),
+		[]Account{account}, enabled, true,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Contains(t, string(optimized), `"context_window":500000`)
+
+	unchanged, changed, err := applyGPT61SolSubscriptionOptimization(
+		[]byte(`{"models":[{"slug":"gpt-6.1-sol","context_window":272000}]}`),
+		[]Account{account}, disabled, true,
+	)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, `{"models":[{"slug":"gpt-6.1-sol","context_window":272000}]}`, string(unchanged))
+
+	remote, changed, err := applyGPT61SolSubscriptionOptimization(
+		[]byte(`{"models":[{"slug":"gpt-6.1-sol","context_window":272000}]}`),
+		[]Account{account}, enabled, false,
+	)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Contains(t, string(remote), `"context_window":272000`)
+
+	for _, body := range []string{
+		`{"models":[{"slug":"gpt-6.1-sol"}]}`,
+		`{"models":[{"slug":"gpt-6.1-sol","context_window":null}]}`,
+	} {
+		optimized, changed, err = applyGPT61SolSubscriptionOptimization(
+			[]byte(body), []Account{account}, enabled, false,
+		)
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.Contains(t, string(optimized), `"context_window":500000`)
+	}
+
+	apiKey := Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	unchanged, changed, err = applyGPT61SolSubscriptionOptimization(
+		[]byte(`{"models":[{"slug":"gpt-6.1-sol","context_window":272000}]}`),
+		[]Account{apiKey}, enabled, true,
+	)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Contains(t, string(unchanged), `"context_window":272000`)
 }
 
 // 同时覆盖远程目录更新、静态兜底、旧计费入口和分组入口，校验真实扣款与账号成本。
@@ -72,6 +125,7 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolSubscriptionLongContext(t *test
 								apiKey = openAIRecordUsageAPIKeyWithGroup(svc, 1, groupMode == "分组开启")
 								apiKey.GroupID = i64p(1)
 								apiKey.Group.RateMultiplier = 1.1
+								apiKey.Group.GPT61SolSubscriptionOptimizationEnabled = groupMode == "分组开启"
 								svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 1, PlatformOpenAI)
 							}
 							account := &Account{ID: 3, Platform: PlatformOpenAI, Type: accountType,
@@ -85,7 +139,16 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolSubscriptionLongContext(t *test
 								APIKey: apiKey, User: &User{ID: 2}, Account: account,
 							})
 							require.NoError(t, err)
-							wantLong := accountType == AccountTypeAPIKey && (accountEnabled || groupMode == "分组开启")
+							optimizationEnabled := groupMode == "分组开启"
+							// The group long-context switch remains effective for API-key
+							// accounts. GPT-6.1 Sol subscription exemption applies only to
+							// OAuth-like credentials when the group optimization is enabled.
+							wantLong := accountEnabled
+							if optimizationEnabled && accountType != AccountTypeAPIKey {
+								wantLong = false
+							} else if optimizationEnabled {
+								wantLong = true
+							}
 							inputFactor, outputFactor, tierFactor := 1.0, 1.0, 1.0
 							if wantLong {
 								inputFactor, outputFactor = 2, 1.5
@@ -107,7 +170,7 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolSubscriptionLongContext(t *test
 							require.InDelta(t, wantTotal*1.1, userRepo.lastAmount, 1e-12)
 							if groupMode != "无分组" {
 								wantStats := 0.478 * tierFactor
-								if accountType == AccountTypeAPIKey && accountEnabled {
+								if accountEnabled && (accountType == AccountTypeAPIKey || !optimizationEnabled) {
 									wantStats = (0.458*2 + 0.02*1.5) * tierFactor
 								}
 								require.NotNil(t, log.AccountStatsCost)
@@ -143,10 +206,12 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolUsesCredentialAndUpstreamModel(
 				ID: parentID, Platform: PlatformOpenAI, Type: tt.parentType,
 				Extra: map[string]any{openAILongContextBillingEnabledKey: true},
 			}}
+			apiKey := openAIRecordUsageAPIKeyWithGroup(svc, 1, true)
+			apiKey.Group.GPT61SolSubscriptionOptimizationEnabled = true
 			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 				Result: &OpenAIForwardResult{RequestID: tt.name, Model: tt.model, UpstreamModel: tt.upstream,
 					Usage: OpenAIUsage{InputTokens: 300000, OutputTokens: 2000}, Duration: time.Second},
-				APIKey: openAIRecordUsageAPIKeyWithGroup(svc, 1, true), User: &User{ID: 2},
+				APIKey: apiKey, User: &User{ID: 2},
 				Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth, ParentAccountID: &parentID, QuotaDimension: QuotaDimensionSpark},
 			})
 			require.NoError(t, err)
@@ -188,10 +253,12 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolLongContextBoundary(t *testing.
 			t.Run(fmt.Sprintf("%s/%d", accountType, totalInput), func(t *testing.T) {
 				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 				svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+				apiKey := openAIRecordUsageAPIKeyWithGroup(svc, 1, true)
+				apiKey.Group.GPT61SolSubscriptionOptimizationEnabled = true
 				err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 					Result: &OpenAIForwardResult{RequestID: "boundary", Model: "gpt-6.1-sol", Duration: time.Second,
 						Usage: OpenAIUsage{InputTokens: totalInput, OutputTokens: 1000}},
-					APIKey: openAIRecordUsageAPIKeyWithGroup(svc, 1, true), User: &User{ID: 2},
+					APIKey: apiKey, User: &User{ID: 2},
 					Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: accountType,
 						Extra: map[string]any{openAILongContextBillingEnabledKey: true}},
 				})
@@ -218,6 +285,7 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolExemptionSurvivesRepricing(t *t
 	apiKey.GroupID = i64p(1)
 	apiKey.Group.Platform = PlatformOpenAI
 	apiKey.Group.RateMultiplier = 1.1
+	apiKey.Group.GPT61SolSubscriptionOptimizationEnabled = true
 	apiKey.Group.FreeOpenAIFast = true
 	svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 1, PlatformOpenAI)
 	tier := "priority"

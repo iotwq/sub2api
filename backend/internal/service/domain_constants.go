@@ -556,7 +556,8 @@ const (
 
 	// SettingKeyModelPlazaDescription stores the Markdown blurb rendered at the top of
 	// the Model Plaza page (global pricing notes, exchange rate, promotions, ...).
-	SettingKeyModelPlazaDescription = "model_plaza_description"
+	SettingKeyModelPlazaDescription   = "model_plaza_description"
+	SettingKeyModelPlazaRechargeRatio = "model_plaza_recharge_ratio"
 
 	// SettingKeyPluginManagementEnabled controls sidebar visibility only; it does
 	// not stop or otherwise change already loaded plugin runtimes.
@@ -764,3 +765,7 @@ const AdminAPIKeyPrefix = "admin-"
 // SettingKeyAllowUserViewErrorRequests controls whether end users can view
 // their own failed requests on the usage page. Default false (opt-in).
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
+
+// Per-request cache-rate display is enabled by default; end-user visibility is opt-in.
+const SettingKeyUsageShowCacheRate = "usage_show_cache_rate"
+const SettingKeyUsageShowCacheRateToUsers = "usage_show_cache_rate_to_users"

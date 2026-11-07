@@ -14,6 +14,9 @@ onMounted(async () => {
   if (!canvas) return
 
   const THREE = await import('three')
+  // 页面可能已在加载期间卸载，避免为失效画布创建无法清理的资源。
+  if (canvasRef.value !== canvas) return
+
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100)
   camera.position.set(0, 0, 8.4)
@@ -209,6 +212,8 @@ onMounted(async () => {
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const pointer = new THREE.Vector2(0, 0)
   let frameId = 0
+  // 画布滚出可视区时暂停渲染循环，回到可视区再继续
+  let inView = true
 
   const handlePointerMove = (event: PointerEvent) => {
     pointer.x = (event.clientX / window.innerWidth - 0.5) * 2
@@ -225,6 +230,9 @@ onMounted(async () => {
     root.position.set(camera.aspect > 1.18 ? 1.25 : 0, camera.aspect < 0.9 ? -0.42 : 0, 0)
     root.scale.setScalar(camera.aspect < 0.9 ? 0.76 : 1)
     camera.updateProjectionMatrix()
+    if (prefersReducedMotion) {
+      renderer.render(scene, camera)
+    }
   }
 
   const resizeObserver = new ResizeObserver(resize)
@@ -261,10 +269,19 @@ onMounted(async () => {
     })
 
     renderer.render(scene, camera)
-    if (!prefersReducedMotion) {
+    frameId = 0
+    if (!prefersReducedMotion && inView) {
       frameId = window.requestAnimationFrame(animate)
     }
   }
+
+  const visibilityObserver = new IntersectionObserver(([entry]) => {
+    inView = entry.isIntersecting
+    if (inView && !prefersReducedMotion && frameId === 0) {
+      frameId = window.requestAnimationFrame(animate)
+    }
+  })
+  visibilityObserver.observe(canvas)
 
   animate()
 
@@ -272,6 +289,7 @@ onMounted(async () => {
     window.cancelAnimationFrame(frameId)
     window.removeEventListener('pointermove', handlePointerMove)
     resizeObserver.disconnect()
+    visibilityObserver.disconnect()
     geometries.forEach((geometry) => geometry.dispose())
     materials.forEach((material) => material.dispose())
     renderer.dispose()

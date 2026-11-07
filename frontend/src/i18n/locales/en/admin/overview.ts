@@ -1114,6 +1114,8 @@ export default {
         description: 'Overrides channel and built-in prices for matching models. Long-context tiers come from official presets — do not enter custom intervals. Use per-request tiers such as realtime, tts, and stt for audio.',
         longContext: 'Enable long-context tier pricing',
         longContextHint: 'When checked, channel intervals or official preset tiers apply. Otherwise the first tier is used unless the account explicitly enables long-context billing.',
+        gpt61SolSubscriptionOptimization: 'GPT-6.1 Sol subscription optimization',
+        gpt61SolSubscriptionOptimizationHint: 'For GPT-6.1 Sol OAuth/Setup Token accounts in this group only: waive long-context surcharges and use a 500k generated-context default. Off by default.',
         add: 'Add model price'
       },
       voicePricing: {

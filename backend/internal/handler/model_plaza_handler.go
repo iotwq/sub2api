@@ -62,8 +62,9 @@ type modelPlazaTimePricing struct {
 	Periods      []modelPlazaTimePricingPeriod `json:"periods"`
 }
 
-// modelPlazaModel 广场模型条目：实收口径展示定价（白名单形态）+ 官方参考价。
+// modelPlazaModel 广场模型条目：渠道优先的展示定价（白名单形态）+ 官方参考价。
 type modelPlazaModel struct {
+	MediaType       string                     `json:"media_type,omitempty"`
 	Name            string                     `json:"name"`
 	Platform        string                     `json:"platform"`
 	Pricing         *userSupportedModelPricing `json:"pricing"`
@@ -101,8 +102,9 @@ type modelPlazaGroup struct {
 
 // modelPlazaResponse 广场页响应。
 type modelPlazaResponse struct {
-	Description string            `json:"description"`
-	Groups      []modelPlazaGroup `json:"groups"`
+	RechargeRatio float64           `json:"recharge_ratio"`
+	Description   string            `json:"description"`
+	Groups        []modelPlazaGroup `json:"groups"`
 }
 
 // Get 返回模型广场数据。
@@ -156,8 +158,9 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	c.Writer.Header().Add("Vary", "Accept-Language")
 	out := toLocalizedModelPlazaGroups(visible, userRates, c.GetHeader("Accept-Language"))
 	response.Success(c, modelPlazaResponse{
-		Description: rt.Description,
-		Groups:      out,
+		Description:   rt.Description,
+		RechargeRatio: rt.RechargeRatio,
+		Groups:        out,
 	})
 }
 
@@ -202,6 +205,7 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 	for i := range g.Models {
 		m := &g.Models[i]
 		models = append(models, modelPlazaModel{
+			MediaType:        m.MediaType,
 			Name:             m.Name,
 			Platform:         m.Platform,
 			Pricing:          toUserPricing(m.Pricing),

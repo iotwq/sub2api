@@ -479,6 +479,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
 	updates[SettingKeyModelPlazaDescription] = settings.ModelPlazaDescription
+	updates[SettingKeyModelPlazaRechargeRatio] = strconv.FormatFloat(normalizeModelPlazaRechargeRatio(settings.ModelPlazaRechargeRatio), 'g', -1, 64)
 	updates[SettingKeyPluginManagementEnabled] = strconv.FormatBool(settings.PluginManagementEnabled)
 
 	// Affiliate (邀请返利) feature switch
@@ -598,6 +599,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
+	updates[SettingKeyUsageShowCacheRate] = strconv.FormatBool(settings.UsageShowCacheRate)
+	updates[SettingKeyUsageShowCacheRateToUsers] = strconv.FormatBool(settings.UsageShowCacheRateToUsers)
 	updates[SettingKeyExcelBPSImageMode] = imageRelay.Mode
 	updates[SettingKeyExcelBPSImageMaxImageMiB] = strconv.Itoa(settings.ExcelBPSImageMaxImageMiB)
 	updates[SettingKeyExcelBPSImageMaxImages] = strconv.Itoa(settings.ExcelBPSImageMaxImages)

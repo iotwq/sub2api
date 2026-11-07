@@ -556,10 +556,14 @@ func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlockIfUnchanged(account
 // are left alone. This is fail-open if a DB write failed or the snapshot has
 // not caught up yet: empty cooldown fields drop the local account-level block.
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string, requireCompact bool) bool {
+	return s.isOpenAIAccountRequestRuntimeBlockedWithContext(context.Background(), account, requestedModel, requireCompact)
+}
+
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlockedWithContext(ctx context.Context, account *Account, requestedModel string, requireCompact bool) bool {
 	if s == nil {
 		return false
 	}
-	if s.isExcelBPSCoolingDown(account, requestedModel) {
+	if s.isExcelBPSCoolingDown(account, requestedModel) || s.isExcelBPSModelCoolingDownForRequest(ctx, account, requestedModel) {
 		return true
 	}
 	snapshot := s.peekOpenAIAccountRuntimeBlock(account)

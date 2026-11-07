@@ -256,7 +256,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				if tier, unsupported := h.gatewayService.OpenAIImageSizeTierUnsupported(c.Request.Context(), apiKey.GroupID, routingModel, parsed.Size, "", parsed.RequiredCapabilityForModel(channelMapping.MappedModel)); unsupported {
+				sizeCheckCapability := parsed.RequiredCapabilityForModel(channelMapping.MappedModel)
+				if sizeCheckCapability == service.OpenAIImagesCapabilityNative {
+					// Match SelectAccountWithSchedulerForImages' OAuth fallback.
+					sizeCheckCapability = service.OpenAIImagesCapabilityBasic
+				}
+				if tier, unsupported := h.gatewayService.OpenAIImageSizeTierUnsupported(c.Request.Context(), apiKey.GroupID, routingModel, parsed.Size, "", sizeCheckCapability); unsupported {
 					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 					h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", service.OpenAIImageSizeTierUnsupportedMessage(parsed.Size, tier), streamStarted)
 					return
@@ -472,8 +477,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if result != nil {
 			upstreamModel = result.UpstreamModel
 		}
-		// Upstream work has completed. Settlement owns the reservation from here;
-		// a bookkeeping error must not turn a successful generation into free usage.
+		// Transfer the hold to the billing worker before the handler returns.
+		// Only a pre-persistence failure releases it; durable pending settlements
+		// retain the hold for recovery.
 		settlementHold := mediaHold
 		mediaHold = nil
 		sessionID := service.ExtractClientSessionID(c)
@@ -504,6 +510,13 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					zap.String("model", clientRequestModel),
 					zap.Int64("account_id", account.ID),
 				).Error("openai.images.record_usage_failed", zap.Error(err))
+				if !service.MediaBalanceHoldRetained(err) {
+					releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					if releaseErr := h.gatewayService.ReleaseOpenAIMediaBalance(releaseCtx, settlementHold); releaseErr != nil {
+						reqLog.Error("openai.images.balance_hold_release_failed", zap.Error(releaseErr))
+					}
+				}
 			}
 		})
 

@@ -61,6 +61,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 	useBasispoints := shouldForwardOpenAIBasispoints(ctx, c, account, body)
+	if codexAccountIdentitySource(c, account).IsExcelOAuth() && !useBasispoints {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "code": "excel_oauth_route_unavailable", "message": errExcelOAuthRouteUnavailable.Error()}})
+		return nil, errExcelOAuthRouteUnavailable
+	}
 	if c.GetBool(bpsAccountProbeRequiredContextKey) && !useBasispoints {
 		return nil, errors.New("bps probe path is unavailable")
 	}

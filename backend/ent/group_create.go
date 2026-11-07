@@ -594,6 +594,20 @@ func (_c *GroupCreate) SetNillableLongContextPricingEnabled(v *bool) *GroupCreat
 	return _c
 }
 
+// SetGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field.
+func (_c *GroupCreate) SetGpt61SolSubscriptionOptimizationEnabled(v bool) *GroupCreate {
+	_c.mutation.SetGpt61SolSubscriptionOptimizationEnabled(v)
+	return _c
+}
+
+// SetNillableGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableGpt61SolSubscriptionOptimizationEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetGpt61SolSubscriptionOptimizationEnabled(*v)
+	}
+	return _c
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (_c *GroupCreate) SetModelPricing(v jsontext.Value) *GroupCreate {
 	_c.mutation.SetModelPricing(v)
@@ -1151,6 +1165,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultLongContextPricingEnabled
 		_c.mutation.SetLongContextPricingEnabled(v)
 	}
+	if _, ok := _c.mutation.Gpt61SolSubscriptionOptimizationEnabled(); !ok {
+		v := group.DefaultGpt61SolSubscriptionOptimizationEnabled
+		_c.mutation.SetGpt61SolSubscriptionOptimizationEnabled(v)
+	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
@@ -1370,6 +1388,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.LongContextPricingEnabled(); !ok {
 		return &ValidationError{Name: "long_context_pricing_enabled", err: errors.New(`ent: missing required field "Group.long_context_pricing_enabled"`)}
+	}
+	if _, ok := _c.mutation.Gpt61SolSubscriptionOptimizationEnabled(); !ok {
+		return &ValidationError{Name: "gpt61_sol_subscription_optimization_enabled", err: errors.New(`ent: missing required field "Group.gpt61_sol_subscription_optimization_enabled"`)}
 	}
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
@@ -1646,6 +1667,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.LongContextPricingEnabled(); ok {
 		_spec.SetField(group.FieldLongContextPricingEnabled, field.TypeBool, value)
 		_node.LongContextPricingEnabled = value
+	}
+	if value, ok := _c.mutation.Gpt61SolSubscriptionOptimizationEnabled(); ok {
+		_spec.SetField(group.FieldGpt61SolSubscriptionOptimizationEnabled, field.TypeBool, value)
+		_node.Gpt61SolSubscriptionOptimizationEnabled = value
 	}
 	if value, ok := _c.mutation.ModelPricing(); ok {
 		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)
@@ -2612,6 +2637,18 @@ func (u *GroupUpsert) SetLongContextPricingEnabled(v bool) *GroupUpsert {
 // UpdateLongContextPricingEnabled sets the "long_context_pricing_enabled" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateLongContextPricingEnabled() *GroupUpsert {
 	u.SetExcluded(group.FieldLongContextPricingEnabled)
+	return u
+}
+
+// SetGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field.
+func (u *GroupUpsert) SetGpt61SolSubscriptionOptimizationEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldGpt61SolSubscriptionOptimizationEnabled, v)
+	return u
+}
+
+// UpdateGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateGpt61SolSubscriptionOptimizationEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldGpt61SolSubscriptionOptimizationEnabled)
 	return u
 }
 
@@ -3858,6 +3895,20 @@ func (u *GroupUpsertOne) SetLongContextPricingEnabled(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateLongContextPricingEnabled() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateLongContextPricingEnabled()
+	})
+}
+
+// SetGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field.
+func (u *GroupUpsertOne) SetGpt61SolSubscriptionOptimizationEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetGpt61SolSubscriptionOptimizationEnabled(v)
+	})
+}
+
+// UpdateGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateGpt61SolSubscriptionOptimizationEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateGpt61SolSubscriptionOptimizationEnabled()
 	})
 }
 
@@ -5332,6 +5383,20 @@ func (u *GroupUpsertBulk) SetLongContextPricingEnabled(v bool) *GroupUpsertBulk 
 func (u *GroupUpsertBulk) UpdateLongContextPricingEnabled() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateLongContextPricingEnabled()
+	})
+}
+
+// SetGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field.
+func (u *GroupUpsertBulk) SetGpt61SolSubscriptionOptimizationEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetGpt61SolSubscriptionOptimizationEnabled(v)
+	})
+}
+
+// UpdateGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateGpt61SolSubscriptionOptimizationEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateGpt61SolSubscriptionOptimizationEnabled()
 	})
 }
 

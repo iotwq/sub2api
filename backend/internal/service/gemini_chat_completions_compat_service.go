@@ -93,6 +93,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
 	}
+	beginGeminiImageOutputObservation(c)
 	if err := json.Unmarshal(claudeBody, &req); err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 	}
@@ -305,9 +306,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 
 	imageInputSize := s.extractImageInputSize(claudeBody)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
-	if isImageGenerationModel(originalModel) {
-		imageCount = 1
-	}
 	// 客户端在收到结束分片前断开时只计已送达的图片：Chat 流不向客户端转发图片。
 	if clientDisconnect && !streamFinished {
 		imageCount = 0
@@ -332,7 +330,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 }
 
 func (s *GeminiMessagesCompatService) newGeminiForwardResult(requestID, originalModel, mappedModel string, stream bool, startTime time.Time, streamResult *geminiStreamResult, requestBody []byte) *ForwardResult {
-	if streamResult == nil {
+	if streamResult == nil || (!streamResult.usage.hasObservedTokens() && streamResult.imageCount == 0) {
 		return nil
 	}
 	usage := ClaudeUsage{}
@@ -341,16 +339,17 @@ func (s *GeminiMessagesCompatService) newGeminiForwardResult(requestID, original
 	}
 	imageInputSize := s.extractImageInputSize(requestBody)
 	return &ForwardResult{
-		RequestID:      requestID,
-		Usage:          usage,
-		Model:          originalModel,
-		UpstreamModel:  mappedModel,
-		Stream:         stream,
-		Duration:       time.Since(startTime),
-		FirstTokenMs:   streamResult.firstTokenMs,
-		ImageCount:     streamResult.imageCount,
-		ImageSize:      normalizeOpenAIImageSizeTier(imageInputSize),
-		ImageInputSize: imageInputSize,
+		RequestID:        requestID,
+		Usage:            usage,
+		Model:            originalModel,
+		UpstreamModel:    mappedModel,
+		Stream:           stream,
+		Duration:         time.Since(startTime),
+		FirstTokenMs:     streamResult.firstTokenMs,
+		ImageCount:       streamResult.imageCount,
+		ImageSize:        normalizeOpenAIImageSizeTier(imageInputSize),
+		ImageInputSize:   imageInputSize,
+		ClientDisconnect: streamResult.clientDisconnect,
 	}
 }
 
@@ -583,6 +582,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	imageCount := 0
 	seenImages := make(map[[32]byte]struct{})
 	firstChunk := true
+	clientDisconnect := false
 	finishReason := ""
 	streamResult := func() *geminiStreamResult {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, imageCount: imageCount, clientDisconnect: clientDisconnect, finished: finishReason != ""}
@@ -663,7 +663,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
 		line, err := reader.ReadLineString()
-		if len(line) > 0 {
+		if len(line) > 0 && (err == nil || errors.Is(err, io.EOF)) {
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
@@ -677,6 +677,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 
 					var geminiResp map[string]any
 					if err := json.Unmarshal(rawBytes, &geminiResp); err == nil {
+						observeGeminiImageOutputs(c, rawBytes)
 						imageCount += countGeminiResponseImages(geminiResp, seenImages)
 						if firstChunk {
 							firstChunk = false

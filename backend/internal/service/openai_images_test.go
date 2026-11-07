@@ -335,7 +335,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_RejectsNonImageModel(t *te
 
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_AllowsGrokImageModels(t *testing.T) {
 
-	for _, model := range []string{"grok-imagine", "grok-imagine-image", "grok-imagine-image-quality", "grok-imagine-edit"} {
+	for _, model := range []string{"grok-imagine", "grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-quality", "grok-imagine-edit"} {
 		t.Run(model, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"draw a cat","response_format":"b64_json"}`, model))
 			req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
@@ -349,7 +349,11 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_AllowsGrokImageModels(t *t
 			require.NoError(t, err)
 			require.NotNil(t, parsed)
 			require.Equal(t, model, parsed.Model)
-			require.Equal(t, OpenAIImagesCapabilityNative, parsed.RequiredCapability)
+			wantCapability := OpenAIImagesCapabilityNative
+			if isAPIKeyCompatibleImageModel(model) {
+				wantCapability = OpenAIImagesCapabilityAPIKey
+			}
+			require.Equal(t, wantCapability, parsed.RequiredCapability)
 		})
 	}
 }

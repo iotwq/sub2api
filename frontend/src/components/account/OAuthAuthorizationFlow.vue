@@ -903,6 +903,7 @@ import type { AccountPlatform } from '@/types'
 import { adminAPI } from '@/api/admin'
 
 interface Props {
+  excelOauth?: boolean
   addMethod: AddMethod
   authUrl?: string
   sessionId?: string
@@ -935,6 +936,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  excelOauth: false,
   authUrl: '',
   sessionId: '',
   loading: false,
@@ -981,7 +983,7 @@ const emailPasswordOptionEnabled = computed(
   () => props.showEmailPasswordOption && props.platform === 'grok' && passwordAuthEnabled.value
 )
 
-const showLocalCallbackNotice = computed(() => props.platform === 'openai' || props.platform === 'grok')
+const showLocalCallbackNotice = computed(() => (props.platform === 'openai' && !props.excelOauth) || props.platform === 'grok')
 
 // Get translation key based on platform
 const getOAuthKey = (key: string) => {
@@ -993,17 +995,17 @@ const getOAuthKey = (key: string) => {
 }
 
 // Computed translations for current platform
-const oauthTitle = computed(() => t(getOAuthKey('title')))
+const oauthTitle = computed(() => t(getOAuthKey(props.excelOauth ? 'excelTitle' : 'title')))
 const oauthFollowSteps = computed(() => t(getOAuthKey('followSteps')))
 const oauthStep1GenerateUrl = computed(() => t(getOAuthKey('step1GenerateUrl')))
 const oauthGenerateAuthUrl = computed(() => t(getOAuthKey('generateAuthUrl')))
 const oauthStep2OpenUrl = computed(() => t(getOAuthKey('step2OpenUrl')))
-const oauthOpenUrlDesc = computed(() => t(getOAuthKey('openUrlDesc')))
-const oauthStep3EnterCode = computed(() => t(getOAuthKey('step3EnterCode')))
-const oauthAuthCodeDesc = computed(() => t(getOAuthKey('authCodeDesc')))
-const oauthAuthCode = computed(() => t(getOAuthKey('authCode')))
-const oauthAuthCodePlaceholder = computed(() => t(getOAuthKey('authCodePlaceholder')))
-const oauthAuthCodeHint = computed(() => t(getOAuthKey('authCodeHint')))
+const oauthOpenUrlDesc = computed(() => t(getOAuthKey(props.excelOauth ? 'excelOpenUrlDesc' : 'openUrlDesc')))
+const oauthStep3EnterCode = computed(() => t(getOAuthKey(props.excelOauth ? 'excelStep3EnterCode' : 'step3EnterCode')))
+const oauthAuthCodeDesc = computed(() => t(getOAuthKey(props.excelOauth ? 'excelAuthCodeDesc' : 'authCodeDesc')))
+const oauthAuthCode = computed(() => t(getOAuthKey(props.excelOauth ? 'excelAuthCode' : 'authCode')))
+const oauthAuthCodePlaceholder = computed(() => t(getOAuthKey(props.excelOauth ? 'excelAuthCodePlaceholder' : 'authCodePlaceholder')))
+const oauthAuthCodeHint = computed(() => t(getOAuthKey(props.excelOauth ? 'excelAuthCodeHint' : 'authCodeHint')))
 const oauthImportantNotice = computed(() => {
   if (props.platform === 'openai') return t('admin.accounts.oauth.openai.importantNotice')
   if (props.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.importantNotice')
@@ -1165,6 +1167,8 @@ watch(authCodeInput, (newVal) => {
 
 // Methods
 const handleGenerateUrl = () => {
+  authCodeInput.value = ''
+  oauthState.value = ''
   emit('generate-url')
 }
 

@@ -530,7 +530,7 @@ func TestCollectGeminiSSEObserved_PreservesImageBillingAndTerminalSignal(t *test
 		t.Run(tailError.Error(), func(t *testing.T) {
 			reader := &errTailReader{data: []byte(imageEvent + imageEvent + geminiSignalTestProhibitedSSE), err: tailError}
 			var best geminiResponseSignal
-			collected, usage, stats, err := collectGeminiSSEObserved(reader, false, func(raw []byte) {
+			collected, usage, stats, err := collectGeminiSSEObserved(nil, reader, false, func(raw []byte) {
 				if signal, ok := detectGeminiResponseSignal(raw); ok && signal.Kind > best.Kind {
 					best = signal
 				}

@@ -329,6 +329,8 @@ func TestGatewayRoutesOpenAIVideoTaskPathsAreRegistered(t *testing.T) {
 	}{
 		{http.MethodPost, "/v1/videos", `{"model":"video-ds-2.0-fast","prompt":"waves"}`},
 		{http.MethodPost, "/videos", `{"model":"video-ds-2.0-fast","prompt":"waves"}`},
+		{http.MethodPost, "/v1/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
+		{http.MethodPost, "/videos/generations", `{"model":"grok-imagine-video","prompt":"waves"}`},
 		{http.MethodGet, "/v1/videos?page_num=1&page_size=20", ""},
 		{http.MethodGet, "/videos?page_num=1&page_size=20", ""},
 		{http.MethodPost, "/v1/videos/context-ir", `{"model":"MiniMax-H3","content":[{"type":"text","text":"waves"}]}`},
@@ -387,15 +389,13 @@ func TestGatewayRoutesLegacyVideoGenerationsPathsAreRemoved(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesOpenAILegacyGrokVideoPathsAreRejected(t *testing.T) {
+func TestGatewayRoutesOpenAIGrokVideoEditAndExtensionPathsAreRejected(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
 	for _, tc := range []struct {
 		path string
 		body string
 	}{
-		{"/v1/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
-		{"/videos/generations", `{"model":"grok-imagine-video-1.5","prompt":"waves"}`},
 		{"/v1/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{"/videos/edits", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},
 		{"/v1/videos/extensions", `{"model":"grok-imagine-video","prompt":"waves","video":{"url":"https://example.com/in.mp4"}}`},

@@ -7,6 +7,7 @@ const ipGeoMocks = vi.hoisted(() => ({
 const appStoreMocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  cachedPublicSettings: undefined as Record<string, boolean> | undefined,
 }))
 
 vi.mock('@/utils/ipGeoLookup', () => ipGeoMocks)
@@ -33,6 +34,7 @@ const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
 }
 
 const messages: Record<string, string> = {
+  'usage.latencyCacheRate': 'Cache rate',
   'usage.outputTps': 'Output TPS',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
@@ -154,6 +156,31 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it.each([
+    ['admin', undefined, true],
+    ['user', undefined, false],
+    ['user', { usage_show_cache_rate_to_users: true }, true],
+    ['admin', { usage_show_cache_rate: false, usage_show_cache_rate_to_users: true }, false],
+    ['user', { usage_show_cache_rate: false, usage_show_cache_rate_to_users: true }, false],
+  ] as const)('applies %s cache visibility to the row and token tooltip (%j)', async (audience, settings, visible) => {
+    appStoreMocks.cachedPublicSettings = settings
+    const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', input_tokens: 4057, cache_read_tokens: 278272, cache_creation_tokens: 4 }
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], columns: [{ key: 'latency', label: 'Latency' }], cacheRateAudience: audience },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    try {
+      expect(wrapper.find('[data-testid="latency-cache-rate"]').exists()).toBe(visible)
+      if (visible) expect(wrapper.get('[data-testid="latency-cache-rate"]').text()).toBe('98.6%')
+      await wrapper.find('.group.relative').trigger('mouseenter')
+      await nextTick()
+      expect(wrapper.find('[data-testid="token-cache-rate"]').exists()).toBe(visible)
+    } finally {
+      wrapper.unmount()
+      appStoreMocks.cachedPublicSettings = undefined
+    }
+  })
+
   it('shows output TPS in the latency cell using total duration', () => {
     const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 1000, duration_ms: 20_000, first_token_ms: 10_000 }
     const wrapper = mount(UsageTable, {

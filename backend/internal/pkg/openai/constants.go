@@ -10,23 +10,24 @@ import (
 
 // Model represents an OpenAI model
 type Model struct {
-	ID          string `json:"id"`
-	Object      string `json:"object"`
-	Created     int64  `json:"created"`
-	OwnedBy     string `json:"owned_by"`
-	Type        string `json:"type"`
-	DisplayName string `json:"display_name"`
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	ID               string   `json:"id"`
+	Object           string   `json:"object"`
+	Created          int64    `json:"created"`
+	OwnedBy          string   `json:"owned_by"`
+	Type             string   `json:"type"`
+	DisplayName      string   `json:"display_name"`
 }
 
 // DefaultModels OpenAI models list
 var DefaultModels = []Model{
+	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
 	{ID: "gpt-5.6-sol", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Sol"},
 	{ID: "gpt-6", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 (Astra)"},
 	{ID: "gpt-5.6", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 (Sol)"},
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
 	{ID: "gpt-6.1-terra", Object: "model", Created: 1792972800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Terra"},
-	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
 	{ID: "gpt-6-sol", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Sol"},
 	{ID: "gpt-6-luna", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Luna"},
 	{ID: "gpt-6-astra", Object: "model", Created: 1788480000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Astra"},
@@ -43,6 +44,30 @@ var DefaultModels = []Model{
 	{ID: "gpt-image-2.5-sunburst", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Sunburst"},
 	{ID: "gpt-image-2.6-flare", Object: "model", Created: 1793750400, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.6 Flare"},
 	{ID: "gpt-image-2.6-sunburst", Object: "model", Created: 1793750400, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.6 Sunburst"},
+	{ID: "suno", Object: "model", Created: 1788825600, OwnedBy: "suno", Type: "model", DisplayName: "Suno"},
+	{ID: "suno-v6-mini", Object: "model", Created: 1788825600, OwnedBy: "suno", Type: "model", DisplayName: "Suno v6 Mini"},
+	{ID: "suno-v6", Object: "model", Created: 1788825600, OwnedBy: "suno", Type: "model", DisplayName: "Suno v6"},
+	{ID: "suno-v6-wild", Object: "model", Created: 1788825600, OwnedBy: "suno", Type: "model", DisplayName: "Suno v6 Wild"},
+	{ID: "firefly-video-v2-fast", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Firefly Video v2 Fast"},
+	{ID: "firefly-video-v2", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Firefly Video v2"},
+	{ID: "minimax-h3", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "MiniMax H3"},
+	{ID: "sora-2-landscape-8s", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Sora 2 Landscape 8s"},
+	{ID: "sora-2-landscape-12s", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Sora 2 Landscape 12s"},
+	{ID: "sora-2-portrait-8s", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Sora 2 Portrait 8s"},
+	{ID: "sora-2-portrait-12s", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Sora 2 Portrait 12s"},
+	{ID: "wan3.0x", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Wan 3.0x"},
+	{ID: "wan3.0x-480p", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Wan 3.0x 480p"},
+	{ID: "wan3.0x-1080p", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Wan 3.0x 1080p"},
+	{ID: "viraldance933", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "ViralDance 933"},
+	{ID: "viraldance933-fast", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "ViralDance 933 Fast"},
+	{ID: "viraldance2.5-30", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "ViralDance 2.5 30"},
+	{ID: "dola-viraldance2.0", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Dola ViralDance 2.0"},
+	{ID: "dola-viraldance2.5", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Dola ViralDance 2.5"},
+	{ID: "video-ds-2.0-fast", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Video DS 2.0 Fast"},
+	{ID: "video-ds-2.0", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "Video DS 2.0"},
+	{ID: "as-sd2.0-fast", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "SD2.0 Fast"},
+	{ID: "viraldance2.5-15", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "ViralDance 2.5 15"},
+	{ID: "viraldance2.5-480p-15", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "video", DisplayName: "ViralDance 2.5 480p 15"},
 }
 
 // DefaultModelIDs returns the default model ID list

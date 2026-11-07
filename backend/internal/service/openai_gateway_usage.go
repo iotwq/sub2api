@@ -253,7 +253,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
 	longContextBillingGate := openAILongContextBillingGate(billingAccount)
-	modelLongContextExempt := openAISubscriptionLongContextExempt(billingAccount, result)
+	modelLongContextExempt := openAISubscriptionLongContextExempt(
+		billingAccount,
+		result,
+		apiKey != nil && apiKey.Group != nil && apiKey.Group.GPT61SolSubscriptionOptimizationEnabled,
+	)
 	if input.BillingCostSnapshot != nil {
 		snapshot := *input.BillingCostSnapshot
 		cost = &snapshot
@@ -614,17 +618,17 @@ func openAILongContextBillingGate(account *Account) *bool {
 }
 
 // openAISubscriptionLongContextExempt 按实际凭据和最终发送模型判断订阅豁免。
-// GPT-6.1 Sol / Terra 的订阅请求不再收取模型长上下文附加费；API Key 仍使用 API 价卡。
+// Terra 沿用上游订阅豁免；Sol 仍由本站分组优化开关控制。API Key 仍使用 API 价卡。
 // 使用发送模型，避免客户别名、渠道计费模型或响应模型计费切换改变上游订阅规则。
-func openAISubscriptionLongContextExempt(account *Account, result *OpenAIForwardResult) bool {
-	if !account.IsOpenAIOAuthLike() || result == nil {
+func openAISubscriptionLongContextExempt(account *Account, result *OpenAIForwardResult, enabled bool) bool {
+	if account == nil || !account.IsOpenAIOAuthLike() || result == nil {
 		return false
 	}
 	model := strings.TrimSpace(result.UpstreamModel)
 	if model == "" {
 		model = result.Model
 	}
-	return openai.IsGPT61SolModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)
+	return openai.IsGPT61TerraModelSpelling(model) || (enabled && openai.IsGPT61SolModelSpelling(model))
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
@@ -649,6 +653,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		// 倍率与 image/video 按次口径一致：使用不含高峰因子的基础倍率
 		//（用户专属 > 分组 rate_multiplier > 系统默认），与分组表单的价格预览承诺一致。
 		return s.billingService.CalculateWebSearchCost(result.WebSearchCalls, webSearchPricePerCallFromAPIKey(apiKey), webSearchMultiplier), nil
+	}
+	if isSunoResult(result) {
+		return s.calculateSunoMusicCost(ctx, billingModel, apiKey, result.RequestCount, webSearchMultiplier)
 	}
 	if result != nil && result.RequestCount > 0 && !isOpenAIVideoUsageResult(result, billingModels) && result.ImageCount <= 0 {
 		return s.calculateOpenAIPerRequestCost(ctx, billingModels, apiKey, result.RequestCount, webSearchMultiplier)
@@ -769,6 +776,16 @@ func (s *OpenAIGatewayService) EstimateOpenAIPerRequestCost(
 	if s == nil || apiKey == nil || user == nil || strings.TrimSpace(requestModel) == "" {
 		return nil, fmt.Errorf("per-request pricing input is incomplete: %w", ErrModelPricingUnavailable)
 	}
+	if IsSunoMusicModel(requestModel) || IsSunoMusicModel(channelMappedModel) || IsSunoMusicModel(upstreamModel) {
+		billingModel := forwardResultBillingModel(requestModel, upstreamModel)
+		if billingModelSource == BillingModelSourceChannelMapped && strings.TrimSpace(channelMappedModel) != "" {
+			billingModel = strings.TrimSpace(channelMappedModel)
+		}
+		if billingModelSource == BillingModelSourceRequested {
+			billingModel = strings.TrimSpace(requestModel)
+		}
+		return s.calculateSunoMusicCost(ctx, billingModel, apiKey, 1, s.resolveOpenAIMediaBaseRateMultiplier(ctx, apiKey, user))
+	}
 	billingModel := forwardResultBillingModel(requestModel, upstreamModel)
 	if billingModelSource == BillingModelSourceChannelMapped && strings.TrimSpace(channelMappedModel) != "" {
 		billingModel = strings.TrimSpace(channelMappedModel)
@@ -784,6 +801,29 @@ func (s *OpenAIGatewayService) EstimateOpenAIPerRequestCost(
 		1,
 		s.resolveOpenAIMediaBaseRateMultiplier(ctx, apiKey, user),
 	)
+}
+
+// calculateSunoMusicCost uses the configured channel/group per-request price
+// when available. The built-in price is only a compatibility fallback for
+// accounts without an applicable media pricing rule.
+func (s *OpenAIGatewayService) calculateSunoMusicCost(ctx context.Context, billingModel string, apiKey *APIKey, requestCount int, multiplier float64) (*CostBreakdown, error) {
+	if requestCount <= 0 {
+		requestCount = 1
+	}
+	if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved != nil &&
+		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) {
+		gid := apiKey.Group.ID
+		cost, err := s.billingService.CalculateCostUnified(CostInput{
+			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+			RequestCount: requestCount, RateMultiplier: multiplier,
+			Resolver: s.resolver, Resolved: resolved,
+		})
+		if err == nil {
+			return cost, nil
+		}
+		return nil, err
+	}
+	return sunoMusicCost(multiplier), nil
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIPerRequestCost(
@@ -1015,6 +1055,9 @@ func (s *OpenAIGatewayService) ValidateOpenAITokenPricing(
 	if s == nil || apiKey == nil || strings.TrimSpace(requestModel) == "" {
 		return fmt.Errorf("token pricing input is incomplete: %w", ErrModelPricingUnavailable)
 	}
+	if IsSunoMusicModel(requestModel) || IsSunoMusicModel(channelMappedModel) || IsSunoMusicModel(upstreamModel) {
+		return nil
+	}
 	billingModel := forwardResultBillingModel(requestModel, upstreamModel)
 	if billingModelSource == BillingModelSourceChannelMapped && strings.TrimSpace(channelMappedModel) != "" {
 		billingModel = strings.TrimSpace(channelMappedModel)
@@ -1026,7 +1069,7 @@ func (s *OpenAIGatewayService) ValidateOpenAITokenPricing(
 	var lastErr error
 	longContextBillingDisabled := false
 	for _, candidate := range billingModels {
-		_, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, 1, time.Time{}, UsageTokens{}, "", "", &longContextBillingDisabled)
+		_, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, 1, time.Time{}, UsageTokens{}, "", "", &longContextBillingDisabled, false)
 		if err == nil {
 			return nil
 		}

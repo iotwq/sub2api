@@ -737,18 +737,19 @@ type PricingConfig struct {
 }
 
 type ServerConfig struct {
-	Host                     string    `mapstructure:"host"`
-	Port                     int       `mapstructure:"port"`
-	Mode                     string    `mapstructure:"mode"`                  // debug/release
-	EnableServerTiming       bool      `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
-	FrontendURL              string    `mapstructure:"frontend_url"`          // 前端基础 URL，用于生成邮件中的外部链接
-	ReadHeaderTimeout        int       `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
-	MaxHeaderBytes           int       `mapstructure:"max_header_bytes"`      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
-	IdleTimeout              int       `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
-	TrustedProxies           []string  `mapstructure:"trusted_proxies"`       // 可信代理列表（CIDR/IP）
-	TrustedProxiesConfigured bool      `mapstructure:"-" json:"-" yaml:"-"`   // 是否显式配置了可信代理列表
-	MaxRequestBodySize       int64     `mapstructure:"max_request_body_size"` // 全局最大请求体限制
-	H2C                      H2CConfig `mapstructure:"h2c"`                   // HTTP/2 Cleartext 配置
+	Host                              string    `mapstructure:"host"`
+	Port                              int       `mapstructure:"port"`
+	Mode                              string    `mapstructure:"mode"`                                  // debug/release
+	EnableServerTiming                bool      `mapstructure:"enable_server_timing"`                  // Admin UI Server-Timing response header
+	FrontendURL                       string    `mapstructure:"frontend_url"`                          // 前端基础 URL，用于生成邮件中的外部链接
+	ReadHeaderTimeout                 int       `mapstructure:"read_header_timeout"`                   // 读取请求头超时（秒）
+	MaxHeaderBytes                    int       `mapstructure:"max_header_bytes"`                      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
+	IdleTimeout                       int       `mapstructure:"idle_timeout"`                          // 空闲连接超时（秒）
+	TrustedProxies                    []string  `mapstructure:"trusted_proxies"`                       // 可信代理列表（CIDR/IP）
+	TrustedProxiesConfigured          bool      `mapstructure:"-" json:"-" yaml:"-"`                   // 是否显式配置了可信代理列表
+	PublicAssetCleanupIntervalSeconds int       `mapstructure:"public_asset_cleanup_interval_seconds"` // 公开临时资源后台清理间隔（秒），小于等于 0 禁用
+	MaxRequestBodySize                int64     `mapstructure:"max_request_body_size"`                 // 全局最大请求体限制
+	H2C                               H2CConfig `mapstructure:"h2c"`                                   // HTTP/2 Cleartext 配置
 }
 
 // H2CConfig HTTP/2 Cleartext 配置
@@ -1141,6 +1142,9 @@ type GatewayConfig struct {
 
 	// StreamDataIntervalTimeout: 流数据间隔超时（秒），0表示禁用
 	StreamDataIntervalTimeout int `mapstructure:"stream_data_interval_timeout"`
+	// BPS uses an independent progress timeout; 0 disables it.
+	ExcelBPSStreamDataIntervalTimeout int  `mapstructure:"excel_bps_stream_data_interval_timeout"`
+	ExcelBPSStateRedisEnabled         bool `mapstructure:"excel_bps_state_redis_enabled"`
 	// StreamKeepaliveInterval: 流式 keepalive 间隔（秒），0表示禁用
 	StreamKeepaliveInterval int `mapstructure:"stream_keepalive_interval"`
 	// ImageStreamDataIntervalTimeout: 图片流数据间隔超时（秒），0表示禁用
@@ -2064,7 +2068,16 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	}
 
 	if !cfg.Security.URLAllowlist.Enabled {
-		slog.Warn("security.url_allowlist.enabled=false; allowlist/SSRF checks disabled (minimal format validation only).")
+		slog.Warn("security.url_allowlist.enabled=false; host allowlist checks disabled; private-address protection remains active unless allow_private_hosts=true.")
+	}
+	if !cfg.Security.URLAllowlist.AllowPrivateHosts && !hasExplicitConfigOrEnv("security.url_allowlist.allow_private_hosts", "SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS") {
+		slog.Warn("security.url_allowlist.allow_private_hosts defaults to false; private or local upstream URLs will be blocked. Set it to true only if this deployment requires trusted private upstreams.")
+	}
+	if !cfg.Security.URLAllowlist.AllowInsecureHTTP && !hasExplicitConfigOrEnv("security.url_allowlist.allow_insecure_http", "SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP") {
+		slog.Warn("security.url_allowlist.allow_insecure_http defaults to false; http:// URLs are rejected when URL allowlist checks are disabled. Set it to true only if this deployment requires HTTP upstreams.")
+	}
+	if !cfg.Security.TrustForwardedIPForAPIKeyACL && !hasExplicitConfigOrEnv("security.trust_forwarded_ip_for_api_key_acl", "SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL") {
+		slog.Warn("security.trust_forwarded_ip_for_api_key_acl defaults to false; configure server.trusted_proxies for proxy client IPs, or explicitly enable the legacy forwarded-header compatibility mode.")
 	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		slog.Warn("security.response_headers.enabled=false; configurable header filtering disabled (default allowlist only).")
@@ -2114,6 +2127,7 @@ func setDefaults() {
 	viper.SetDefault("server.read_header_timeout", 10) // 10秒读取请求头
 	viper.SetDefault("server.max_header_bytes", 64*1024)
 	viper.SetDefault("server.idle_timeout", 120) // 120秒空闲超时
+	viper.SetDefault("server.public_asset_cleanup_interval_seconds", 3600)
 	viper.SetDefault("server.max_request_body_size", int64(256*1024*1024))
 	// H2C 默认配置
 	viper.SetDefault("server.h2c.enabled", false)
@@ -2175,15 +2189,15 @@ func setDefaults() {
 		"raw.githubusercontent.com",
 	})
 	viper.SetDefault("security.url_allowlist.crs_hosts", []string{})
-	viper.SetDefault("security.url_allowlist.allow_private_hosts", true)
-	viper.SetDefault("security.url_allowlist.allow_insecure_http", true)
+	viper.SetDefault("security.url_allowlist.allow_private_hosts", false)
+	viper.SetDefault("security.url_allowlist.allow_insecure_http", false)
 	viper.SetDefault("security.response_headers.enabled", true)
 	viper.SetDefault("security.response_headers.additional_allowed", []string{})
 	viper.SetDefault("security.response_headers.force_remove", []string{})
 	viper.SetDefault("security.csp.enabled", true)
 	viper.SetDefault("security.csp.policy", DefaultCSPPolicy)
 	viper.SetDefault("security.proxy_probe.insecure_skip_verify", false)
-	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", true)
+	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", false)
 
 	// Security - disable direct fallback on proxy error
 	viper.SetDefault("security.proxy_fallback.allow_direct_on_error", false)
@@ -2614,6 +2628,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.client_idle_ttl_seconds", 900)
 	viper.SetDefault("gateway.concurrency_slot_ttl_minutes", 30) // 并发槽位过期时间（支持超长请求）
 	viper.SetDefault("gateway.stream_data_interval_timeout", 180)
+	viper.SetDefault("gateway.excel_bps_stream_data_interval_timeout", 120)
+	viper.SetDefault("gateway.excel_bps_state_redis_enabled", false)
 	viper.SetDefault("gateway.stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
@@ -3518,6 +3534,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ConcurrencySlotTTLMinutes <= 0 {
 		return fmt.Errorf("gateway.concurrency_slot_ttl_minutes must be positive")
+	}
+	if value := c.Gateway.ExcelBPSStreamDataIntervalTimeout; value != 0 && (value < 30 || value > 300) {
+		return fmt.Errorf("gateway.excel_bps_stream_data_interval_timeout must be 0 or between 30-300 seconds")
 	}
 	if c.Gateway.StreamDataIntervalTimeout < 0 {
 		return fmt.Errorf("gateway.stream_data_interval_timeout must be non-negative")

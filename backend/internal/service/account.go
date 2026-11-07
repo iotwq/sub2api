@@ -96,6 +96,10 @@ const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
 // responses hide data[].url and expose only data[].b64_json.
 const OpenAIImageURLToB64JSONExtraKey = "openai_image_url_to_b64_json"
 
+// OpenAISunoAudioURLToProxyExtraKey controls whether Suno audio URLs returned
+// by an OpenAI API Key account are downloaded and served from this gateway.
+const OpenAISunoAudioURLToProxyExtraKey = "openai_suno_audio_url_to_proxy"
+
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
@@ -969,6 +973,15 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // （isDeepseekServableModel）——未知模型名透传上游只会得到 404/400，并误触发
 // per-(账号,模型) 30 分钟冷却；带 [1m] 上下文后缀的写法先归一化再比对。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	if a.IsExcelOAuth() && !a.UsesBasispointsResponses() {
+		return false
+	}
+	// Suno is an OpenAI-compatible API URL + Key service, not a Codex OAuth
+	// model. Keep it out of OAuth scheduling even when the OAuth account has an
+	// empty model mapping or passthrough enabled.
+	if IsSunoMusicModel(requestedModel) && !a.IsOpenAIApiKey() {
+		return false
+	}
 	return supportsOpenAIRequestModel(a, requestedModel, false)
 }
 
@@ -2130,7 +2143,7 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 	if capability == "" {
 		return true
 	}
-	if !a.IsOpenAI() {
+	if !a.IsOpenAI() || a.IsExcelOAuth() {
 		return false
 	}
 	switch capability {
@@ -2238,6 +2251,12 @@ func (a *Account) ShouldConvertOpenAIImageURLsToBase64() bool {
 	}
 	enabled, ok := a.Extra[OpenAIImageURLToB64JSONExtraKey].(bool)
 	return ok && enabled
+}
+
+// ShouldProxySunoAudioURLs reports whether this OpenAI API Key account should
+// hide upstream Suno audio URLs behind the gateway's temporary asset path.
+func (a *Account) ShouldProxySunoAudioURLs() bool {
+	return a != nil && a.IsOpenAIApiKey() && a.Extra != nil && a.Extra[OpenAISunoAudioURLToProxyExtraKey] == true
 }
 
 // IsOpenAIResponsesWebSocketV2Enabled 返回 OpenAI 账号是否开启 Responses WebSocket v2。

@@ -12,7 +12,7 @@ const basispointsFailurePayloadKey = "basispoints_failure_payload"
 // Preserve the safe bridge event before the shared Chat types discard the
 // semantic status/type. Only BPS callers consume this request-local value.
 func rememberBasispointsFailure(c *gin.Context, payload []byte) {
-	if GetActualOpenAIUpstreamEndpoint(c) == "/basispoints/api/responses" && basispoints.ParseUpstreamFailure(payload) != nil {
+	if GetActualOpenAIUpstreamEndpoint(c) == "/basispoints/api/responses" && (basispoints.ParseUpstreamFailure(payload) != nil || basispoints.ParseBridgeFailure(payload) != nil) {
 		c.Set(basispointsFailurePayloadKey, string(payload))
 	}
 }
@@ -21,7 +21,11 @@ func (s *OpenAIGatewayService) recordBasispointsTerminalFailure(c *gin.Context, 
 	if len(terminal) == 0 {
 		terminal = []byte(c.GetString(basispointsFailurePayloadKey))
 	}
+	bridgeFailure := basispoints.ParseBridgeFailure(terminal)
 	failure := basispoints.ParseUpstreamFailure(terminal)
+	if bridgeFailure != nil {
+		failure = &basispoints.UpstreamFailure{Status: http.StatusBadGateway, Code: "basispoints_protocol_error", Type: "server_error", Message: bridgeFailure.Message}
+	}
 	if failure == nil {
 		return nil
 	}
@@ -30,10 +34,11 @@ func (s *OpenAIGatewayService) recordBasispointsTerminalFailure(c *gin.Context, 
 	// Do not invoke Codex account health, auth recovery, or failover policies.
 	setOpsUpstreamError(c, resp.StatusCode, failure.Message, "")
 	MarkOpsStreamErrorValue(c, OpsStreamError{
+		BridgeFailure: bridgeFailure, UpstreamStatus: resp.StatusCode,
 		ErrType: failure.Type, Code: failure.Code, Message: failure.Message,
 		IntendedStatus: failure.Status, CountTowardsSLA: true, NonStream: !stream,
 	})
-	if failure.Status == http.StatusTooManyRequests {
+	if bridgeFailure == nil && failure.Status == http.StatusTooManyRequests {
 		s.coolDownExcelBPS(c.Request.Context(), account, resp.Header.Get("Retry-After"))
 	}
 	return failure

@@ -63,6 +63,8 @@ type channelMonitorUserListItem struct {
 	PrimaryLatencyMs     *int                                 `json:"primary_latency_ms"`
 	PrimaryPingLatencyMs *int                                 `json:"primary_ping_latency_ms"`
 	Availability7d       float64                              `json:"availability_7d"`
+	Availability15d      *float64                             `json:"availability_15d"`
+	Availability30d      *float64                             `json:"availability_30d"`
 	ExtraModels          []dto.ChannelMonitorExtraModelStatus `json:"extra_models"`
 	Timeline             []channelMonitorUserTimelinePoint    `json:"timeline"`
 	// LatestQuota 主模型最近配额快照；channel_monitor_show_quota=false 时
@@ -132,6 +134,8 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
 		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
 		Availability7d:       v.Availability7d,
+		Availability15d:      v.Availability15d,
+		Availability30d:      v.Availability30d,
 		ExtraModels:          extras,
 		Timeline:             timeline,
 	}

@@ -2,10 +2,48 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
+
+// MediaSettlementError reports whether a media balance hold is already owned
+// by a durable pending-settlement record. Callers must release the hold when
+// this is false and leave it untouched when this is true.
+type MediaSettlementError struct {
+	Err          error
+	HoldRetained bool
+}
+
+func (e *MediaSettlementError) Error() string {
+	if e == nil || e.Err == nil {
+		return "media settlement failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *MediaSettlementError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func mediaSettlementError(err error, holdRetained bool) error {
+	if err == nil {
+		return nil
+	}
+	return &MediaSettlementError{Err: err, HoldRetained: holdRetained}
+}
+
+// MediaBalanceHoldRetained reports whether a failed settlement has a durable
+// retry record that owns the hold. A false result means the request path must
+// release its in-memory hold.
+func MediaBalanceHoldRetained(err error) bool {
+	var settlementErr *MediaSettlementError
+	return errors.As(err, &settlementErr) && settlementErr.HoldRetained
+}
 
 // PendingImageSettlement preserves the exact command and usage after successful
 // image generation. Retrying never recalculates prices from current settings.

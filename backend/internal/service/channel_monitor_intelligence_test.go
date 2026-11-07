@@ -192,7 +192,7 @@ func TestMonitorIntelligenceHealthIsolation(t *testing.T) {
 		name, healthLatency, candyReply, status, intelligence, reason string
 		healthError, candyError, cancelCandy                          bool
 	}{
-		{name: "slow health still degrades", healthLatency: "7000", candyReply: `{"choices":[{"message":{"content":"<answer>21</answer>"}}]}`, status: MonitorStatusDegraded, intelligence: "passed"},
+		{name: "slow health still degrades", healthLatency: "11000", candyReply: `{"choices":[{"message":{"content":"<answer>21</answer>"}}]}`, status: MonitorStatusDegraded, intelligence: "passed"},
 		{name: "candy HTTP error", healthLatency: "123", candyError: true, status: MonitorStatusOperational, intelligence: "inconclusive", reason: "request_failed"},
 		{name: "candy canceled", healthLatency: "123", cancelCandy: true, status: MonitorStatusOperational, intelligence: "inconclusive", reason: "request_failed"},
 		{name: "candy truncated", healthLatency: "123", candyReply: `{"choices":[{"message":{"content":"21"},"finish_reason":"length"}]}`, status: MonitorStatusOperational, intelligence: "inconclusive", reason: "response_incomplete"},
@@ -239,7 +239,7 @@ func TestMonitorIntelligenceHealthIsolation(t *testing.T) {
 				require.Equal(t, 2, calls)
 				require.Equal(t, tc.healthLatency, fmt.Sprint(*result.LatencyMs))
 				if tc.status == MonitorStatusDegraded {
-					require.Equal(t, "slow response: 7000ms", result.Message)
+					require.Equal(t, "slow response: 11000ms", result.Message)
 				} else {
 					require.Empty(t, result.Message)
 				}
@@ -250,7 +250,7 @@ func TestMonitorIntelligenceHealthIsolation(t *testing.T) {
 
 func TestMonitorIntelligenceResponsesFallbackPreservesHealth(t *testing.T) {
 	swapMonitorHTTPClient(t)
-	health := &openAICaptureHandler{rejectChatModelNotFound: true, probeLatencyHeader: "7000"}
+	health := &openAICaptureHandler{rejectChatModelNotFound: true, probeLatencyHeader: "11000"}
 	calls := 0
 	var payloads [][]byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -268,8 +268,8 @@ func TestMonitorIntelligenceResponsesFallbackPreservesHealth(t *testing.T) {
 	result := runCheckForModel(context.Background(), MonitorProviderOpenAI, srv.URL, "key", "gpt-5.5", &CheckOptions{IntelligenceEnabled: true})
 	require.Equal(t, 4, calls, "each probe falls back once without starting another combined check")
 	require.Equal(t, MonitorStatusDegraded, result.Status)
-	require.Equal(t, 7000, *result.LatencyMs)
-	require.Equal(t, "chat_completions model_not_found; retried via responses; slow response: 7000ms", result.Message)
+	require.Equal(t, 11000, *result.LatencyMs)
+	require.Equal(t, "chat_completions model_not_found; retried via responses; slow response: 11000ms", result.Message)
 	require.Equal(t, "passed", result.Intelligence.Status)
 	require.False(t, gjson.GetBytes(payloads[0], "reasoning_effort").Exists(), "ordinary probe keeps upstream defaults")
 	require.False(t, gjson.GetBytes(payloads[1], "reasoning").Exists())

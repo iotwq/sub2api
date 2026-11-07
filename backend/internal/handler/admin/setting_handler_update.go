@@ -355,9 +355,10 @@ type UpdateSettingsRequest struct {
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
 	// Model Plaza feature switches + description
-	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription *string `json:"model_plaza_description"`
+	ModelPlazaEnabled       *bool    `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth   *bool    `json:"model_plaza_require_auth"`
+	ModelPlazaDescription   *string  `json:"model_plaza_description"`
+	ModelPlazaRechargeRatio *float64 `json:"model_plaza_recharge_ratio" binding:"omitempty,gt=0"`
 
 	// Plugin management menu visibility switch; plugin runtime is unaffected.
 	PluginManagementEnabled *bool `json:"plugin_management_enabled"`
@@ -392,6 +393,8 @@ type UpdateSettingsRequest struct {
 	AuthSourceDingTalkPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_dingtalk_platform_quotas"`
 
 	AllowUserViewErrorRequests  *bool   `json:"allow_user_view_error_requests"`
+	UsageShowCacheRate          *bool   `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers   *bool   `json:"usage_show_cache_rate_to_users"`
 	ExcelBPSImageMode           *string `json:"excel_bps_image_mode"`
 	ExcelBPSImageMaxImageMiB    *int    `json:"excel_bps_image_max_image_mib"`
 	ExcelBPSImageMaxImages      *int    `json:"excel_bps_image_max_images"`
@@ -1731,6 +1734,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AllowUserViewErrorRequests
 		}(),
+		UsageShowCacheRate: func() bool {
+			if req.UsageShowCacheRate != nil {
+				return *req.UsageShowCacheRate
+			}
+			return previousSettings.UsageShowCacheRate
+		}(),
+		UsageShowCacheRateToUsers: func() bool {
+			if req.UsageShowCacheRateToUsers != nil {
+				return *req.UsageShowCacheRateToUsers
+			}
+			return previousSettings.UsageShowCacheRateToUsers
+		}(),
 		ExcelBPSImageMode: func() string {
 			if req.ExcelBPSImageMode != nil {
 				return *req.ExcelBPSImageMode
@@ -2117,6 +2132,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.ModelPlazaRequireAuth
 			}
 			return previousSettings.ModelPlazaRequireAuth
+		}(),
+		ModelPlazaRechargeRatio: func() float64 {
+			if req.ModelPlazaRechargeRatio != nil {
+				return *req.ModelPlazaRechargeRatio
+			}
+			return previousSettings.ModelPlazaRechargeRatio
 		}(),
 		ModelPlazaDescription: func() string {
 			if req.ModelPlazaDescription != nil {
@@ -2570,6 +2591,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,
 		ModelPlazaDescription:   updatedSettings.ModelPlazaDescription,
+		ModelPlazaRechargeRatio: updatedSettings.ModelPlazaRechargeRatio,
 		PluginManagementEnabled: updatedSettings.PluginManagementEnabled,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
@@ -2580,6 +2602,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CyberSessionBlockTTLSeconds: updatedSettings.CyberSessionBlockTTLSeconds,
 		AccountSchedulingThresholds: updatedSettings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  updatedSettings.AllowUserViewErrorRequests,
+		UsageShowCacheRate:          updatedSettings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:   updatedSettings.UsageShowCacheRateToUsers,
 		ExcelBPSImageMode:           updatedSettings.ExcelBPSImageMode,
 		ExcelBPSImageMaxImageMiB:    updatedSettings.ExcelBPSImageMaxImageMiB,
 		ExcelBPSImageMaxImages:      updatedSettings.ExcelBPSImageMaxImages,

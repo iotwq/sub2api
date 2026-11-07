@@ -44,9 +44,10 @@ export interface PlazaTimePricing {
 }
 
 export interface PlazaModel {
+  media_type?: 'image' | 'video'
   name: string
   platform: string
-  /** 实收口径的展示定价：档位可提供绝对单价或相对基础价倍率；均为标准时段价。 */
+  /** 渠道优先、默认/官方兜底的模型价格；尚未应用充值比例或分组倍率。 */
   pricing: UserSupportedModelPricing | null
   official_pricing: PlazaOfficialPricing | null
   /** 仅多档模型返回。 */
@@ -76,12 +77,14 @@ export interface ModelPlazaGroup {
   /** 视频独立倍率开启时，覆盖视频模型的分组/用户专属倍率。 */
   video_rate_independent: boolean
   video_rate_multiplier: number
-  /** 分组是否启用长上下文阶梯计费；false 时实付列只展示最低档，官方阶梯仅供参考。 */
+  /** 分组是否启用长上下文阶梯计费；false 时模型价格与实付列均展示基础档。 */
   long_context_pricing_enabled: boolean
   models: PlazaModel[]
 }
 
 export interface ModelPlazaResponse {
+  /** 展示充值比例；旧响应省略时按 1。 */
+  recharge_ratio?: number
   /** 管理员配置的全局价格说明（Markdown）。 */
   description: string
   groups: ModelPlazaGroup[]

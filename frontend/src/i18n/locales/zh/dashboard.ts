@@ -2,6 +2,8 @@ export default {
   dashboard: {
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
+    loadFailed: '仪表盘数据加载失败',
+    loadFailedHint: '请检查网络后重试。',
     balance: '余额',
     apiKeys: 'API 密钥',
     todayRequests: '今日请求',
@@ -403,6 +405,8 @@ export default {
     latency: '延迟',
     latencyFirstToken: '首字',
     latencyDuration: '总耗时',
+    latencyCacheRate: '缓存率',
+    latencyCacheRateHint: '缓存率 = 缓存读取 {read} ÷ (输入 {input} + 缓存读取 {read} + 缓存写入 {write})。与渠道监控和用量趋势同一口径。',
     outputTps: '输出 TPS',
     outputTpsHint: '输出 Token ÷ 总耗时（包含首字等待），单位 tok/s。输出 Token 可能包含推理 Token。',
     time: '时间',
@@ -515,6 +519,7 @@ export default {
   monitorCommon: {
     intelligence: {
       title: '智力检测',
+      timelineTitle: '智商检测-糖果题',
       enable: '开启智力检测',
       hint: '仅作用于当前监控项的分组和模型。每轮先普通探活，成功后另发糖果题；智力结果与耗时不影响渠道状态、最新延迟或响应缓慢判断。会增加请求和推理用量，建议检测间隔至少 5 分钟。',
       scope: '结果仅代表本次糖果题是否答对，不代表模型身份或综合能力。',
@@ -534,6 +539,7 @@ export default {
     status: {
       operational: '正常',
       degraded: '降级',
+      highLatency: '延迟较高',
       failed: '失败',
       error: '错误',
       unknown: '-'
@@ -690,6 +696,7 @@ export default {
     loading: '加载中...',
     empty: '暂无可展示的分组',
     loadFailed: '加载模型广场失败',
+    retry: '重试',
     noSearchResult: '没有匹配的模型',
     anonymousHint: '登录后可查看你的专属分组与专属倍率',
     filters: {
@@ -708,7 +715,7 @@ export default {
       noModels: '该分组暂未配置模型',
       noPricing: '未配置定价',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}',
-      longContextDisabledNote: '该分组未启用长上下文阶梯计费，超阈值请求仍按基础档计费，官方阶梯仅供参考'
+      longContextDisabledNote: '该分组未启用长上下文阶梯计费，超阈值请求仍按基础档计费，两侧价格均展示基础档'
     },
     table: {
       model: '模型',
@@ -731,12 +738,14 @@ export default {
       timePricingWeekdays: '工作日',
       timePricingRateHint: '生效倍率 {rate} × 时段倍率 {multiplier}',
       paidPrice: '实付价格(折后)',
-      officialPrice: '官方价格',
-      rate: '折扣倍率',
+      modelPrice: '模型价格',
+      rate: '实际倍率',
       unitPerMillion: '$ / 1M token',
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',
+      perUnitSecond: '/ 秒',
       perRequest: '按次计费',
+      perSecond: '按秒计费',
       perImage: '按图片计费'
     },
     nav: {

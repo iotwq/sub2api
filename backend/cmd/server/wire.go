@@ -135,8 +135,14 @@ func provideCleanup(
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
+	publicAssetHandler *handler.PublicAssetHandler,
 ) func() {
+	publicAssetCleanupCtx, stopPublicAssetCleanup := context.WithCancel(context.Background())
+	if publicAssetHandler != nil {
+		publicAssetHandler.StartCleanup(publicAssetCleanupCtx)
+	}
 	return func() {
+		stopPublicAssetCleanup()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

@@ -1111,6 +1111,8 @@ export default {
         description: '匹配模型后覆盖渠道和内置价格。长上下文阶梯沿用官方/预设价卡，无需再手填区间。音频可用按次层级配置 realtime、tts、stt。',
         longContext: '启用长上下文阶梯定价',
         longContextHint: '勾选后按渠道区间或官方预设阶梯计费；关闭后默认按第一档，账号显式开启时除外。',
+        gpt61SolSubscriptionOptimization: 'GPT-6.1 Sol 订阅优化',
+        gpt61SolSubscriptionOptimizationHint: '仅对本分组的 GPT-6.1 Sol OAuth/Setup Token 账号生效：免收长上下文附加费，并将生成上下文默认值提高到 500k。默认关闭。',
         add: '添加模型价格'
       },
       voicePricing: {

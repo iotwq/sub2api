@@ -1170,6 +1170,11 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 
 		status := c.Writer.Status()
+		// A local bridge marker preserves the real upstream HTTP status.
+		if marked, ok := service.GetOpsStreamError(c); ok && marked.BridgeFailure != nil {
+			logOpsStreamErrorValue(c, ops, status, marked)
+			return
+		}
 		body := w.capturedBytes()
 		parsed := parseOpsErrorResponse(body)
 		if !parsed.StreamFailure {
@@ -1549,6 +1554,12 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 		}
 	}
 
+	if streamErr.BridgeFailure != nil {
+		if payload, err := json.Marshal(gin.H{"error": streamErr.BridgeFailure.Details()}); err == nil {
+			errorBody = string(payload)
+		}
+	}
+
 	apiKey := getOpsAPIKey(c)
 	clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
 
@@ -1635,6 +1646,16 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 	}
 	if streamErr.Turn > 0 && !streamErr.RequestScoped {
 		applyOpsStreamErrorSnapshot(entry, streamErr)
+	}
+	if streamErr.BridgeFailure != nil {
+		entry.ErrorPhase, entry.ErrorOwner, entry.ErrorSource = "internal", "platform", "gateway"
+		entry.IsBusinessLimited = false
+		entry.UpstreamStatusCode = nil
+		if streamErr.UpstreamStatus > 0 {
+			status := streamErr.UpstreamStatus
+			entry.UpstreamStatusCode = &status
+		}
+		entry.UpstreamErrorMessage, entry.UpstreamErrorDetail = nil, nil
 	}
 
 	if apiKey != nil {

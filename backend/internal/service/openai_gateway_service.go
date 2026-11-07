@@ -527,6 +527,8 @@ type OpenAIGatewayService struct {
 	openaiWSRetryMetrics                openAIWSRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
+	excelBPSModelsCache                 openAIModelsCache
+	excelBPSModelCooldowns              excelBPSModelCooldowns
 	openAIModelsCache                   openAIModelsCache
 	openaiCompatSessionResponses        sessionMemoryCache
 	openaiCompatAnthropicDigestSessions sessionMemoryCache

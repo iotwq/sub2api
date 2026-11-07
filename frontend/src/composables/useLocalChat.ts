@@ -1,11 +1,23 @@
 import { computed, ref } from 'vue'
 
+export type ChatReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+export type ChatResponseStatus = 'connecting' | 'waiting' | 'thinking' | 'searching' | 'outputting' | 'completed' | 'stopped' | 'failed'
+
+export interface LocalChatResponse {
+  status: ChatResponseStatus
+  elapsedMs?: number
+  reasoningSummary?: string
+  sources?: Array<{ url: string; title: string }>
+}
+
 export interface LocalChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   attachments?: LocalChatAttachment[]
   createdAt: string
+  response?: LocalChatResponse
 }
 
 export interface LocalChatAttachment {
@@ -24,8 +36,7 @@ export interface LocalChatSession {
   id: string
   title: string
   model: string
-  deepThinkingEnabled?: boolean
-  webSearchEnabled?: boolean
+  reasoningEffort?: ChatReasoningEffort
   apiKey?: string
   baseUrl?: string
   apiKeyHint: string
@@ -39,8 +50,7 @@ export interface LocalChatDraftConfig {
   baseUrl: string
   model?: string
   sessionTitle?: string
-  deepThinkingEnabled?: boolean
-  webSearchEnabled?: boolean
+  reasoningEffort?: ChatReasoningEffort
 }
 
 const CHAT_SESSIONS_KEY = 'local_chat_sessions_v1'
@@ -65,19 +75,63 @@ function safeWrite(key: string, value: unknown): void {
   }
 }
 
+function safeRemove(key: string): void {
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function sanitizeSessionForPersistence(session: LocalChatSession): LocalChatSession {
+  return {
+    ...session,
+    // API keys are intentionally kept only in the active page memory.
+    apiKey: '',
+    messages: session.messages.map((message) => ({
+      ...message,
+      // Attachments can contain private documents or large data URLs.
+      attachments: message.attachments?.map((attachment) => {
+        const persistedAttachment = { ...attachment }
+        delete persistedAttachment.dataUrl
+        delete persistedAttachment.textContent
+        return persistedAttachment
+      }),
+    })),
+  }
+}
+
 const sessionsState = ref<LocalChatSession[]>([])
 const activeSessionIdState = ref<string | null>(null)
+let inMemoryDraftConfig: LocalChatDraftConfig | null = null
 let hydrated = false
+let pendingPersistence: ReturnType<typeof setTimeout> | undefined
+
+function flushPendingChatUpdates() {
+  clearTimeout(pendingPersistence)
+  pendingPersistence = undefined
+  persistSessions()
+}
+
+function scheduleMessagePersistence() {
+  if (pendingPersistence !== undefined) return
+  pendingPersistence = setTimeout(flushPendingChatUpdates, 1000)
+}
 
 function hydrate() {
   if (hydrated) return
-  sessionsState.value = safeRead<LocalChatSession[]>(CHAT_SESSIONS_KEY, [])
+  sessionsState.value = safeRead<LocalChatSession[]>(CHAT_SESSIONS_KEY, []).map(sanitizeSessionForPersistence)
   activeSessionIdState.value = safeRead<string | null>(CHAT_ACTIVE_SESSION_KEY, null)
+  // Remove drafts written by versions that stored credentials in localStorage.
+  safeRemove(CHAT_DRAFT_CONFIG_KEY)
   hydrated = true
+  // Remove secrets written by older versions as soon as the chat is opened.
+  persistSessions()
 }
 
 function persistSessions() {
-  safeWrite(CHAT_SESSIONS_KEY, sessionsState.value)
+  const persistedSessions = sessionsState.value.map(sanitizeSessionForPersistence)
+  safeWrite(CHAT_SESSIONS_KEY, persistedSessions)
   safeWrite(CHAT_ACTIVE_SESSION_KEY, activeSessionIdState.value)
 }
 
@@ -98,15 +152,14 @@ export function useLocalChat() {
   })
 
   function createSession(
-    input?: Partial<Pick<LocalChatSession, 'title' | 'model' | 'deepThinkingEnabled' | 'webSearchEnabled' | 'apiKey' | 'baseUrl' | 'apiKeyHint'>>
+    input?: Partial<Pick<LocalChatSession, 'title' | 'model' | 'reasoningEffort' | 'apiKey' | 'baseUrl' | 'apiKeyHint'>>
   ) {
     const now = new Date().toISOString()
     const session: LocalChatSession = {
       id: createId('chat'),
       title: input?.title?.trim() || 'New Chat',
       model: input?.model?.trim() || '',
-      deepThinkingEnabled: input?.deepThinkingEnabled ?? false,
-      webSearchEnabled: input?.webSearchEnabled ?? false,
+      reasoningEffort: input?.reasoningEffort ?? 'medium',
       apiKey: input?.apiKey?.trim() || '',
       baseUrl: input?.baseUrl?.trim() || '',
       apiKeyHint: input?.apiKeyHint?.trim() || '',
@@ -169,14 +222,15 @@ export function useLocalChat() {
     return message
   }
 
-  function updateMessage(sessionId: string, messageId: string, content: string) {
+  function updateMessage(sessionId: string, messageId: string, content: string, response?: Partial<LocalChatResponse>) {
     const session = sessionsState.value.find((item) => item.id === sessionId)
     if (!session) return
     const message = session.messages.find((item) => item.id === messageId)
     if (!message) return
     message.content = content
+    if (response) message.response = { status: 'waiting', ...message.response, ...response }
     session.updatedAt = new Date().toISOString()
-    persistSessions()
+    scheduleMessagePersistence()
   }
 
   function deleteMessage(sessionId: string, messageId: string) {
@@ -194,16 +248,14 @@ export function useLocalChat() {
   }
 
   function saveDraftConfig(config: LocalChatDraftConfig) {
-    safeWrite(CHAT_DRAFT_CONFIG_KEY, config)
+    // The API key is needed only while navigating inside this page session.
+    // Keep the handoff in memory so it is never persisted in browser storage.
+    inMemoryDraftConfig = { ...config }
   }
 
   function consumeDraftConfig(): LocalChatDraftConfig | null {
-    const draft = safeRead<LocalChatDraftConfig | null>(CHAT_DRAFT_CONFIG_KEY, null)
-    try {
-      window.localStorage.removeItem(CHAT_DRAFT_CONFIG_KEY)
-    } catch {
-      // ignore storage errors
-    }
+    const draft = inMemoryDraftConfig
+    inMemoryDraftConfig = null
     return draft
   }
 
@@ -221,6 +273,7 @@ export function useLocalChat() {
     clearAllSessions,
     saveDraftConfig,
     consumeDraftConfig,
+    flushPendingChatUpdates,
   }
 }
 

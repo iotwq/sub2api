@@ -268,6 +268,70 @@ func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
 	}
 }
 
+func TestRunCheckForModel_MultiPlatformProbe(t *testing.T) {
+	for _, provider := range []string{MonitorProviderGemini, MonitorProviderDeepseek, MonitorProviderZhipu, MonitorProviderKimi} {
+		for _, scenario := range []struct {
+			name       string
+			status     int
+			latency    int
+			wantStatus string
+		}{
+			{"successful final account", http.StatusOK, 25, MonitorStatusOperational},
+			{"slow successful final account", http.StatusOK, 11000, MonitorStatusDegraded},
+			{"all accounts failed", http.StatusBadGateway, 25, MonitorStatusError},
+		} {
+			t.Run(provider+"/"+scenario.name, func(t *testing.T) {
+				swapMonitorHTTPClient(t)
+				requestCount := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requestCount++
+					if got := r.Header.Get(ChannelMonitorProbeAttemptsHeader); got != strconv.Itoa(ChannelMonitorProbeAttempts) {
+						t.Errorf("probe account budget = %q, want 5", got)
+					}
+					var body map[string]any
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					answer := answerFromOpenAIRequest(body)
+					if provider == MonitorProviderGemini {
+						content := body["contents"].([]any)[0].(map[string]any)
+						part := content["parts"].([]any)[0].(map[string]any)
+						answer = answerFromChallengePrompt(part["text"].(string))
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set(ChannelMonitorProbeLatencyHeader, strconv.Itoa(scenario.latency))
+					w.WriteHeader(scenario.status)
+					if scenario.status != http.StatusOK {
+						_, _ = w.Write([]byte(`{"error":{"message":"all accounts failed"}}`))
+						return
+					}
+					if provider == MonitorProviderGemini {
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{map[string]any{"text": answer}}}}},
+						})
+					} else {
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"choices": []any{map[string]any{"message": map[string]any{"content": answer}}},
+						})
+					}
+				}))
+				t.Cleanup(server.Close)
+
+				result := runCheckForModel(context.Background(), provider, server.URL, "test-key", "test-model", &CheckOptions{
+					ExtraHeaders: map[string]string{ChannelMonitorProbeAttemptsHeader: "99"},
+				})
+				if result.Status != scenario.wantStatus {
+					t.Fatalf("status = %s, want %s; message=%q", result.Status, scenario.wantStatus, result.Message)
+				}
+				if scenario.status == http.StatusOK && (result.LatencyMs == nil || *result.LatencyMs != scenario.latency) {
+					t.Errorf("latency = %v, want final account latency %d", result.LatencyMs, scenario.latency)
+				}
+				if requestCount != 1 {
+					t.Errorf("gateway requests = %d, want 1", requestCount)
+				}
+			})
+		}
+	}
+}
+
 func TestGrokMonitorConfiguration(t *testing.T) {
 	if err := validateProvider(MonitorProviderGrok); err != nil {
 		t.Fatalf("grok provider should be supported: %v", err)
@@ -498,8 +562,24 @@ func TestRunCheckForModel_UsesSuccessfulAccountAttemptLatency(t *testing.T) {
 			wantStatus: MonitorStatusOperational,
 		},
 		{
-			name:        "slow final account is degraded",
-			latencyMs:   int(monitorDegradedThreshold/time.Millisecond) + 1,
+			name:       "seven second final account is operational",
+			latencyMs:  7000,
+			wantStatus: MonitorStatusOperational,
+		},
+		{
+			name:       "final account just below ten seconds is operational",
+			latencyMs:  9999,
+			wantStatus: MonitorStatusOperational,
+		},
+		{
+			name:        "final account at ten seconds is degraded",
+			latencyMs:   10000,
+			wantStatus:  MonitorStatusDegraded,
+			wantMessage: "slow response",
+		},
+		{
+			name:        "final account above ten seconds is degraded",
+			latencyMs:   10001,
 			wantStatus:  MonitorStatusDegraded,
 			wantMessage: "slow response",
 		},

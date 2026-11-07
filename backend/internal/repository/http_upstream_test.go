@@ -51,6 +51,16 @@ func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	require.Zero(t, redirectedCalls.Load())
 }
 
+func TestHTTPUpstreamPrivateAddressProtectionIsIndependentOfAllowlist(t *testing.T) {
+	cfg := &config.Config{}
+	upstream, ok := NewHTTPUpstream(cfg).(*httpUpstreamService)
+	require.True(t, ok)
+	require.True(t, upstream.shouldValidateResolvedIP(), "disabling the host allowlist must not disable SSRF protection")
+
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	require.False(t, upstream.shouldValidateResolvedIP(), "private upstreams require explicit opt-in")
+}
+
 func TestHTTPUpstreamDoWithTLSPlainHTTPUsesConfiguredHTTPProxy(t *testing.T) {
 	var upstreamCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

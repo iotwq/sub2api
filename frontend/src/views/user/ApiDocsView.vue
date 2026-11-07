@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="api-docs-page">
+    <div ref="pageEl" class="api-docs-page">
       <header class="api-docs-header">
         <div class="api-docs-heading">
           <div class="api-docs-icon">
@@ -21,8 +21,41 @@
         </p>
       </section>
 
+      <nav ref="navEl" class="api-docs-nav" aria-label="模型导航">
+        <div class="api-docs-nav-card">
+          <div class="api-docs-category-tabs" role="group" aria-label="模型分类">
+            <button
+              v-for="category in categoryTabs"
+              :key="category.id"
+              type="button"
+              class="api-docs-category-tab"
+              :aria-pressed="category.id === activeCategory"
+              @click="selectCategory(category.id)"
+            >
+              {{ category.label }}
+              <span class="api-docs-tab-count">{{ category.modelCount }}</span>
+            </button>
+          </div>
+          <div class="api-docs-model-tabs" role="group" aria-label="模型">
+            <button
+              v-for="model in activeCategoryModels"
+              :key="model.id"
+              type="button"
+              class="api-docs-model-tab"
+              :aria-pressed="model.id === activeModelId"
+              @click="selectModel(model.id)"
+            >
+              {{ model.tabLabel }}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div ref="sectionsStartEl"></div>
+
       <section
         v-for="model in modelDocs"
+        v-show="model.id === activeModelId"
         :key="model.id"
         class="api-docs-section"
       >
@@ -125,6 +158,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -149,9 +183,13 @@ interface AvailableModel {
   aspectRatio: string
 }
 
+type ModelCategory = 'image' | 'video' | 'music'
+
 interface ModelDoc {
   id: string
   name: string
+  tabLabel: string
+  category: ModelCategory
   provider: string
   description: string
   endpoints: string[]
@@ -249,11 +287,27 @@ curl "$API_URL/v1/images/generations" \\
   -H "Authorization: Bearer $API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "seedream-5.0-pro",
+    "model": "seedream-5.0-pro-x",
     "prompt": "一座被云雾环绕的未来城市，电影感光影",
-    "size": "1024x576",
+    "resolution": "2K",
+    "aspect_ratio": "16:9",
     "n": 1,
-    "response_format": "b64_json"
+    "response_format": "url"
+  }'`
+
+const mappedImageLiteGenerateCurl = `API_URL="${apiBaseUrl}"
+API_KEY="YOUR_API_KEY"
+
+curl "$API_URL/v1/images/generations" \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "seedream-5.0-lite-x",
+    "prompt": "窗边木桌上的陶瓷茶壶，自然光，细腻质感",
+    "resolution": "4K",
+    "aspect_ratio": "16:9",
+    "n": 1,
+    "response_format": "url"
   }'`
 
 const mappedImageEditCurl = `API_URL="${apiBaseUrl}"
@@ -261,12 +315,45 @@ API_KEY="YOUR_API_KEY"
 
 curl "$API_URL/v1/images/edits" \\
   -H "Authorization: Bearer $API_KEY" \\
-  -F "model=Midjourney-V7" \\
+  -F "model=seedream-5.0-lite-x" \\
   -F "prompt=保持人物外观，生成电影感街拍场景" \\
   -F "image=@reference.png" \\
-  -F "size=1024x576" \\
+  -F "resolution=3K" \\
+  -F "aspect_ratio=16:9" \\
   -F "n=1" \\
   -F "response_format=b64_json"`
+
+const sunoMusicCurl = `API_URL="${apiBaseUrl}"
+API_KEY="YOUR_API_KEY"
+
+curl --max-time 600 "$API_URL/v1/chat/completions" \\
+  -H "Authorization: Bearer $API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: suno-demo-$(date +%s)" \\
+  -d '{
+    "model": "suno-v6",
+    "messages": [
+      {"role": "user", "content": "Create upbeat piano background music with a warm mood and gentle percussion."}
+    ],
+    "instrumental": true,
+    "n": 1,
+    "stream": false
+  }'`
+
+const sunoResponseJson = `{
+  "id": "chatcmpl-suno-example",
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "第一段音频: https://example.com/suno-output-random-a.mp3\\n第二段音频: https://example.com/suno-output-random-b.mp3"
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}`
 
 const fireflyVideoCreateCurl = `API_URL="${apiBaseUrl}"
 API_KEY="YOUR_API_KEY"
@@ -645,6 +732,10 @@ curl "$API_URL/v1beta/models/gemini-3.1-flash-image-preview:generateContent" \\
     }
   }'`
 
+const geminiNativeBanana21Curl = geminiNativeFlashCurl.replace(
+  'gemini-3.1-flash-image-preview', 'gemini-nano-banana-2.1'
+)
+
 const grokImageCurl = `API_URL="${apiBaseUrl}"
 API_KEY="YOUR_API_KEY"
 
@@ -676,6 +767,13 @@ curl "$API_URL/v1/images/edits" \\\
     ],
     "n": 1
   }'`
+
+const grokImage2Curl = grokImageCurl.replace(
+  'grok-imagine-image-quality', 'grok-imagine-image-2.0'
+)
+const grokImage2EditCurl = grokImageEditCurl.replace(
+  'grok-imagine-image-quality', 'grok-imagine-image-2.0'
+)
 
 const grokVideoCurl = `API_URL="${apiBaseUrl}"
 API_KEY="YOUR_API_KEY"
@@ -740,8 +838,10 @@ const modelDocs: ModelDoc[] = [
   {
     id: 'openai-gpt-image2',
     name: 'OpenAI gpt-image2',
+    tabLabel: 'gpt-image2',
+    category: 'image',
     provider: 'OpenAI',
-    description: 'gpt-image-2、gpt-image-2.5-sunburst 与 gpt-image-2.5-flare 使用同一套同步文生图、参考图生成和 PNG 遮罩编辑接口。',
+    description: 'gpt-image-2、gpt-image-2.5-sunburst、gpt-image-2.5-flare、gpt-image-2.6-sunburst 与 gpt-image-2.6-flare 使用同一套同步文生图、参考图生成和 PNG 遮罩编辑接口。',
     endpoints: [
       'POST /v1/images/generations',
       'POST /v1/images/edits',
@@ -750,11 +850,13 @@ const modelDocs: ModelDoc[] = [
       { name: 'gpt-image-2', description: '文生图、参考图生成和遮罩编辑', specification: '1K / 2K / 4K；最多 16 张参考图', aspectRatio: '由 size 的像素宽高指定' },
       { name: 'gpt-image-2.5-sunburst', description: '文生图、参考图生成和遮罩编辑', specification: '1K / 2K / 4K；最多 16 张参考图', aspectRatio: '由 size 的像素宽高指定' },
       { name: 'gpt-image-2.5-flare', description: '文生图、参考图生成和遮罩编辑', specification: '1K / 2K / 4K；最多 16 张参考图', aspectRatio: '由 size 的像素宽高指定' },
+      { name: 'gpt-image-2.6-sunburst', description: '文生图、参考图生成和遮罩编辑', specification: '1K / 2K / 4K；最多 16 张参考图', aspectRatio: '由 size 的像素宽高指定' },
+      { name: 'gpt-image-2.6-flare', description: '文生图、参考图生成和遮罩编辑', specification: '1K / 2K / 4K；最多 16 张参考图', aspectRatio: '由 size 的像素宽高指定' },
     ],
     params: [
-      { name: 'model / prompt', type: 'string', description: '图片接口必填，model 可传 gpt-image-2、gpt-image-2.5-sunburst 或 gpt-image-2.5-flare，prompt 填写生成或编辑要求。' },
+      { name: 'model / prompt', type: 'string', description: '图片接口必填，model 可传 gpt-image-2、gpt-image-2.5-sunburst、gpt-image-2.5-flare、gpt-image-2.6-sunburst 或 gpt-image-2.6-flare，prompt 填写生成或编辑要求。' },
       { name: 'size', type: 'string', description: '图片输出像素尺寸，例如 1280x1280、2048x1152、3840x2160；也可传 auto。' },
-      { name: 'quality', type: 'string', description: 'gpt-image-2 支持 low、medium、high；gpt-image-2.5-sunburst 和 gpt-image-2.5-flare 额外支持 xhigh、max。' },
+      { name: 'quality', type: 'string', description: 'gpt-image-2 支持 low、medium、high；gpt-image-2.5-sunburst、gpt-image-2.5-flare、gpt-image-2.6-sunburst 和 gpt-image-2.6-flare 额外支持 xhigh、max。' },
       { name: 'background', type: 'string', description: '可选 transparent，用于生成透明背景；使用时请同时设置 output_format=png。' },
       { name: 'output_format', type: 'string', description: '可选 png、jpeg、webp；background=transparent 时必须使用 png。' },
       { name: 'output_compression', type: 'number', description: '仅 jpeg、webp 使用；png 不要传该字段。' },
@@ -771,76 +873,120 @@ const modelDocs: ModelDoc[] = [
     ],
     notes: [
       '文生图使用 JSON；参考图和遮罩编辑使用 multipart/form-data，不要手写 multipart 的 Content-Type boundary。',
-      '三个 OpenAI 图片模型的接口和调用方式一致；多张参考图请重复提交 image 字段，遮罩图使用 PNG，并与第一张参考图尺寸一致。',
+      '五个 OpenAI 图片模型的接口和调用方式一致；多张参考图请重复提交 image 字段，遮罩图使用 PNG，并与第一张参考图尺寸一致。',
       '需要透明底时传 background=transparent，并将 output_format 设置为 png；这是上游图片接口参数，不需要把“透明背景”拼进模型名称。',
       'png 不需要传 output_compression；jpeg、webp 可按需设置压缩质量。同步响应可能返回 data[].b64_json、data[].url，或同时返回两者，请按示例兼容解析。',
     ],
   },
   {
     id: 'openai-mapped-image-models',
-    name: 'OpenAI 兼容 Seedream / Midjourney',
-    provider: 'OpenAI API URL + Key',
-    description: 'Seedream 5.0 Pro、Seedream 5.0 Pro X 与 Midjourney V7 使用本站统一的 OpenAI 图片接口，支持文生图和参考图编辑。',
+    name: 'OpenAI 兼容 Seedream',
+    tabLabel: 'Seedream',
+    category: 'image',
+    provider: 'Seedream',
+    description: 'Seedream 5.0 Pro、Seedream 5.0 Pro X 与 Seedream 5.0 Lite X 使用本站统一的 OpenAI 图片接口，支持文生图和参考图编辑。',
     endpoints: [
       'POST /v1/images/generations',
       'POST /v1/images/edits',
     ],
     availableModels: [
-      { name: 'seedream-5.0-pro', description: 'Seedream 5.0 Pro', specification: '提示词最多 8000 字符；最多 10 张参考图', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 3:2 / 2:3 / 21:9' },
-      { name: 'seedream-5.0-pro-x', description: 'Seedream 5.0 Pro X', specification: '提示词最多 8000 字符；最多 10 张参考图', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 3:2 / 2:3 / 21:9' },
-      { name: 'Midjourney-V7', description: 'Midjourney V7', specification: '提示词最多 4000 字符；最多 5 张参考图；可能返回多张变体', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 4:5 / 5:4 / 3:2 / 2:3 / 21:9' },
+      { name: 'seedream-5.0-pro', description: 'Seedream 5.0 Pro', specification: '1K / 2K；提示词最多 8000 字符；最多 10 张参考图', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 3:2 / 2:3 / 21:9' },
+      { name: 'seedream-5.0-pro-x', description: 'Seedream 5.0 Pro X', specification: '1K / 2K；提示词最多 32000 个 UTF-16 码元；最多 10 张参考图', aspectRatio: '1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9 / 21:9' },
+      { name: 'seedream-5.0-lite-x', description: 'Seedream 5.0 Lite X', specification: '2K / 3K / 4K；提示词最多 32000 个 UTF-16 码元；最多 14 张参考图', aspectRatio: '1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 9:16 / 16:9 / 21:9' },
     ],
     params: [
-      { name: 'model / prompt', type: 'string', description: '必填。model 使用上表中的完整模型名称；Seedream 提示词最多 8000 字符，Midjourney V7 最多 4000 字符。' },
-      { name: 'size', type: 'string', description: '可选，用宽高表达比例，例如 1024x576（16:9）、1024x1024（1:1）；实际输出尺寸以返回图片为准。' },
-      { name: 'n', type: 'number', description: '可选，默认 1。Midjourney V7 可能一次返回多张变体，客户端应解析完整 data 数组。' },
-      { name: 'response_format', type: 'string', description: '可选 b64_json、url。建议使用 b64_json；客户端仍应兼容 data[].b64_json 和 data[].url 两种返回格式。' },
-      { name: 'image', type: 'file', description: '仅 /v1/images/edits，multipart 上传参考图；Seedream 最多 10 张，Midjourney V7 最多 5 张，多图时重复使用 image 字段。' },
+      { name: 'model / prompt', type: 'string', description: '必填。model 使用上表中的完整模型名称，prompt 不能为空。Pro X / Lite X 最多 32000 个 UTF-16 码元；seedream-5.0-pro 最多 8000 字符。' },
+      { name: 'resolution', type: 'string', description: 'Pro X / Lite X 可选，默认 2K。Pro X 支持 1K、2K；Lite X 支持 2K、3K、4K。' },
+      { name: 'aspect_ratio', type: 'string', description: 'Pro X / Lite X 可选，默认 1:1。支持 1:1、2:3、3:2、3:4、4:3、9:16、16:9、21:9。' },
+      { name: 'size', type: 'string', description: 'Pro X / Lite X 默认 auto，也可传各自支持的分辨率档位、画面比例或 WIDTHxHEIGHT。像素尺寸映射到最接近的可用比例和档位，不保证精确像素。seedream-5.0-pro 沿用 1024x576 等宽高写法。' },
+      { name: 'n', type: 'integer', description: '可选，默认 1。Pro X / Lite X 支持 1–10 张；客户端应解析完整 data 数组，以实际返回图片为准。' },
+      { name: 'response_format', type: 'string', description: '可选 url、b64_json，Pro X / Lite X 默认 url。客户端仍应兼容 data[].b64_json 和 data[].url 两种返回格式。' },
+      { name: 'image', type: 'file', description: '仅 /v1/images/edits，multipart 上传参考图；Pro / Pro X 最多 10 张，Lite X 最多 14 张，多图时重复使用 image 字段。' },
     ],
     examples: [
-      { title: 'Seedream 5.0 Pro 文生图', language: 'curl', code: mappedImageGenerateCurl },
-      { title: 'Midjourney V7 参考图编辑', language: 'curl', code: mappedImageEditCurl },
+      { title: 'Seedream 5.0 Pro X 文生图', language: 'curl', code: mappedImageGenerateCurl },
+      { title: 'Seedream 5.0 Lite X 文生图', language: 'curl', code: mappedImageLiteGenerateCurl },
+      { title: 'Seedream 5.0 Lite X 参考图编辑', language: 'curl', code: mappedImageEditCurl },
       { title: '兼容解析 Base64 和 URL 图片', language: 'javascript', code: gptImage2ResponseHandlingJavascript },
     ],
     notes: [
       '文生图使用 JSON；参考图编辑使用 multipart/form-data，不要手写 multipart 的 Content-Type boundary。',
-      '这三个模型只使用 OpenAI API URL + Key 账号；模型映射后的完整名称会原样转发到上游。',
-      '这三个模型按比例选择尺寸，不使用 GPT 专属的 quality、moderation、background、output_format 或 output_compression 参数，也不支持 mask 遮罩编辑。',
+      'Pro X / Lite X 无独立质量档位，使用模型默认质量；size=auto 使用模型默认构图，实际输出尺寸以返回图片为准。',
       '参考图请使用 image 字段重复上传；响应可能只返回 data[].b64_json、只返回 data[].url，或同时返回两者，请按示例兼容解析。',
+    ],
+  },
+  {
+    id: 'suno-music',
+    name: '音乐模型',
+    tabLabel: 'Suno',
+    category: 'music',
+    provider: 'Suno',
+    description: '使用 OpenAI 兼容 Chat Completions 生成音乐。提示词写入纯文本 messages，生成完成后在 choices[0].message.content 文本中返回一个或多个有时效的音频链接。',
+    endpoints: ['POST /v1/chat/completions'],
+    availableModels: [
+      { name: 'suno-v6-mini', description: 'Suno v6 Mini', specification: '最多 3000 UTF-16 单元；支持纯音乐；1 次请求 1 个任务', aspectRatio: '不适用' },
+      { name: 'suno-v6', description: 'Suno v6', specification: '最多 3000 UTF-16 单元；支持纯音乐；1 次请求 1 个任务', aspectRatio: '不适用' },
+      { name: 'suno-v6-wild', description: 'Suno v6 Wild', specification: '最多 3000 UTF-16 单元；支持纯音乐；1 次请求 1 个任务', aspectRatio: '不适用' },
+    ],
+    params: [
+      { name: 'model', type: 'string', description: '必填，填写 suno-v6-mini、suno-v6 或 suno-v6-wild；令牌分组请选择“音乐”。' },
+      { name: 'messages', type: 'array', description: '必填，1 至 32 条消息；支持字符串或纯文本数组，合并提示词最多 3000 个 UTF-16 单元。' },
+      { name: 'instrumental', type: 'boolean', description: '可选，默认 false；设置为 true 时生成纯音乐。' },
+      { name: 'n', type: 'integer', description: '可选，只能为 1；每次请求创建一个独立音乐任务。' },
+      { name: 'stream', type: 'boolean', description: '可选，默认 false；true 只在生成完成后返回最终 SSE，不提供中间进度事件。' },
+      { name: 'stream_options.include_usage', type: 'boolean', description: '可选，流式响应末尾附加协议兼容的 usage，不作为计费依据。' },
+      { name: 'Idempotency-Key', type: 'header', description: '可选恢复标识；同键同提示词可复用任务，结果不明确时不要自动重复提交。' },
+    ],
+    examples: [
+      { title: 'Suno 文本生成音乐', language: 'curl', code: sunoMusicCurl },
+      { title: 'Suno 音频响应', language: 'json', code: sunoResponseJson },
+    ],
+    notes: [
+      '一个响应可能包含多段音频；客户端应从 choices[0].message.content 提取全部 HTTP(S) 链接、去重并逐个下载，链接有时效，请在返回后及时保存。',
+      'v6 系列提示词最多 3000 个 UTF-16 单元，并支持 instrumental。',
+      '音乐生成可能需要数分钟，实际生成可能超过 200 秒；客户端和反向代理的读取/响应超时建议至少设置为 600 秒，并关闭自动重试。结果不明确时保留同一个 Idempotency-Key，先核查原请求，不要换新标识重复提交，以免创建重复音乐任务。',
     ],
   },
   {
     id: 'gemini-nano-banana',
     name: 'Gemini Nano Banana',
+    tabLabel: 'Nano Banana',
+    category: 'image',
     provider: 'Gemini 图片模型',
-    description: '包含 Nano Banana Pro 和 Nano Banana 2。两个模型使用相同的 Gemini 原生 generateContent 请求体、参考图格式和响应解析。',
+    description: '包含 Nano Banana Pro、Nano Banana 2 和 Nano Banana 2.1。三个模型使用相同的 Gemini 原生 generateContent 请求体、参考图格式和响应解析。',
     endpoints: [
       'POST /v1beta/models/gemini-3-pro-image-preview:generateContent',
       'POST /v1beta/models/gemini-3.1-flash-image-preview:generateContent',
+      'POST /v1beta/models/gemini-nano-banana-2.1:generateContent',
     ],
     availableModels: [
       { name: 'gemini-3-pro-image-preview', description: 'Nano Banana Pro 原生模型', specification: '2K / 4K；最多 9 张参考图', aspectRatio: '1:1 / 16:9 / 9:16 / 21:9 等' },
       { name: 'gemini-3.1-flash-image-preview', description: 'Nano Banana 2 原生模型', specification: '2K / 4K；最多 9 张参考图', aspectRatio: '1:1 / 16:9 / 9:16 / 21:9 等' },
+      { name: 'gemini-nano-banana-2.1', description: 'Nano Banana 2.1 原生模型', specification: '2K / 4K；最多 9 张参考图', aspectRatio: '1:1 / 16:9 / 9:16 / 21:9 等' },
     ],
     params: [
       { name: 'contents', type: 'array', description: 'Gemini 原生接口必填。提示词放 parts.text，参考图放 parts.inlineData，最多 9 张。' },
       { name: 'generationConfig.responseModalities', type: 'string[]', description: 'Gemini 原生图片生成传 ["TEXT", "IMAGE"]。' },
-      { name: 'generationConfig.imageConfig', type: 'object', description: '两个原生模型都使用 aspectRatio 和 imageSize，支持 2K、4K。' },
+      { name: 'generationConfig.imageConfig', type: 'object', description: '三个原生模型都使用 aspectRatio 和 imageSize，支持 2K、4K。' },
     ],
     examples: [
       { title: 'Nano Banana Pro 原生文生图', language: 'curl', code: geminiNativeCurl },
       { title: 'Nano Banana Pro 原生参考图生成', language: 'curl', code: geminiNativeReferenceCurl },
       { title: 'Nano Banana 2 原生文生图', language: 'curl', code: geminiNativeFlashCurl },
+      { title: 'Nano Banana 2.1 原生文生图', language: 'curl', code: geminiNativeBanana21Curl },
     ],
     notes: [
-      '两个原生模型的图片都位于 candidates[].content.parts[].inlineData；将 data 按 base64 解码即可保存。',
+      '三个原生模型的图片都位于 candidates[].content.parts[].inlineData；将 data 按 base64 解码即可保存。',
+      '文生图和参考图生成均可通过替换请求 URL 中的模型名称切换这三个模型，其余请求参数与响应解析相同。',
       '原生参考图只传纯 base64 到 inlineData.data，不要包含 data:image/...;base64, 前缀。',
-      'gemini-3.1-flash-image-preview 必须走 Gemini 原生接口；两个模型都不支持 mask 遮罩编辑。',
+      'gemini-3.1-flash-image-preview 和 gemini-nano-banana-2.1 必须走 Gemini 原生接口；三个模型都不支持 mask 遮罩编辑。',
     ],
   },
   {
     id: 'strongest-video-v2',
     name: '视频模型SD2.0',
+    tabLabel: 'SD2.0',
+    category: 'video',
     provider: 'Firefly Video v2 / ViralDance 933 / viraldance2.5-30',
     description: '支持文生视频和多模态参考生成。Firefly 支持分镜与文件上传，ViralDance 933 与 viraldance2.5-30 使用 JSON 与素材 URL；后者额外支持首尾帧和更多参考素材。任务创建后异步查询状态，完成后播放或下载视频。',
     endpoints: [
@@ -850,13 +996,13 @@ const modelDocs: ModelDoc[] = [
       'GET /v1/videos/{task_id}/content',
     ],
     availableModels: [
-      { name: 'firefly-video-v2-fast', description: '快速版', specification: '5 / 10 / 15 秒；480p / 720p', aspectRatio: '21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16' },
-      { name: 'firefly-video-v2', description: '标准版', specification: '5 / 10 / 15 秒；480p / 720p / 1080p', aspectRatio: '21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16' },
-      { name: 'viraldance933', description: 'ViralDance 933 标准版', specification: '4 至 15 秒（整数）；720p', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
-      { name: 'viraldance933-fast', description: 'ViralDance 933 快速版', specification: '4 至 15 秒（整数）；720p', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
-      { name: 'viraldance2.5-30', description: '文生视频、首尾帧和多模态参考生成', specification: '4 至 30 秒（整数）；720p；最多 30 图 / 10 视频 / 10 音频', aspectRatio: '16:9 / 9:16 / 1:1' },
-      { name: 'dola-viraldance2.0', description: 'Dola ViralDance 2.0', specification: '4 至 15 秒（整数）；720p', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
-      { name: 'dola-viraldance2.5', description: 'Dola ViralDance 2.5', specification: '4 至 30 秒（整数）；720p', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
+      { name: 'firefly-video-v2-fast', description: 'sd2.0-fast', specification: '5 / 10 / 15 秒；480p / 720p；支持 9 图 / 3 视频 / 3 音频', aspectRatio: '21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16' },
+      { name: 'firefly-video-v2', description: 'sd2.0', specification: '5 / 10 / 15 秒；480p / 720p / 1080p；支持 9 图 / 3 视频 / 3 音频', aspectRatio: '21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16' },
+      { name: 'viraldance933', description: 'sd2.0', specification: '4 至 15 秒；720p；支持 9 图 / 3 视频 / 3 音频', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
+      { name: 'viraldance933-fast', description: 'sd2.0-fast', specification: '4 至 15 秒；720p；支持 9 图 / 3 视频 / 3 音频', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
+      { name: 'viraldance2.5-30', description: 'sd2.5', specification: '4 至 30 秒；720p；支持 30 图 / 10 视频 / 10 音频', aspectRatio: '16:9 / 9:16 / 1:1' },
+      { name: 'dola-viraldance2.0', description: 'sd2.0', specification: '4 至 15 秒；720p；支持 9 图', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
+      { name: 'dola-viraldance2.5', description: 'sd2.5', specification: '4 至 30 秒；720p；支持 9 图', aspectRatio: '16:9 / 9:16 / 1:1 / 4:3' },
     ],
     params: [
       { name: 'model', type: 'string', description: '必填，填写上表中的完整模型名称。viraldance2.5-30 与 dola-viraldance2.5 的素材参数不同，请勿混用。Dola 沿用 ViralDance 933 的 JSON 格式和素材参数，时长按各自模型范围填写。' },
@@ -909,6 +1055,8 @@ const modelDocs: ModelDoc[] = [
   {
     id: 'wan3-video',
     name: '视频模型Wan3.0',
+    tabLabel: 'Wan3.0',
+    category: 'video',
     provider: 'Wan 3.0',
     description: '支持文生视频、图生视频，以及图片、视频、音频混合参考。三个模型使用相同的 JSON 参数，通过模型名称选择分辨率，创建后异步查询生成结果。',
     endpoints: [
@@ -947,6 +1095,8 @@ const modelDocs: ModelDoc[] = [
   {
     id: 'minimax-h3-video',
     name: '视频模型MiniMax-H3',
+    tabLabel: 'MiniMax-H3',
+    category: 'video',
     provider: 'MiniMax H3',
     description: '支持文生视频、首尾帧生视频和多模态参考生成。请求使用 JSON content[]，创建成功后通过任务 ID 查询并下载视频。',
     endpoints: [
@@ -984,36 +1134,63 @@ const modelDocs: ModelDoc[] = [
     ],
   },
   {
-    id: 'grok-image-video',
-    name: 'Grok 图片视频模型',
+    id: 'grok-image',
+    name: 'Grok 图片模型',
+    tabLabel: 'Grok',
+    category: 'image',
     provider: 'xAI Grok',
-    description: 'Grok 图片使用同步生成接口；Grok 视频使用异步任务接口，提交后查询状态，完成后下载 mp4。',
+    description: 'grok-imagine-image-quality 和 grok-imagine-image-2.0 使用相同的同步图片生成接口。',
     endpoints: [
       'POST /v1/images/generations',
       'POST /v1/images/edits',
+    ],
+    availableModels: [
+      { name: 'grok-imagine-image-quality', description: '高质量文生图与参考图生成', specification: '1K / 2K；最多 3 张参考图', aspectRatio: '1:1 / 16:9 / 9:16 / 2:3 等' },
+      { name: 'grok-imagine-image-2.0', description: '2.0 文生图与参考图生成', specification: '1K / 2K；最多 3 张参考图', aspectRatio: '1:1 / 16:9 / 9:16 / 2:3 等' },
+    ],
+    params: [
+      { name: 'model / prompt', type: 'string', description: '必填，填写上表模型名和生成提示词。' },
+      { name: 'resolution', type: 'string', description: '图片传 1k 或 2k。' },
+      { name: 'aspect_ratio', type: 'string', description: '必填或建议填写，使用上表支持的画幅比例。' },
+      { name: 'n', type: 'number', description: '图片生成数量，可选，默认 1。' },
+      { name: 'image / images', type: 'object / object[]', description: 'Grok 图生图使用；单图传 image，多图传 images，格式为 {"type":"image_url","url":"data:image/...;base64,..."}，最多 3 张。' },
+    ],
+    examples: [
+      { title: 'Grok 高质量图片', language: 'curl', code: grokImageCurl },
+      { title: 'Grok 图生图（1 至 3 张参考图）', language: 'curl', code: grokImageEditCurl },
+      { title: 'Grok Image 2.0 文生图', language: 'curl', code: grokImage2Curl },
+      { title: 'Grok Image 2.0 图生图（1 至 3 张参考图）', language: 'curl', code: grokImage2EditCurl },
+    ],
+    notes: [
+      'grok-imagine-image-quality 和 grok-imagine-image-2.0 使用相同的文生图、参考图参数和响应解析，只需替换请求中的 model。图生图最多使用 3 张参考图，不支持 mask 遮罩编辑。',
+    ],
+  },
+  {
+    id: 'grok-video',
+    name: 'Grok 视频模型',
+    tabLabel: 'Grok',
+    category: 'video',
+    provider: 'xAI Grok',
+    description: 'Grok 视频使用异步任务接口，提交后查询状态，完成后下载 mp4。',
+    endpoints: [
       'POST /v1/videos/generations',
       'GET /v1/videos/{task_id}',
       'GET /v1/videos/{task_id}/content',
     ],
     availableModels: [
-      { name: 'grok-imagine-image-quality', description: '高质量文生图与参考图生成', specification: '1K / 2K；最多 3 张参考图', aspectRatio: '1:1 / 16:9 / 9:16 / 2:3 等' },
       { name: 'grok-imagine-video-1.5', description: '单图生视频；纯文本自动使用标准版', specification: '6 / 10 / 15 秒，480p / 720p', aspectRatio: '2:3 / 3:2 / 1:1 / 9:16 / 16:9' },
       { name: 'grok-imagine-video', description: '文生视频或多图参考视频', specification: '6 / 10 / 15 秒；多图限 6 / 10 秒', aspectRatio: '2:3 / 3:2 / 1:1 / 9:16 / 16:9' },
     ],
     params: [
       { name: 'model / prompt', type: 'string', description: '必填，填写上表模型名和生成提示词。' },
-      { name: 'resolution', type: 'string', description: '图片传 1k 或 2k；视频传 480p 或 720p。' },
+      { name: 'resolution', type: 'string', description: '视频传 480p 或 720p。' },
       { name: 'aspect_ratio', type: 'string', description: '必填或建议填写，使用上表支持的画幅比例。' },
-      { name: 'n', type: 'number', description: '图片生成数量，可选，默认 1。' },
       { name: 'duration', type: 'number', description: '视频时长，可选 6、10、15；多图参考只能使用 6 或 10 秒。' },
-      { name: 'image / images', type: 'object / object[]', description: 'Grok 图生图使用；单图传 image，多图传 images，格式为 {"type":"image_url","url":"data:image/...;base64,..."}，最多 3 张。' },
       { name: 'image', type: 'object', description: 'Grok 1.5 单图生视频使用，格式为 {"image_url":"data:image/...;base64,..."}。' },
       { name: 'reference_images', type: 'object[]', description: '2 至 7 张参考图使用 grok-imagine-video，格式为 [{"url":"data:image/...;base64,..."}]。' },
       { name: 'task_id', type: 'string', description: '视频提交后返回，用于查询和下载。' },
     ],
     examples: [
-      { title: 'Grok 高质量图片', language: 'curl', code: grokImageCurl },
-      { title: 'Grok 图生图（1 至 3 张参考图）', language: 'curl', code: grokImageEditCurl },
       { title: 'Grok 文生视频', language: 'curl', code: grokVideoCurl },
       { title: 'Grok 1.5 单图生视频', language: 'curl', code: grokVideo15Curl },
       { title: 'Grok 多图生视频', language: 'curl', code: grokVideoMultiReferenceCurl },
@@ -1021,16 +1198,58 @@ const modelDocs: ModelDoc[] = [
     ],
     notes: [
       'grok-imagine-video-1.5 最多使用 1 张参考图；2 至 7 张参考图请使用 grok-imagine-video。',
-      'grok-imagine-image-quality 图生图最多使用 3 张参考图，不支持 mask 遮罩编辑。',
       '纯文生视频可直接使用 grok-imagine-video；视频创建成功后不会同步返回 mp4。',
     ],
   },
 ]
+
+const categoryLabels: { id: ModelCategory; label: string }[] = [
+  { id: 'image', label: '图片生成' },
+  { id: 'video', label: '视频生成' },
+  { id: 'music', label: '音乐生成' },
+]
+
+// Counts callable model names, so the badge shows how many models a category offers.
+const categoryTabs = categoryLabels.map((category) => ({
+  ...category,
+  modelCount: modelDocs
+    .filter((model) => model.category === category.id)
+    .reduce((count, model) => count + (model.availableModels?.length ?? 0), 0),
+}))
+
+const activeModelId = ref(modelDocs[0].id)
+const activeCategory = computed(() => modelDocs.find((model) => model.id === activeModelId.value)?.category)
+const activeCategoryModels = computed(() => modelDocs.filter((model) => model.category === activeCategory.value))
+
+const pageEl = ref<HTMLElement | null>(null)
+const navEl = ref<HTMLElement | null>(null)
+const sectionsStartEl = ref<HTMLElement | null>(null)
+
+function selectModel(id: string): void {
+  if (id === activeModelId.value) return
+  activeModelId.value = id
+  scrollToSectionsStart()
+}
+
+function selectCategory(category: ModelCategory): void {
+  if (category === activeCategory.value) return
+  const firstModel = modelDocs.find((model) => model.category === category)
+  if (firstModel) selectModel(firstModel.id)
+}
+
+// The tab bar sticks to the top of the scrolling page. If the user has scrolled
+// past the start of the model content, bring it back to just below the bar.
+function scrollToSectionsStart(): void {
+  if (!pageEl.value || !navEl.value || !sectionsStartEl.value) return
+  const overlap = navEl.value.getBoundingClientRect().bottom - sectionsStartEl.value.getBoundingClientRect().top
+  if (overlap > 0) pageEl.value.scrollTop -= overlap
+}
 </script>
 
 <style scoped>
 .api-docs-page {
-  @apply min-h-[calc(100vh-8rem)] rounded-[2rem] border border-[#e8e0d3] bg-[#fbf8f2] p-4 shadow-[0_28px_70px_rgba(15,23,42,0.08)] dark:border-[#2a3039] dark:bg-[#10141a] md:p-6;
+  /* Match ChatView's workspace height, including its padding and border. */
+  @apply -m-2 h-[calc(100dvh-5.125rem)] min-h-[434px] overflow-y-auto rounded-2xl border border-[#e8e0d3] bg-[#fbf8f2] p-1.5 shadow-[0_28px_70px_rgba(15,23,42,0.08)] dark:border-[#2a3039] dark:bg-[#10141a] md:-m-4 md:min-h-[438px] md:p-2 lg:-m-6;
 }
 
 .api-docs-header {
@@ -1063,6 +1282,46 @@ const modelDocs: ModelDoc[] = [
 
 .api-docs-note {
   @apply mt-4 flex gap-3 rounded-2xl border border-[#eadfcd] bg-[#fff7ed] p-4 text-sm leading-7 text-gray-700 dark:border-[#5f4632] dark:bg-[#2b231a] dark:text-gray-200;
+}
+
+/* Tab bar, sticky from sm up (on phones it would cover about a third of the screen). The
+   negative top matches .api-docs-page's padding so the wrapper's page-colored background
+   also covers that padding strip and content cannot show above it. */
+.api-docs-nav {
+  @apply -top-1.5 z-10 bg-[#fbf8f2] pt-4 dark:bg-[#10141a] sm:sticky md:-top-2;
+}
+
+.api-docs-nav-card {
+  @apply flex flex-col gap-3 rounded-[1.75rem] border border-white/70 bg-white p-3 shadow-[0_12px_30px_rgba(15,23,42,0.06)] dark:border-[#242933] dark:bg-[#141920] md:p-4;
+}
+
+/* Below sm the three categories share the full width and hide their counts, so none is cut off. */
+.api-docs-category-tabs {
+  @apply flex gap-1 rounded-2xl bg-[#f3eadc] p-1 dark:bg-dark-800 sm:self-start;
+}
+
+.api-docs-category-tab {
+  @apply inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-2 py-2 sm:flex-none sm:px-4 text-sm font-semibold text-gray-600 transition hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 dark:text-gray-300 dark:hover:text-white;
+}
+
+.api-docs-category-tab[aria-pressed='true'] {
+  @apply bg-white text-gray-900 shadow-sm dark:bg-dark-600 dark:text-white;
+}
+
+.api-docs-tab-count {
+  @apply hidden rounded-full bg-black/5 px-2 py-0.5 text-xs font-medium tabular-nums dark:bg-white/10 sm:inline;
+}
+
+.api-docs-model-tabs {
+  @apply flex flex-wrap gap-2;
+}
+
+.api-docs-model-tab {
+  @apply rounded-full border border-[#eadfcd] bg-[#fbf8f3] px-3.5 py-1.5 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200 dark:hover:border-gray-500 dark:hover:text-white;
+}
+
+.api-docs-model-tab[aria-pressed='true'] {
+  @apply border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900;
 }
 
 .api-docs-section {

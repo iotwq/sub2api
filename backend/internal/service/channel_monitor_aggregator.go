@@ -52,7 +52,7 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 //
 //	1 次查 monitors；
 //	1 次批量 latest（含 ping_latency_ms）；
-//	1 次批量 7d availability；
+//	3 次批量 availability（7/15/30 天，与监控数量无关）；
 //	1 次批量 timeline（主模型最近 N 条）。
 func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonitorView, error) {
 	monitors, err := s.repo.ListEnabled(ctx)
@@ -64,14 +64,37 @@ func (s *ChannelMonitorService) ListUserView(ctx context.Context) ([]*UserMonito
 	}
 
 	ids, primaryByID, extrasByID := collectMonitorIndexes(monitors)
-	summaries := s.BatchMonitorStatusSummary(ctx, ids, primaryByID, extrasByID)
 	latestMap := s.batchLatest(ctx, ids)
+	availability := make(map[int]map[int64][]*ChannelMonitorAvailability, 3)
+	for _, days := range []int{monitorAvailability7Days, monitorAvailability15Days, monitorAvailability30Days} {
+		rows, err := s.repo.ComputeAvailabilityForMonitors(ctx, ids, days)
+		if err != nil {
+			slog.Warn("channel_monitor: user view batch availability failed", "days", days, "error", err)
+			continue
+		}
+		availability[days] = rows
+	}
 	timelineMap := s.batchTimeline(ctx, ids, primaryByID)
 
 	views := make([]*UserMonitorView, 0, len(monitors))
 	for _, m := range monitors {
 		primaryLatest := pickLatest(latestMap[m.ID], m.PrimaryModel)
-		views = append(views, buildUserViewFromSummary(m, summaries[m.ID], primaryLatest, timelineMap[m.ID]))
+		summary := buildStatusSummary(indexLatestByModel(latestMap[m.ID]), indexAvailabilityByModel(availability[monitorAvailability7Days][m.ID]), primaryByID[m.ID], extrasByID[m.ID])
+		view := buildUserViewFromSummary(m, summary, primaryLatest, timelineMap[m.ID])
+		for _, days := range []int{monitorAvailability15Days, monitorAvailability30Days} {
+			if rows, ok := availability[days]; ok {
+				value := 0.0
+				if primary := indexAvailabilityByModel(rows[m.ID])[m.PrimaryModel]; primary != nil {
+					value = primary.AvailabilityPct
+				}
+				if days == monitorAvailability15Days {
+					view.Availability15d = &value
+				} else {
+					view.Availability30d = &value
+				}
+			}
+		}
+		views = append(views, view)
 	}
 	return views, nil
 }

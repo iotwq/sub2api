@@ -2016,7 +2016,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="!isExcelOAuth && account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2064,6 +2064,7 @@
             />
           </div>
         </div>
+        <p v-if="isExcelOAuth" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.oauth.openai.excelEntryHint') }}</p>
         <div v-if="openAIOAuthResponsesEndpointMode === 'basispoints'" class="mt-4 space-y-3">
           <div v-for="option in bpsCompatibilityOptions" :key="option.key" class="flex items-center justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-dark-700">
             <div class="min-w-0">
@@ -2090,7 +2091,7 @@
           />
         </div>
         <div
-          v-if="openAIOAuthResponsesEndpointMode === 'basispoints' && !account?.parent_account_id"
+          v-if="openAIOAuthResponsesEndpointMode === 'basispoints' && !account?.parent_account_id && !isExcelOAuth"
           class="mt-4 flex items-center justify-between gap-4 rounded-lg bg-gray-50 p-3 dark:bg-dark-700"
         >
           <div class="min-w-0">
@@ -2233,7 +2234,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="!isExcelOAuth && account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2345,6 +2346,24 @@
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <OpenAIImageSizeTiersField v-model="openAIImageSizeTiers" />
+      </div>
+
+      <!-- OpenAI API Key Suno audio URL relay -->
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.openai.sunoAudioURLToProxy') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.sunoAudioURLToProxyDesc') }}
+          </p>
+        </div>
+        <Toggle
+          v-model="openAISunoAudioURLToProxyEnabled"
+          data-testid="edit-openai-suno-audio-url-to-proxy-toggle"
+          :aria-label="t('admin.accounts.openai.sunoAudioURLToProxy')"
+        />
       </div>
 
       <div
@@ -2714,8 +2733,6 @@
           </button>
         </div>
       </div>
-
-      <CodexSignalBadge v-if="account" :account="account" class="my-3" />
 
       <OpenAIOAuthProtectionFields
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token') && !isSparkShadow"
@@ -3491,7 +3508,7 @@
 </template>
 
 <script setup lang="ts">
-import CodexSignalBadge from './CodexSignalBadge.vue'
+import { OPENAI_EXCEL_OAUTH_CLIENT_ID } from '@/composables/useOpenAIOAuth'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -4266,6 +4283,8 @@ const customBaseUrl = ref('')
 
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
+const isExcelOAuth = computed(() => props.account?.platform === 'openai' && props.account?.credentials?.client_id === OPENAI_EXCEL_OAUTH_CLIENT_ID)
+
 type OpenAIOAuthResponsesEndpointMode = 'chatgpt_codex' | 'basispoints'
 const openAIOAuthResponsesEndpointMode = ref<OpenAIOAuthResponsesEndpointMode>('chatgpt_codex')
 const openAIBasispointsCacheCreationAsInputEnabled = ref(false)
@@ -4289,6 +4308,7 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
+const openAISunoAudioURLToProxyEnabled = ref(false)
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -4343,7 +4363,7 @@ const codexFingerprintModeOptions = computed(() => [
 const openAIOAuthResponsesEndpointOptions = computed(() => [
   { value: 'chatgpt_codex' as OpenAIOAuthResponsesEndpointMode, label: t('admin.accounts.openai.oauthResponsesEndpointChatGPT') },
   { value: 'basispoints' as OpenAIOAuthResponsesEndpointMode, label: t('admin.accounts.openai.oauthResponsesEndpointBasispoints') }
-])
+].filter(option => !isExcelOAuth.value || option.value === 'basispoints'))
 
 const openAIWSModeOptions = computed(() => [
   { value: OPENAI_WS_MODE_OFF, label: t('admin.accounts.openai.wsModeOff') },
@@ -4812,6 +4832,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   editPlanType.value = ''
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
+  openAISunoAudioURLToProxyEnabled.value = false
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
@@ -4839,6 +4860,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       openAIOAuthResponsesEndpointMode.value === 'basispoints' && extra?.openai_basispoints_auto_disable_on_403 === true
     openaiImageURLToBase64Enabled.value =
       newAccount.type === 'apikey' && extra?.openai_image_url_to_b64_json === true
+    openAISunoAudioURLToProxyEnabled.value =
+      newAccount.type === 'apikey' && extra?.openai_suno_audio_url_to_proxy === true
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -6399,7 +6422,7 @@ const handleSubmit = async () => {
           delete newExtra.openai_basispoints_auto_move_on_403
           delete newExtra.openai_basispoints_403_target_group_id
         }
-        if (openAIOAuthResponsesEndpointMode.value === 'basispoints' && !props.account.parent_account_id && openAIBasispointsAutoDisableOn403.value) {
+        if (openAIOAuthResponsesEndpointMode.value === 'basispoints' && !isExcelOAuth.value && !props.account.parent_account_id && openAIBasispointsAutoDisableOn403.value) {
           newExtra.openai_basispoints_auto_disable_on_403 = true
         } else {
           delete newExtra.openai_basispoints_auto_disable_on_403
@@ -6455,6 +6478,11 @@ const handleSubmit = async () => {
         } else {
           newExtra.web_search_emulation = webSearchEmulationMode.value
         }
+        if (openAISunoAudioURLToProxyEnabled.value) {
+          newExtra.openai_suno_audio_url_to_proxy = true
+        } else {
+          delete newExtra.openai_suno_audio_url_to_proxy
+		}
 		}
 		applyOpenAIImageSizeTiersToExtra(newExtra, openAIImageSizeTiers.value)
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {

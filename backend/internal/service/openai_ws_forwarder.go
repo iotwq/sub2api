@@ -276,7 +276,6 @@ func (s *OpenAIGatewayService) getOpenAIWSConnPool() *openAIWSConnPool {
 	s.openaiWSPoolOnce.Do(func() {
 		if s.openaiWSPool == nil {
 			s.openaiWSPool = newOpenAIWSConnPool(s.cfg)
-			s.openaiWSPool.observeHandshake = s.observeCodexSignal
 		}
 	})
 	return s.openaiWSPool

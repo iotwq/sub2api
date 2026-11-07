@@ -315,9 +315,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import { useAppStore } from '@/stores/app'
+import { loadMarkdown, renderMarkdown } from '@/utils/markdown'
 import { useAnnouncementStore } from '@/stores/announcements'
 import { formatRelativeTime, formatRelativeWithDateTime } from '@/utils/format'
 import type { UserAnnouncement } from '@/types'
@@ -327,12 +326,6 @@ import '@/styles/announcement-markdown.css'
 const { t } = useI18n()
 const appStore = useAppStore()
 const announcementStore = useAnnouncementStore()
-
-// Configure marked
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
 
 // Use store state (storeToRefs for reactivity)
 const { announcements, loading } = storeToRefs(announcementStore)
@@ -344,14 +337,10 @@ const detailModalOpen = ref(false)
 const selectedAnnouncement = ref<UserAnnouncement | null>(null)
 
 // Methods
-function renderMarkdown(content: string): string {
-  if (!content) return ''
-  const html = marked.parse(content) as string
-  return DOMPurify.sanitize(html)
-}
-
 function openModal() {
   isModalOpen.value = true
+  // 打开列表时预先加载 Markdown 渲染器，点开详情时内容可以立即显示
+  void loadMarkdown()
 }
 
 function closeModal() {
@@ -361,6 +350,7 @@ function closeModal() {
 function openDetail(announcement: UserAnnouncement) {
   selectedAnnouncement.value = announcement
   detailModalOpen.value = true
+  void loadMarkdown()
   if (!announcement.read_at) {
     markAsRead(announcement.id)
   }

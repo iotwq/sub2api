@@ -19,7 +19,7 @@ func (s *OpenAIGatewayService) observeBasispointsUpstreamResponse(ctx context.Co
 	}
 	// BPS endpoint throttling does not represent Codex quota exhaustion.
 	s.handleBasispointsUnauthorized(ctx, account, resp.StatusCode, resp.Header, raw)
-	if resp.StatusCode == http.StatusForbidden && gjson.GetBytes(raw, "error.code").String() != "basispoints_model_access_changed" {
+	if resp.StatusCode == http.StatusForbidden && !isExcelBPSModelPermissionError(resp.StatusCode, gjson.GetBytes(raw, "error.code").String()) {
 		// Group routing and protocol fallback are independent, opt-in actions.
 		s.moveBasispointsOn403(ctx, account)
 		return s.disableBasispointsOn403(ctx, account)
@@ -80,7 +80,7 @@ func (a *Account) UsesBasispointsResponses() bool {
 }
 
 func (a *Account) IsBasispointsAutoDisableOn403Enabled() bool {
-	if !a.UsesBasispointsResponses() || a.ParentAccountID != nil || a.IsOpenAIPersonalAccessToken() {
+	if !a.UsesBasispointsResponses() || a.IsExcelOAuth() || a.ParentAccountID != nil || a.IsOpenAIPersonalAccessToken() {
 		return false
 	}
 	enabled, _ := a.Extra[openAIBasispointsAutoDisableOn403Key].(bool)

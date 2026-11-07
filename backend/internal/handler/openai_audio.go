@@ -55,11 +55,11 @@ func (h *OpenAIGatewayHandler) audio(c *gin.Context, endpoint service.OpenAIAudi
 	}
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+		if handleRequestBodyReadError(c, reqLog, err) {
 			return
 		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		status, message := requestBodyReadFailure(reqLog, c.Request, err)
+		h.errorResponse(c, status, "invalid_request_error", message)
 		return
 	}
 	if len(body) == 0 {
@@ -150,8 +150,18 @@ func (h *OpenAIGatewayHandler) audio(c *gin.Context, endpoint service.OpenAIAudi
 			h.errorResponse(c, status, code, message)
 			return
 		}
+		attemptRelease, reserveErr := reserveKnownCost(c, h.billingCacheService, apiKey, subscription, pricing.ActualCost)
+		if reserveErr != nil {
+			status, code, message, retryAfter := billingErrorDetails(reserveErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", fmt.Sprint(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
+		}
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, false, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
+			attemptRelease()
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
@@ -159,6 +169,7 @@ func (h *OpenAIGatewayHandler) audio(c *gin.Context, endpoint service.OpenAIAudi
 			continue
 		}
 		if slotResult != openAISlotAcquireOK {
+			attemptRelease()
 			return
 		}
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
@@ -172,6 +183,7 @@ func (h *OpenAIGatewayHandler) audio(c *gin.Context, endpoint service.OpenAIAudi
 				forwardBody = h.gatewayService.ReplaceModelInBody(body, mappedModel)
 			}
 			if err != nil {
+				attemptRelease()
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
@@ -189,6 +201,7 @@ func (h *OpenAIGatewayHandler) audio(c *gin.Context, endpoint service.OpenAIAudi
 			return h.gatewayService.ForwardOpenAIAudio(c.Request.Context(), c, account, endpoint, forwardBody, forwardContentType, requestModel)
 		}()
 		if forwardErr != nil {
+			attemptRelease()
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(forwardErr, &failoverErr) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(requestModel), false, nil)
@@ -223,6 +236,7 @@ func (h *OpenAIGatewayHandler) audio(c *gin.Context, endpoint service.OpenAIAudi
 				reqLog.Warn("openai_audio.record_usage_failed", zap.Error(err))
 			}
 		})
+		attemptRelease()
 		return
 	}
 }

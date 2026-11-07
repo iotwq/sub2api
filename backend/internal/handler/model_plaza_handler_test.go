@@ -269,7 +269,7 @@ func TestFilterPlazaVisibleGroups_SubscribedExclusiveGroup(t *testing.T) {
 type plazaVarySettingRepo struct{ service.SettingRepository }
 
 func (plazaVarySettingRepo) GetMultiple(context.Context, []string) (map[string]string, error) {
-	return map[string]string{service.SettingKeyModelPlazaEnabled: "true"}, nil
+	return map[string]string{service.SettingKeyModelPlazaEnabled: "true", service.SettingKeyModelPlazaRechargeRatio: "6"}, nil
 }
 
 type plazaVaryChannelRepo struct{ service.ChannelRepository }
@@ -283,7 +283,7 @@ func (plazaVaryGroupRepo) ListActive(context.Context) ([]service.Group, error) {
 func TestModelPlazaHandler_VaryKeepsCORSOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := NewModelPlazaHandler(
-		service.NewModelPlazaService(plazaVaryChannelRepo{}, plazaVaryGroupRepo{}, nil, nil, nil),
+		service.NewModelPlazaService(plazaVaryChannelRepo{}, plazaVaryGroupRepo{}, nil, nil, nil, nil),
 		nil,
 		service.NewSettingService(plazaVarySettingRepo{}, &config.Config{}),
 	)
@@ -300,6 +300,13 @@ func TestModelPlazaHandler_VaryKeepsCORSOrigin(t *testing.T) {
 		r.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var payload struct {
+			Data struct {
+				RechargeRatio float64 `json:"recharge_ratio"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+		require.Equal(t, float64(6), payload.Data.RechargeRatio)
 		require.Equal(t, origin, w.Header().Get("Access-Control-Allow-Origin"))
 		// 共享缓存需同时按来源与语言区分，否则 A 来源的响应可能被复用给 B。
 		require.Equal(t, []string{"Origin", "Accept-Language"}, w.Header().Values("Vary"))

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -38,6 +39,30 @@ type nanoBananaBillingRepoStub struct {
 	releaseCmd *service.BatchImageBalanceHoldCommand
 	applyCmd   *service.UsageBillingCommand
 	applyErr   error
+	pending    *service.PendingImageSettlement
+	pendingErr error
+}
+
+func (s *nanoBananaBillingRepoStub) SavePendingImageSettlement(_ context.Context, pending *service.PendingImageSettlement) error {
+	if s.pendingErr != nil {
+		return s.pendingErr
+	}
+	s.pending = pending
+	return nil
+}
+
+func (s *nanoBananaBillingRepoStub) ClaimPendingImageSettlements(context.Context, time.Time) ([]service.PendingImageSettlement, error) {
+	if s.pending == nil {
+		return nil, nil
+	}
+	return []service.PendingImageSettlement{*s.pending}, nil
+}
+
+func (s *nanoBananaBillingRepoStub) FinishPendingImageSettlement(_ context.Context, _ *service.PendingImageSettlement, cause error) error {
+	if cause == nil {
+		s.pending = nil
+	}
+	return nil
 }
 
 func (s *nanoBananaBillingRepoStub) ReserveBatchImageBalance(_ context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
@@ -124,18 +149,23 @@ func (s *nanoBananaAccountRepoStub) accountsForPlatform(platform string) []servi
 
 type nanoBananaUpstreamStub struct {
 	service.HTTPUpstream
-	calls int
+	calls        int
+	responseBody string
 }
 
 func (s *nanoBananaUpstreamStub) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 	s.calls++
+	body := s.responseBody
+	if body == "" {
+		body = `{"data":{"imageUrl":"https://example.com/image.png"}}`
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header: http.Header{
 			"Content-Type": []string{"application/json"},
 			"X-Request-Id": []string{"nano-request"},
 		},
-		Body: io.NopCloser(bytes.NewBufferString(`{"data":{"imageUrl":"https://example.com/image.png"}}`)),
+		Body: io.NopCloser(bytes.NewBufferString(body)),
 	}, nil
 }
 
@@ -179,6 +209,16 @@ func TestNanoBananaSettlementFailureDoesNotReleaseSuccessfulGeneration(t *testin
 	require.NotNil(t, billing.applyCmd)
 	require.Nil(t, billing.releaseCmd, "completed work retains its reservation for reconciliation")
 	require.Nil(t, usage.lastLog, "a failed transaction must not create a zero-cost success row")
+}
+
+func TestNanoBananaPendingSettlementWriteFailureReleasesHold(t *testing.T) {
+	handler, billing, _, upstream, key := newNanoBananaBillingTestHandler(t, 100)
+	billing.pendingErr = errors.New("pending settlement unavailable")
+	rec := performNanoBananaBillingRequest(handler, key, `{"model":"nano-banana-pro","prompt":"draw","imageSize":"2K"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 1, upstream.calls)
+	require.NotNil(t, billing.reserveCmd)
+	require.NotNil(t, billing.releaseCmd, "without a durable pending record the handler must release the hold")
 }
 
 func newNanoBananaBillingTestHandler(t *testing.T, balance float64) (*OpenAIGatewayHandler, *nanoBananaBillingRepoStub, *nanoBananaUsageLogRepoStub, *nanoBananaUpstreamStub, *service.APIKey) {

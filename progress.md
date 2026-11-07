@@ -8043,6 +8043,35 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
 ### Testing
 - 新增并通过 Basispoints 图片隔离回归测试；定向 Basispoints 后端测试全部通过。
 - `git diff --check` 通过。
+
+## 2026-10-13 - Task: 增加 GPT-6.1 Sol 订阅优化分组开关
+
+### What was done
+
+- 增加默认关闭的分组配置，管理员可在 OpenAI 分组编辑页开启 GPT-6.1 Sol 订阅优化。
+- 开启后，分组内 OAuth/Setup Token 账号的 GPT-6.1 Sol 长上下文附加费被豁免；本地生成 Codex 模型目录时将生成上下文默认值提升到 500k。
+- 关闭时保留原有长上下文计费和 272k 生成上下文默认值；API Key、其他模型和其他分组不受影响。
+- 补充分组持久化、认证缓存、模型目录处理、前端回显及部署说明。
+
+### Testing
+
+- `go test ./internal/service -run '^$'` 通过（服务包编译验证）。
+- `go test ./internal/handler ./internal/repository -run '^$'` 通过。
+- `go test ./migrations -run '^$'` 通过。
+- `pnpm typecheck` 通过。
+- `git diff --check` 通过。
+- 带 `unit` 标签的完整 service 测试仍受工作区已有 `gemini_cached_content_test.go` 返回值不匹配阻塞，本轮未改动该无关测试。
+
+### Notes
+
+- `backend/ent/schema/group.go`、`backend/ent/`：新增分组字段及生成 ORM 代码。
+- `backend/migrations/246_gpt61_sol_subscription_optimization.sql`：新增默认关闭的数据库字段。
+- `backend/internal/service/openai_gateway_usage.go`、`backend/internal/service/openai_codex_models_service.go`：按分组开关控制计费豁免和生成目录默认值。
+- `backend/internal/service/group.go`、`backend/internal/service/admin_service.go`、`backend/internal/service/admin_group.go`、`backend/internal/service/admin_group_duplicate.go`、`backend/internal/repository/group_repo.go`、`backend/internal/repository/api_key_repo.go`、`backend/internal/service/api_key_auth_cache.go`、`backend/internal/service/api_key_auth_cache_impl.go`：贯通配置保存、读取和认证快照。
+- `backend/internal/handler/admin/group_handler.go`、`backend/internal/handler/dto/types.go`、`backend/internal/handler/dto/mappers.go`：扩展管理 API。
+- `frontend/src/views/admin/GroupsView.vue`、`frontend/src/types/index.ts`、`frontend/src/i18n/locales/zh/admin/overview.ts`、`frontend/src/i18n/locales/en/admin/overview.ts`：增加编辑分组开关、回显和提示。
+- `docs/GPT61_SOL_GROUP_OPTIMIZATION.md`：记录开关行为和迁移说明。
+- 回滚方式：将分组开关关闭即可恢复旧行为；代码回滚到本轮前版本时保留并执行迁移字段，数据库需要彻底回滚时执行文档中的 `ALTER TABLE ... DROP COLUMN`。
 ### Notes
 - 改动文件：`backend/internal/service/openai_basispoints.go`、`backend/internal/service/openai_basispoints_test.go`、`backend/internal/service/openai_gateway_forward.go`、`backend/internal/service/openai_gateway_passthrough.go`；仅收紧本轮新增路径的图片边界。
 - 回滚方式：恢复上述四个文件到本轮前版本；账号配置仍可通过选择“ChatGPT Codex（默认）”回滚。未构建、部署或推送镜像。
@@ -9679,6 +9708,2367 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
 - 新增迁移 242 移除两项平台 CHECK，校验转入应用层；监控约束保留。部署前须备份数据库，源码回滚不会恢复已执行迁移。本轮不推送 GitHub、不发布镜像、不部署或请求真实上游；无关桌面 bundle 保持未跟踪。
 - 恢复分支 `codex/pre-upstream-sync-20261009-v0.2.15` 指向 `7775571f4bf513081ff651843b4553112f545554`。可执行 `git worktree add --detach /tmp/sub2api-pre-sync-20261009 codex/pre-upstream-sync-20261009-v0.2.15` 创建独立恢复工作区；当前分支撤销本轮合并应对合并提交执行 `git revert -m 1 <merge-commit>`。本轮未回滚，不删除数据库数据。
 
+## 2026-10-09 - Task: 左侧栏文生图入口更名为生图网站
+
+### What was done
+
+- 将左侧栏中文导航名称「文生图」改为「生图网站」。仅调整显示文字，入口仍使用现有 /image 路由。
+
+### Testing
+
+- 核对 AppSidebar 的入口引用 nav.imageGeneration，中文翻译值为「生图网站」。
+- `pnpm exec vitest run src/i18n/__tests__/localeKeyCompleteness.spec.ts --reporter=dot`：3 项通过；`git diff --check` 通过。
+
+### Notes
+
+- `frontend/src/i18n/locales/zh/common.ts`：更新左侧栏中文入口文字。
+- `progress.md`：仅末尾追加本轮修改和验证记录。
+- 本轮为纯展示文案修改，不涉及功能、配置、依赖或部署方式，不新增使用文档；未构建镜像、推送或部署。
+- 回滚点为 `4c5996694`；仅撤销本轮文案可执行 `git restore --source=4c5996694 -- frontend/src/i18n/locales/zh/common.ts`。本轮未执行回滚。
+
+## 2026-10-09 - Task: 模型问答动态同步模型与五档推理强度
+
+### What was done
+
+- 模型问答通过用户填写的 API 地址和密钥同步完整模型列表，移除 Sol/Terra 固定列表和旧模型名改写；GPT、Claude、Grok 等返回的模型 ID 原样选择并发送。
+- 再次同步保留仍可用的模型选择，失效时改选列表首项；更换地址或密钥清空旧列表并忽略旧请求的迟到结果。空列表或同步失败提示原因，未同步到可用模型时禁止发送。
+- 移除联网搜索和深度思考开关，默认通过已有 Responses 路径提供 web_search 工具；推理强度改为 low、medium、high、xhigh、max 五档，默认 medium，随会话和草稿保存。保留本地会话、附件、流式停止和滚动体验。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ChatView.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`：最终 34 项通过（页面交互 31 项、国际化 3 项），覆盖模型同步地址/鉴权、混合模型原样请求、默认搜索、五档推理强度、会话/草稿恢复、空列表/失败、迟到结果、图片/文本附件、中文输入法及流式停止。首轮 4 项失败源于测试组件未卸载引起跨用例状态污染，补自动卸载后通过。
+- `pnpm run lint:check`：前端全量检查退出 0。
+- `pnpm run build`：国际化检查、vue-tsc 和 Vite 生产构建通过；既有 Browserslist 数据与大 chunk 提示不影响构建结果。
+- `git diff --check` 通过。本轮只修改前端功能及说明，未请求真实上游；不把模拟协议测试作为真实模型能力验证。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：动态模型列表、配置变更后的列表失效处理、五档推理选择与默认联网搜索请求。
+- `frontend/src/composables/useLocalChat.ts`：会话和草稿保存推理强度，新会话默认 medium，保留原本的本地存储键。
+- `frontend/src/i18n/locales/zh/misc.ts`：中文推理强度及空模型列表提示，移除旧开关文案。
+- `frontend/src/i18n/locales/en/misc.ts`：对应英文文案和翻译键。
+- `frontend/src/views/user/__tests__/ChatView.spec.ts`：补充实际选择/同步/请求及配置恢复交互测试，适配默认 Responses 流式行为，并保证测试组件卸载。
+- `docs/MODEL_CHAT.md`：更新使用步骤、模型范围、默认搜索、五档推理及 Responses 接口要求。
+- `progress.md`：仅末尾追加本轮记录，保留之前的侧栏更名记录。
+- API 地址须支持 OpenAI 兼容的模型列表和 Responses 接口；搜索是否实际执行、模型支持的推理档位及图片能力由服务端和上游决定。本轮未修改后台协议转换、鉴权、计费、数据库或其他业务功能，未构建 Docker 镜像、推送或部署。
+- 回滚点为 `4c5996694`。仅撤销本轮源码和说明可执行 `git restore --source=4c5996694 -- frontend/src/views/user/ChatView.vue frontend/src/composables/useLocalChat.ts frontend/src/views/user/__tests__/ChatView.spec.ts frontend/src/i18n/locales/zh/misc.ts frontend/src/i18n/locales/en/misc.ts docs/MODEL_CHAT.md`；保留 progress.md 历史并追加回滚记录。此命令不覆盖之前的 zh/common.ts 侧栏更名，本轮未执行回滚。
+
+## 2026-10-09 - Task: 明确模型问答推理强度选择提示
+
+### What was done
+
+- 将「推理强度」标题从选择框上方移到左侧同一行，让用户能直接识别 low / medium / high / xhigh / max 的用途。
+- 在下方增加默认 medium、控制模型思考程度及高档位通常耗时更长的简短说明；标题关联选择控件，说明关联无障碍描述，兼容浅色和深色展示。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ChatView.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`：既有 34 项测试通过。
+- `pnpm run typecheck` 和针对 ChatView / 中英文文案的 `pnpm exec eslint` 退出 0。
+- 核对标题 for 与 Select id 一致、说明 id 与 aria-describedby 一致；`git diff --check` 通过。本轮为模板和文案调整，未新增镜像式测试或执行真实上游请求。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：改为标题和选择框横排，增加用途说明和控件关联。
+- `frontend/src/i18n/locales/zh/misc.ts`：新增中文推理强度说明。
+- `frontend/src/i18n/locales/en/misc.ts`：新增对应英文说明。
+- `docs/MODEL_CHAT.md`：补充选择框提示的展示方式。
+- `progress.md`：仅末尾追加本轮记录。
+- 改动前快照位于 `/tmp/sub2api-chat-reasoning-hint.xVEz1m`，保留上轮动态模型与推理强度功能。仅撤销本轮展示可依次执行：`cp /tmp/sub2api-chat-reasoning-hint.xVEz1m/ChatView.vue frontend/src/views/user/ChatView.vue`、`cp /tmp/sub2api-chat-reasoning-hint.xVEz1m/zh-misc.ts frontend/src/i18n/locales/zh/misc.ts`、`cp /tmp/sub2api-chat-reasoning-hint.xVEz1m/en-misc.ts frontend/src/i18n/locales/en/misc.ts`、`cp /tmp/sub2api-chat-reasoning-hint.xVEz1m/MODEL_CHAT.md docs/MODEL_CHAT.md`；保留日志历史并追加回滚记录。本轮未执行回滚、构建镜像、推送或部署。
+
+## 2026-10-09 - Task: 模型问答优化 1 - 专注工作区布局
+
+### What was done
+
+- 连接配置收进可展开面板，未配置密钥时自动展开；模型、同步和推理强度放到输入区域，保留明确用途标签。
+- 会话栏支持折叠及窄屏抽屉，增加覆盖视口的专注模式和 Escape 退出；减少大面积装饰和消息阴影，限制正文阅读宽度。
+
+### Testing
+
+- 页面及国际化测试 35 项通过，包含连接面板收起/展开、会话折叠及专注退出交互；`pnpm run typecheck` 通过。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：调整布局和工作区交互。
+- `frontend/src/i18n/locales/zh/misc.ts`、`frontend/src/i18n/locales/en/misc.ts`：增加工作区操作标签。
+- `frontend/src/views/user/__tests__/ChatView.spec.ts`：覆盖面板、历史栏和专注操作。
+- `docs/MODEL_CHAT.md`：说明新布局和退出方式；`progress.md`：追加此轮记录。
+- 回滚快照为 `/tmp/sub2api-chat-optimization.YPx736/stage-1`；可按同名快照分别 cp 回 ChatView.vue、两份 misc.ts 和 MODEL_CHAT.md，撤销新增交互测试，保留日志历史。未改 AppLayout 或其他页面。
+- 验证补充：新增可见性断言首轮因测试组件未挂载到 document 而失败，修正测试挂载后复跑最终 35 项通过；此前 Testing 所列为最终结果，首轮失败未作为通过证据。
+
+## 2026-10-09 - Task: 模型问答优化 2 - 真实回复状态与耗时
+
+### What was done
+
+- 按 HTTP 连接和真实 Responses 事件展示等待、思考、搜索及输出状态；仅展示上游公开思考摘要，保存完成/停止/失败和耗时。
+- JSON 响应同样传递完成及元数据事件；失败或未完整结束不再被当作成功，保留已有正文并提示手动重试。
+
+### Testing
+
+- 页面、Responses 事件及国际化测试 40 项通过；包含受控流验证真实状态变化、摘要、终态、没有完成信号及无错误正文失败事件。
+- `pnpm run typecheck` 通过；未使用真实密钥发起收费请求。
+
+### Notes
+
+- `frontend/src/api/chat.ts`：增加真实事件/连接回调和失败事件处理。
+- `frontend/src/composables/useLocalChat.ts`：保存回复状态、耗时及摘要；`frontend/src/views/user/ChatView.vue`：展示状态并处理未完成回复。
+- `frontend/src/views/user/__tests__/ChatView.spec.ts`、`frontend/src/api/__tests__/chat.spec.ts`：受控流与 JSON/异常事件回归。
+- `frontend/src/i18n/locales/zh/misc.ts`、`frontend/src/i18n/locales/en/misc.ts`：状态和摘要标签；`docs/MODEL_CHAT.md`：说明真实事件边界；`progress.md`：本轮记录。
+- 回滚快照 `/tmp/sub2api-chat-optimization.YPx736/stage-2` 保存本轮前各现有文件；按映射 cp 回原路径并移走新增 chat.spec.ts 可回退本项，保留前项布局和日志历史。上游不提供公开摘要时页面不会生成假摘要。
+
+## 2026-10-09 - Task: 模型问答优化 3 - 编辑、重新生成与手动重试
+
+### What was done
+
+- 用户可编辑问题，助手回复可重新生成/重试，均从原问题之前的历史创建新分支，保留原对话和后续消息。
+- 失败后恢复问题和附件，保留等待期间输入的新草稿；显示新请求费用提示，不自动重复请求。
+
+### Testing
+
+- 页面、API 与国际化测试 43 项通过，覆盖编辑/重新生成的历史截断、原会话保留、失败后手动重试仅发送一次且不携带错误占位正文。
+- `pnpm run typecheck` 最终通过；首轮发现 findLast 超出当前 TypeScript lib，改用兼容现有目标的 reverse/find 后通过。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：消息操作、分支和失败恢复；`frontend/src/views/user/__tests__/ChatView.spec.ts`：操作回归。
+- `frontend/src/i18n/locales/zh/misc.ts`、`frontend/src/i18n/locales/en/misc.ts`：操作和费用标签；`docs/MODEL_CHAT.md`：分支和重试说明；`progress.md`：本轮记录。
+- 回滚快照 `/tmp/sub2api-chat-optimization.YPx736/stage-3`；按映射 cp 回原文件可撤销本项，保留前两项功能与日志历史。
+
+## 2026-10-09 - Task: 模型问答优化 4 - 代码阅读与搜索来源
+
+### What was done
+
+- 常用代码语言高亮，支持展开、复制及下载纯文本代码；未知语言保留纯文本，不执行生成的 HTML/脚本。
+- 展示实际搜索引用和来源，合并重复链接，只允许 HTTP(S)，新标签页隔离窗口引用；补充上游整段公开摘要的展示。
+
+### Testing
+
+- 页面、API 和国际化最终 45 项测试通过，覆盖高亮、代码文本展开/下载、HTML 不执行和来源去重/脚本 URL 拒绝。
+- `pnpm run typecheck` 通过；首轮测试遇到 jsdom Blob 不支持 text()，改用 FileReader 读取下载内容后通过。
+- pnpm 添加 highlight.js 11.12.0；锁文件仅增加对应依赖，未升级其他包。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：代码高亮/查看/下载及来源展示；`frontend/src/composables/useLocalChat.ts`：来源元数据；`frontend/src/views/user/__tests__/ChatView.spec.ts`：代码和来源回归。
+- `frontend/package.json`、`frontend/pnpm-lock.yaml`：增加按需语言高亮库；`frontend/src/i18n/locales/zh/misc.ts`、`frontend/src/i18n/locales/en/misc.ts`：代码/来源文案。
+- `docs/MODEL_CHAT.md`：纯文本和来源边界；`progress.md`：本轮记录。
+- 回滚快照 `/tmp/sub2api-chat-optimization.YPx736/stage-4`；按映射 cp 回原文件并运行 `pnpm install --frozen-lockfile` 可恢复本轮前依赖和功能，保留已有历史和日志。
+
+## 2026-10-09 - Task: 模型问答优化 5 - 首次使用和任务入口
+
+### What was done
+
+- 空白页增加解释代码、排查报错、编写脚本和分析文档入口，只预填草稿；首次发送自动创建会话，允许提前上传或拖拽附件。
+- 提示缺少连接配置或模型的下一步；修正从其他密钥进入时，连接草稿被原会话配置覆盖的问题，原会话保留。
+
+### Testing
+
+- 页面、API 和国际化 47 项测试通过，验证入口不会发请求、首次发送带附件自动建会话、新密钥同步不被旧会话覆盖。
+- `pnpm run typecheck` 通过。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：任务入口、首次发送和草稿配置；`frontend/src/views/user/__tests__/ChatView.spec.ts`：首次使用回归。
+- `frontend/src/i18n/locales/zh/misc.ts`、`frontend/src/i18n/locales/en/misc.ts`：引导和任务提示；`docs/MODEL_CHAT.md`：首次使用说明；`progress.md`：本轮记录。
+- 回滚快照 `/tmp/sub2api-chat-optimization.YPx736/stage-5`；按映射 cp 回原文件可撤销本项，保留之前功能及日志。
+
+## 2026-10-09 - Task: 模型问答优化 6 - 流式性能与最终交互验证
+
+### What was done
+
+- 流式正文按 50ms 合并显示，本地保存按 1 秒合并，避免每个片段都解析 Markdown 和写入完整会话；已完成消息缓存渲染结果，流式结束后再做代码高亮。
+- 完成、失败和停止时立即保存最后内容；刷新、离开页面及组件卸载时先刷新正文缓冲，再中断未完成请求并保存停止状态，避免已收到文字丢失或旧回复一直显示正在输出。
+- 最终浏览器检查修正窄屏模型选择框被压缩、长标题挤占阅读区、初始引导内容顶部被裁切及会话栏说明被挤窄的问题；保留手机附件提示并将上传、发送按钮放到同一行。
+- 六项优化已完成验证，保留此前动态模型、推理选择和其他未提交修改。
+
+### Testing
+
+- 定向 `pnpm exec vitest run src/views/user/__tests__/ChatView.spec.ts src/api/__tests__/chat.spec.ts src/composables/__tests__/useLocalChat.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts` 最终 53 项通过（页面 44、API 4、本地保存 2、国际化 3），覆盖密集片段合并、计时不重复解析旧 Markdown、停止/卸载/pagehide 前的缓冲保存及最终保存取消延迟写入。
+- 最终 `pnpm run test:run`：384 个测试文件、3039 项测试全部通过；`pnpm run lint:check` 最终退出 0。首轮 lint 与 Vite 启动并行时撞上临时配置文件消失，出现 ENOENT；待配置生成结束后重跑通过，未将首轮失败作为通过证据。
+- `pnpm run build`：国际化、vue-tsc 与 Vite 生产构建通过，保留项目既有 Browserslist 数据和大 chunk 提示；未构建 Docker 镜像。
+- Playwright 使用本地模拟接口验证 1440×1000 桌面浅色/深色及 390×844 手机：专注/退出、连接设置、真实 Select 选项选择、任务入口、首次发送、代码展开/关闭及来源展示均通过，无页面异常和横向溢出。修正后手机消息区 233px、模型选择框 194px，截图与结果位于 `/tmp/sub2api-chat-optimization.YPx736`。未使用真实 Key 或进行付费上游调用。
+- `git diff --check` 通过。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：批量显示、Markdown 缓存、离页停止保存和最终响应式布局修正。
+- `frontend/src/composables/useLocalChat.ts`：合并流式持久化及立即刷新入口。
+- `frontend/src/views/user/__tests__/ChatView.spec.ts`：密集片段、停止、离页和渲染缓存回归。
+- `frontend/src/composables/__tests__/useLocalChat.spec.ts`：实际本地保存节流及最后一次刷新测试。
+- `docs/MODEL_CHAT.md`：更新性能、离页行为和推理强度提示说明。
+- `progress.md`：仅末尾追加本项及最终验证记录。
+- 本轮前快照 `/tmp/sub2api-chat-optimization.YPx736/stage-6` 保留前五项及此前定制。只回滚第六项可分别执行 `cp /tmp/sub2api-chat-optimization.YPx736/stage-6/ChatView.vue frontend/src/views/user/ChatView.vue`、`cp /tmp/sub2api-chat-optimization.YPx736/stage-6/useLocalChat.ts frontend/src/composables/useLocalChat.ts`、`cp /tmp/sub2api-chat-optimization.YPx736/stage-6/ChatView.spec.ts frontend/src/views/user/__tests__/ChatView.spec.ts`、`cp /tmp/sub2api-chat-optimization.YPx736/stage-6/MODEL_CHAT.md docs/MODEL_CHAT.md`，并将新增本地保存测试移到快照目录留存；保留日志历史并追加回滚记录。本轮未执行回滚。
+- 思考摘要和搜索来源依赖上游提供的真实事件；本地存储范围和已有 API 接口不变。未修改后端鉴权、调度、计费或数据库，未提交 Git、推送镜像或部署。
+
+## 2026-10-09 - Task: 接口文档新增 Gemini Nano Banana 2.1
+
+### What was done
+
+- 在 Gemini 图片模型分类中新增 `gemini-nano-banana-2.1` 模型、原生 generateContent 接口路径和文生图 curl 示例，保持现有文档风格。
+- 三个 Gemini 图片模型共用参数、参考图和响应解析说明，明确通过替换请求 URL 的模型名称切换模型；示例仅使用本站地址与用户密钥占位符。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts`：既有文档页面测试 1 项通过，更新模型/接口列表和示例数量断言。
+- 针对文档页面及既有测试的 ESLint、`pnpm run typecheck`、`git diff --check` 均通过。未发起真实生图请求。
+
+### Notes
+
+- `frontend/src/views/user/ApiDocsView.vue`：补充 Nano Banana 2.1 模型、接口、示例和共用说明。
+- `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：适配新增文档内容及四个 Gemini 示例。
+- `docs/API_DOCS.md`：同步 Gemini 模型范围及调用说明。
+- `progress.md`：仅末尾追加本轮记录，保留已有历史。
+- 本轮前三个文档相关文件均无本地未提交修改，回滚可执行 `git restore --source=4c5996694c84 -- frontend/src/views/user/ApiDocsView.vue frontend/src/views/user/__tests__/ApiDocsView.spec.ts docs/API_DOCS.md`，保留日志历史并追加回滚记录；本轮未执行回滚。此前模型问答及其他未提交修改均保留；未修改后端路由、计费或发布镜像。
+
+## 2026-10-09 - Task: Seedream / Midjourney 文档补充 1K / 2K 规格
+
+### What was done
+
+- 在接口文档 OpenAI 兼容 Seedream / Midjourney 分类中，为 `seedream-5.0-pro`、`seedream-5.0-pro-x` 和 `Midjourney-V7` 的规格栏增加 `1K / 2K`，保留原有提示词、参考图上限和变体说明。
+
+### Testing
+
+- 既有 `ApiDocsView.spec.ts` 文档测试 1 项通过；文档页面 ESLint 和 `git diff --check` 通过，核对三个规格均包含新增文字。本轮为文案补充，未新增测试或调用真实生图接口。
+
+### Notes
+
+- `frontend/src/views/user/ApiDocsView.vue`：三行模型规格添加分辨率说明。
+- `docs/API_DOCS.md`：同步三个模型规格展示说明。
+- `progress.md`：仅末尾追加本轮记录。
+- 回滚快照 `/tmp/sub2api-seedream-spec.LQixVn` 保留此前 Gemini 文档改动；可执行 `cp /tmp/sub2api-seedream-spec.LQixVn/ApiDocsView.vue frontend/src/views/user/ApiDocsView.vue` 和 `cp /tmp/sub2api-seedream-spec.LQixVn/API_DOCS.md docs/API_DOCS.md` 回退本轮文案，保留日志历史并追加回滚记录。本轮未执行回滚。
+
+## 2026-10-09 - Task: Grok 图片文档新增 grok-imagine-image-2.0 并核对参考图上限
+
+### What was done
+
+- 在 Grok 图片视频模型分类新增 `grok-imagine-image-2.0`，沿用 quality 模型的文生图、JSON 参考图接口和响应解析，补充两个独立 curl 示例。
+- 只读核对指定参考项目：`src/lib/grokImagine.ts:109` 明确设置 `GROK_IMAGINE_MAX_INPUT_IMAGES = 3`；`src/lib/openaiCompatibleImageApi.ts:573` 在提交前拒绝超出数量，既有测试及模型文档也对应此规则。按当前参考实现将规格填写为 `1K / 2K；最多 3 张参考图`；此结果不作为上游最大能力的实测证明，未声称已有更高上限。
+
+### Testing
+
+- 既有 `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 文档页面测试 1 项通过，适配新增模型及八个 Grok 示例。
+- 文档页面及既有测试的 ESLint、`pnpm run typecheck`、`git diff --check` 均通过。未调用真实生图接口，也未修改参考项目。
+
+### Notes
+
+- `frontend/src/views/user/ApiDocsView.vue`：新增模型行、两份调用示例及共用说明。
+- `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：适配模型列表和示例数量。
+- `docs/API_DOCS.md`：记录模型接口、参考图格式和上限核对依据。
+- `progress.md`：仅末尾追加本轮记录。
+- 回滚快照 `/tmp/sub2api-grok-image2-docs.iiHpWo` 保留此前 Gemini 与 Seedream 文档改动；可依次执行 `cp /tmp/sub2api-grok-image2-docs.iiHpWo/ApiDocsView.vue frontend/src/views/user/ApiDocsView.vue`、`cp /tmp/sub2api-grok-image2-docs.iiHpWo/ApiDocsView.spec.ts frontend/src/views/user/__tests__/ApiDocsView.spec.ts`、`cp /tmp/sub2api-grok-image2-docs.iiHpWo/API_DOCS.md docs/API_DOCS.md` 回退本轮，保留日志历史并追加回滚记录。本轮未执行回滚、修改后端路由或计费、构建镜像或部署。
+
+## 2026-10-09 - Task: 构建并推送包含模型问答及接口文档更新的 0.2.15 双架构镜像
+
+### What was done
+
+- 基于当前工作区 `4c5996694c8463a0bdf791fe8a5259931c80ee4c` 及未提交定制，构建并推送 `iotwq/china-api:0.2.15-20261009-233743`；双架构验证通过后，将同一索引发布为 `iotwq/china-api:latest`。
+- 镜像包含本轮生图网站入口、模型问答动态模型及交互优化，以及 Gemini Nano Banana 2.1、Seedream/Midjourney 规格、Grok image 2.0 接口文档更新。
+- 两个标签共用索引摘要 `sha256:97ffb33494a68deb9264de6d0defe32882b46451c4db73cbd41d4f94f0a0dcad`，包含 `linux/amd64`（`sha256:8de75c975c1b5f86e84520fafe4ec2271b1ad80d8d7ddcc05075358e69964724`）与 `linux/arm64`（`sha256:ca5e3c43b48712ac4912ab7e7c0b69b16c87130d147f5a99254ebac924d3bee0`）。
+
+### Testing
+
+- Docker Buildx 使用既有 `codex-multiarch` builder 完成双架构生产构建与固定标签推送，退出 0；镜像构建内国际化检查、vue-tsc、Vite 生产构建及两个架构 Go embed 编译通过，保留已有大 chunk 提示。
+- 分别从 Docker Hub 按平台摘要拉取镜像；在禁网、只读、非 root 容器中执行 `--version`，两个架构均返回 `0.2.15`、`4c5996694c84-dirty` 和构建时间 `2026-10-09T15:37:43Z`。
+- 两个架构分别在隔离临时容器中启动安装向导，`/setup/status` 返回成功且 `needs_setup=true`；首页、接口文档和模型问答 JS 资源可读取。核对新增模型字符串存在，两个架构对应前端资源 SHA-256 完全一致。此验证未连接 PostgreSQL/Redis，未验证正式部署环境或真实上游调用。
+- `latest` 发布退出 0；重新读取远端清单，索引摘要符合预期，原始清单与固定标签逐字节一致，均只包含 amd64 和 arm64 两个平台。
+- 构建前后源码 diff SHA-256 保持 `8cbf4dfcbc1327a826b07d4e4a2405bffe0e8112de71adf5e732a685187ed066`；`git diff --check` 通过。构建、metadata、清单、版本和启动验证证据保留在 `/tmp/sub2api-publish-20261009.DfdmTG`。
+
+### Notes
+
+- `progress.md`：仅末尾追加本次镜像发布、验证与回滚记录；本轮没有修改 Dockerfile、业务源码或依赖，既有未提交改动全部保留。
+- 本轮临时启动验证容器已清理，仅移除任务创建的容器及其临时文件系统；未修改线上服务、数据库、Redis、现有容器或 Git 远端。
+- 发布前 `latest` 索引为 `sha256:8a90b7a4707f24a782eff7ac9b743059d077a9853dd50370a2a4163131ffd4d4`，对应固定标签 `iotwq/china-api:0.2.14-20261007-170451`。恢复旧 `latest` 可执行 `docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:8a90b7a4707f24a782eff7ac9b743059d077a9853dd50370a2a4163131ffd4d4`；已有部署若需回滚应使用该固定标签或摘要，需由部署流程另行执行。本轮未回滚或部署。
+
+## 2026-10-10 - Task: 扩大模型问答阅读空间并压缩会话栏及输入区
+
+### What was done
+
+- 模型问答四周仅保留约 8px 页面留白，扩大模块高度；桌面会话栏由 240px 收窄到 200px，压缩工具栏、模型配置区、会话卡片及消息卡片的留白。
+- 回复与输入区域从 880px 最大宽度扩大到 1440px，助手消息铺满该内容区域；保留原有配色、圆角、会话收起和专注模式，尺寸覆盖只作用于问答页面。
+- 空输入框从 92px 改为单行约 40px，随文字增高，清空或发送后缩回；最高为 200px 或窗口高度的四分之一，超出后内部滚动。调整窗口、切换会话栏及专注模式时重新计算，卸载时清理新增监听。
+- 同步使用说明；保留此前未提交的模型问答与接口文档更新。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ChatView.spec.ts`：45 项通过，新增输入框增长、缩回、上限滚动及窗口重新计算验证；既有发送、停止、中文输入法、编辑/重试、附件及离页保存回归通过。
+- 页面与测试文件的 ESLint、`pnpm run typecheck` 及 `pnpm run build` 通过；生产构建包含国际化检查 3 项、vue-tsc 与 Vite 打包，保留既有 Browserslist 及大 chunk 提示。
+- Playwright 使用本地模拟模型与 Responses 接口验证 8 个布局组合：1440×900 浅色/深色、1920×1080、1280×720、1024×768、768×700、390×844 和 320×640；无页面异常或横向溢出，页面底部均在视口内，会话栏收起/抽屉、专注模式和退出、输入增长与收回、实际发送后的复位及连接设置均通过。未使用真实 Key 或调用收费上游。
+- 同一模拟对话改动前后，1440×900 回复区高度由 373px 增至 585px（约 +57%），390×844 由 233px 增至 397px（约 +70%）；1920×1080 回复区高度由 553px 增至 765px。实际字体、缩放及窗口尺寸会影响显示行数。
+- `git diff --check` 通过；改动前快照、测试/构建日志、8 组浏览器结果及截图保留在 `/tmp/sub2api-chat-layout.qunDxB`。
+
+### Notes
+
+- `frontend/src/views/user/ChatView.vue`：局部扩大模块及回复区域、收窄会话栏、压缩留白并降低输入框初始高度，补充尺寸变化重新计算与监听清理。
+- `frontend/src/views/user/__tests__/ChatView.spec.ts`：补充输入框自动高度行为验证。
+- `docs/MODEL_CHAT.md`：同步布局范围、输入框高度与操作说明。
+- `progress.md`：仅末尾追加本轮实现与验证记录。
+- 可执行 `cp /tmp/sub2api-chat-layout.qunDxB/ChatView.before.vue frontend/src/views/user/ChatView.vue`、`cp /tmp/sub2api-chat-layout.qunDxB/ChatView.before.spec.ts frontend/src/views/user/__tests__/ChatView.spec.ts`、`cp /tmp/sub2api-chat-layout.qunDxB/MODEL_CHAT.before.md docs/MODEL_CHAT.md` 仅回退本轮，保留此前改动及历史日志并追加回滚记录。本轮未执行回滚、修改后端/共享布局、发布镜像、提交 Git 或部署。
+
+## 2026-10-10 - Task: 生图网站工作台文案调整
+
+### What was done
+
+- 将中文生图网站页面标题及说明中的“文生图工作台”统一改为“生图工作台”。
+
+### Testing
+
+- 核对中文语言包仅保留目标文案的新名称；`git diff --check` 通过。
+- 本轮为文案调整，未修改路由、接口或业务逻辑，未发起真实生图请求。
+
+### Notes
+
+- `frontend/src/i18n/locales/zh/misc.ts`：更新生图工作台标题与说明。
+- `progress.md`：追加本轮记录。
+- 回滚可执行 `git show HEAD:frontend/src/i18n/locales/zh/misc.ts > frontend/src/i18n/locales/zh/misc.ts`，但会覆盖该文件当前其他未提交修改；更安全的回滚方式是将本轮两处字符串改回原文。本轮未执行回滚、构建镜像或部署。
+
+## 2026-10-10 - Task: 接入 Suno 文本音乐模型
+
+### What was done
+
+- 将 `suno` 接入现有 OpenAI Chat Completions 原生转发链，仅允许 API URL + Key 账号使用，避免 OAuth/Codex 账号被错误调度。
+- 增加 Suno 请求校验：纯文本消息、1–2000 字符、`n=1`、禁止不支持的独立参数，并透传可选 `Idempotency-Key`。
+- 增加固定 `$0.08/次` 计费与在途余额预留；成功结果按一次音频任务记录用量，不依赖上游 token usage。
+- 在用户接口文档和前端文档页面新增“音乐模型”章节、调用示例、参数限制及结果解析说明。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -run 'Test(IsSuno|ValidateSuno|Suno)' -count=1` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/pkg/openai -run TestDefaultModels -count=1` 通过。
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过（1 项测试）。
+- `pnpm typecheck` 通过；`git diff --check` 通过。
+- 后端服务/处理器包完整测试已完成编译，但受当前沙箱禁止 `httptest` 监听本地端口影响，既有网络测试在运行时 panic；未调用真实 Suno 上游。
+
+### Notes
+
+- `backend/internal/service/openai_suno.go`：Suno 模型识别、请求校验、固定计费及结果标记。
+- `backend/internal/service/openai_suno_test.go`：模型、请求限制、计费和幂等键相关单测。
+- `backend/internal/pkg/openai/constants.go`、`backend/internal/pkg/openai/constants_test.go`：默认模型清单增加 `suno`。
+- `backend/internal/service/openai_codex_models_service.go`、`backend/internal/service/account.go`：从 Codex 模型清单及 OAuth 调度中排除 Suno。
+- `backend/internal/handler/openai_chat_completions.go`、`backend/internal/service/openai_gateway_chat_completions.go`、`backend/internal/service/openai_gateway_chat_completions_raw.go`：入口校验、原生 Chat 路由和幂等键透传。
+- `backend/internal/service/openai_gateway_usage.go`、`backend/internal/service/billing_inflight_reservation.go`：固定按次计费及余额在途预留。
+- `docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`、`frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：同步公开接口文档和页面测试。
+- 回滚快照目录 `/tmp/sub2api-suno.t2uvtr` 保存了本轮修改后的相关文件；按文件恢复前一版本时需先保留当前工作区其他改动。本轮未构建镜像、未部署、未修改数据库或 Redis。
+
+## 2026-10-11 - Task: Suno 音频 URL 转本站临时地址
+
+### What was done
+
+- 在 OpenAI API Key 账号编辑页增加 Suno 音频 URL 转存开关，默认关闭；开启后，Suno 非流式和流式 Chat Completions 响应中的音频 URL 会由服务端下载并改写为本站 `/pg/assets/` 临时地址。
+- 复用现有临时媒体目录和 24 小时访问机制，下载过程复用上游 URL 校验、公共主机限制、重定向限制、账号代理和 15 MiB 音频大小保护；下载失败时返回网关错误，不把上游 URL 回传给客户端。
+- 同步中英文账号设置说明、接口文档，并增加后端存储/流式改写和前端开关测试。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -run 'Test(RewriteSunoAudio|AccountShouldProxySuno|IsSuno|ValidateSuno|Suno)' -count=1` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/handler -run '^$'` 通过，处理器包编译通过。
+- `pnpm vitest run src/components/account/__tests__/EditAccountModal.spec.ts`：97 项通过。
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts`：1 项通过；`pnpm typecheck` 通过；`git diff --check` 通过。
+- 未使用真实 Suno 地址、真实 API Key 或生产媒体目录；未构建镜像、未部署。
+
+### Notes
+
+- `backend/internal/service/openai_suno_audio_relay.go`：Suno 音频下载、临时文件保存、JSON/SSE URL 改写及大小/格式/重定向保护。
+- `backend/internal/service/openai_gateway_chat_completions_raw.go`：在 Suno 非流式和流式响应写出前调用 URL 转存逻辑。
+- `backend/internal/service/account.go`：新增账号级 Suno 音频 URL 转存开关读取方法和 extra 键。
+- `backend/internal/service/openai_suno_audio_relay_test.go`、`backend/internal/service/openai_suno_test.go`：新增转存、流式改写和账号开关测试。
+- `frontend/src/components/account/EditAccountModal.vue`、`frontend/src/components/account/__tests__/EditAccountModal.spec.ts`：增加账号编辑开关及交互测试。
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`、`frontend/src/i18n/locales/en/admin/accounts.ts`：增加开关说明。
+- `docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`：补充 Suno 音频地址转存说明。
+- 回滚方式：关闭账号开关即可恢复原始上游 URL 透传；若需撤销源码改动，逐项移除本轮新增的 `openai_suno_audio_url_to_proxy` 处理、`openai_suno_audio_relay.go` 及对应测试/文档 hunk，保留同文件中的其他未提交修改。本轮生成的临时文件均位于配置的 `pg/assets` 目录，可按现有 `/pg/assets` TTL 清理机制回收。
+
+## 2026-10-11 - Task: Suno 音频转存实现复核
+
+### What was done
+
+- 复核 Suno 音频转存仅对开启账号级开关的 OpenAI API Key 生效，关闭开关或使用 OAuth 账号时保持上游地址透传。
+- 修正本轮新增前端保存逻辑的缩进，确认普通 JSON、SSE、代理下载、重定向限制和临时媒体路径均沿用现有实现。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service ./internal/handler ./internal/server/routes` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./...` 已完成编译并通过已执行的包测试；未调用真实 Suno 上游。
+- `pnpm vitest run src/components/account/__tests__/EditAccountModal.spec.ts src/views/user/__tests__/ApiDocsView.spec.ts`：98 项通过。
+- `pnpm typecheck` 通过；`git diff --check` 通过。
+
+### Notes
+
+- `frontend/src/components/account/EditAccountModal.vue`：修正本轮新增 Suno 开关保存分支的缩进，不改变行为。
+- `progress.md`：追加本轮复核与验证记录。
+- 回滚方式：移除本轮新增的复核记录即可；业务回滚继续关闭账号开关，源码回滚按上一条记录的逐文件方式执行。本轮未构建镜像、未部署。
+
+### Verification correction
+
+- 随后执行的完整 `go test ./...` 暴露了当前工作区既有的 `internal/handler` 测试失败（模型列表断言及多处测试依赖未初始化等），失败位置不涉及本轮 Suno 转存文件；本轮可靠通过的范围仍是上面列出的服务、处理器和路由包定向测试。
+
+## 2026-10-11 - Task: Suno 音频文件名增加随机标识
+
+### What was done
+
+- 将服务端转存的音频文件名从固定的 `suno-output.*` 改为 `suno-output-<随机ID>.*`，随机 ID 与资产目录保持一致，避免多个下载地址出现固定文件名。
+- 同步接口文档和用户文档页面的返回地址说明。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -run 'Test(RewriteSunoAudio|AccountShouldProxySuno|IsSuno|ValidateSuno|Suno)' -count=1` 通过。
+- `pnpm vitest run src/components/account/__tests__/EditAccountModal.spec.ts src/views/user/__tests__/ApiDocsView.spec.ts`：98 项通过。
+- `pnpm typecheck` 通过；`git diff --check` 通过。
+
+### Notes
+
+- `backend/internal/service/openai_suno_audio_relay.go`：生成带随机资产 ID 的音频文件名。
+- `backend/internal/service/openai_suno_audio_relay_test.go`：增加随机文件名格式断言。
+- `docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`：更新地址示例说明。
+- 回滚方式：恢复 `sunoAudioFilename` 的固定前缀实现并撤销对应文档和测试变更；本轮尚未构建镜像或部署。
+
+### 发布补充
+
+- 已使用 `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 完成双架构构建和 manifest 生成。
+- Docker Hub 在推送阶段返回 `insufficient_scope: authorization failed`；当前 Docker 环境没有可用的 `iotwq` 写入凭据，因此镜像尚未成功发布。登录后可重复执行同一命令，构建缓存会复用。
+
+## 2026-10-11 - Task: 发布 Suno 随机文件名镜像
+
+### What was done
+
+- 在 Docker Hub 登录完成后重新构建并推送 `iotwq/china-api:latest`。
+- 发布为 amd64/arm64 双架构 OCI image index。
+
+### Testing
+
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 成功。
+- `docker buildx imagetools inspect iotwq/china-api:latest` 确认远端 digest 为 `sha256:d4d35c8fea475615c0ada7aee2c6d4d2c0ca7a7514c07fd2e5b48e42844851fe`，包含 `linux/amd64` 和 `linux/arm64`。
+
+### Notes
+
+- 本轮发布内容包含 `suno-output-<随机ID>.*` 文件名修复。
+- 回滚方式：将部署镜像固定到上一版本 digest；本轮未修改数据库或运行中的服务。
+
+## 2026-10-11 - Task: Suno 渠道按次价格生效
+
+### What was done
+
+- 修复 Suno 结算路径直接固定使用 `$0.08/次` 的问题。
+- 最终扣费和在途余额预扣现在优先读取 `suno` 对应的渠道/分组按次价格；未配置时才使用 `$0.08/次` 兼容默认值。
+- 更新接口文档和用户文档页面，明确实际价格以渠道/分组配置为准。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -run 'TestSuno(ChannelPricingOverridesDefaultCost|MusicCostAndResultMarker|RawHeaderAllowsIdempotencyKey|ValidateSunoChatRequest|AccountShouldProxySunoAudioURLs)' -count=1` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test -tags unit ./internal/service -run 'TestInflightEstimate_(GroupPerRequestPricing|MediaKinds)' -count=1` 通过。
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过；`pnpm typecheck`、`git diff --check` 通过。
+
+### Notes
+
+- `backend/internal/service/openai_gateway_usage.go`：Suno 最终结算读取解析后的按次定价。
+- `backend/internal/service/billing_inflight_reservation.go`：Suno 在途预扣读取相同按次定价。
+- `backend/internal/service/openai_suno.go`、`backend/internal/service/openai_suno_test.go`：保留默认价格并增加渠道价格回归测试。
+- `docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`、`frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：更新计费说明。
+- 回滚方式：恢复 Suno 分支的固定价格调用并撤销对应文档和测试变更；本轮未构建镜像或部署。
+
+## 2026-10-11 - Task: 完善 Suno 音频模型接口文档
+
+### What was done
+
+- 按无限画布音频节点的实际调用约定补充 Suno 文档：明确 `choices[0].message.content` 可包含多段音频，客户端需提取、去重并逐个下载。
+- 增加不暴露上游地址的本站占位符响应示例，并让页面文档同步展示请求与响应示例、临时地址和不重复提交提示。
+- 移除默认请求示例中的可选幂等键，使示例与无限画布音频节点实际发送的字段一致；参数表仍保留该可选能力说明。
+
+### Testing
+
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm typecheck` 通过。
+- `git diff --check` 通过。
+
+## 2026-10-11 - Task: 调整 Suno 模型规格文案
+
+### What was done
+
+- 将接口文档页面中 Suno 模型规格改为“1 次请求 1 个任务”，移除规格栏中的计费描述。
+
+### Testing
+
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts`：待本轮修改后执行。
+- `pnpm typecheck`：待本轮修改后执行。
+- `git diff --check`：待本轮修改后执行。
+
+### Notes
+
+- `frontend/src/views/user/ApiDocsView.vue`：调整 Suno 可用模型规格文案。
+- `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：增加规格文案断言。
+- 回滚方式：恢复 Suno `specification` 字段原文即可；未修改接口行为和计费逻辑。
+
+### Verification follow-up
+
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm typecheck` 通过。
+- `git diff --check` 通过。
+
+## 2026-10-11 - Task: 发布 Suno 规格文案镜像
+
+### What was done
+
+- 使用最新工作区重新构建并推送 `iotwq/china-api:latest` 双架构镜像，包含 Suno 规格文案调整。
+
+### Testing
+
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 成功。
+- `docker buildx imagetools inspect iotwq/china-api:latest` 确认远端 digest 为 `sha256:b3431007073edb3ed9c3a7911e18a4ac2e9c0ae8cea3586fee73851fc43ef71a`，包含 amd64/arm64 manifest。
+
+### Notes
+
+- `progress.md`：记录本次镜像发布结果。
+- 回滚方式：将部署配置中的镜像固定到上一个已验证 digest；本次未修改数据库和运行中的服务。
+
+## 2026-10-13 - Task: 同步主项目 upstream 0.2.16
+
+### What was done
+
+- 从 `Wei-Shaw/sub2api` 拉取并合并最新 `upstream/main`，同步到上游版本 `0.2.16`。
+- 保留本地 OpenAI Gemini 原生能力、Basispoints/OAuth 定制、Suno 音乐与音频转存、聊天页和接口文档改动。
+- 合并上游 Gemini 显式缓存、Vertex/模型端点、Haiku 5.5、调度作用域、计费和响应回退等更新，并处理了相关冲突。
+- 调整模型列表回归断言，使本地新增 `suno` 模型的 `owned_by` 不影响 OpenAI 默认模型测试。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/handler` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/repository ./internal/service ./internal/web` 通过；其中 service 全量包测试通过。
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts`：107 项通过。
+- `pnpm typecheck` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 上游合并提交：`39082875a`；当前合并前备份分支：`backup/pre-upstream-sync-20261013`。
+- `backend/internal/handler/gemini_v1beta_handler.go`、`backend/internal/repository/scheduler_cache.go`、`backend/internal/service/gateway_usage_billing.go`、`backend/internal/service/gemini_messages_compat_service.go`、`backend/internal/service/openai_gateway_service.go`、`backend/internal/service/openai_gateway_usage.go`、`backend/internal/web/embed_test.go`：处理上游与本地定制冲突。
+- `backend/internal/handler/gateway_models_test.go`：兼容本地 Suno 模型的模型归属断言。
+- `progress.md`：记录本轮同步与验证结果。
+- 回滚方式：将部署或工作分支回退到 `backup/pre-upstream-sync-20261013`；本轮未构建镜像、未部署、未推送远程分支。
+
+### Notes
+
+- `docs/API_DOCS.md`：补充 Suno 多音频响应、提取下载规则和本站地址示例。
+- `frontend/src/views/user/ApiDocsView.vue`：新增 Suno JSON 响应示例并同步行为说明。
+- `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：增加 Suno 多音频文档和示例数量断言。
+- 回滚方式：撤销本轮上述三份文件的 Suno 文档增量即可；本轮未修改后端、未构建镜像、未部署。
+
+## 2026-10-11 - Task: 发布 Suno 接口文档镜像
+
+### What was done
+
+- 使用当前工作区构建并推送 `iotwq/china-api:latest` 双架构镜像。
+- 远端镜像同时包含 `linux/amd64` 和 `linux/arm64`，包含本轮 Suno 接口文档更新。
+
+### Testing
+
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 成功。
+- `docker buildx imagetools inspect iotwq/china-api:latest` 确认远端 OCI index digest 为 `sha256:9fedddc9eae3928fa3efcd2f6683356257e7d842094d738a45293f090dff6577`，并包含 amd64/arm64 manifest。
+
+### Notes
+
+- `progress.md`：记录本次镜像发布结果。
+- 回滚方式：将部署配置中的镜像固定回上一个已验证 digest；本次未修改数据库和运行中的服务。
+
+## 2026-10-11 - Task: 精简 Suno 接口文档提示
+
+### What was done
+
+- 按要求将 Suno 文档提示精简为两条：多段音频链接的提取下载规则，以及 600 秒超时和关闭自动重试提示。
+- 同步移除页面提示中的价格、URL 转存和不支持参数说明；接口参数表和调用示例保持不变。
+
+### Testing
+
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts`：待本轮修改后执行。
+- `pnpm typecheck`：待本轮修改后执行。
+- `git diff --check`：待本轮修改后执行。
+
+### Notes
+
+- `docs/API_DOCS.md`：删除 Suno 章节中不需要的提示，仅保留指定两条说明。
+- `frontend/src/views/user/ApiDocsView.vue`：将 Suno 页面 notes 收敛为两条。
+- `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：同步文档断言。
+- 回滚方式：恢复本轮三份文件中 Suno 章节的原提示内容即可；未修改后端和计费逻辑。
+
+## 2026-10-14 - Task: 复核 GPT-6.1 Sol 订阅优化分组开关
+
+### What was done
+
+- 复核分组开关从数据库、管理 API、认证缓存到编辑页的完整传递，确认默认值为关闭。
+- 复核计费条件仅对开启分组中的 OpenAI OAuth/Setup Token GPT-6.1 Sol 生效；API Key、其他模型和关闭状态继续使用原有长上下文计费。
+- 补充模型目录回归断言：开启时本地生成目录使用 500k，远程目录缺少或显式为 null 时补为 500k，远程已有明确上下文值继续保留。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -run '^$'` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/handler ./internal/repository ./migrations -run '^$'` 通过。
+- `pnpm vitest run src/views/admin/__tests__/GroupsView.codexManifest.spec.ts` 通过。
+- `pnpm typecheck` 通过。
+- `git diff --check` 通过。
+- 带 `unit` 标签的 service 定向测试仍被工作区既有 `gemini_cached_content_test.go` 的返回值数量不匹配阻塞；该无关测试未修改。
+
+### Notes
+
+- `backend/internal/service/openai_subscription_long_context_test.go`：补充远程模型目录缺失/null 上下文的开关回归断言。
+- `progress.md`：在文件末尾追加本轮复核、验证和回滚信息。
+- 回滚方式：关闭编辑分组中的 GPT-6.1 Sol 订阅优化开关即可恢复旧行为；代码回滚时保留已执行迁移字段，必要时按 `docs/GPT61_SOL_GROUP_OPTIMIZATION.md` 执行数据库回滚。本轮未构建镜像、部署或推送。
+
+### Verification follow-up
+
+- `pnpm vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm typecheck` 通过。
+- `git diff --check` 通过。
+
+## 2026-10-14 - Task: GPT-6.1 Sol 开关复核收尾
+
+### What was done
+
+- 完成本轮分组开关实现复核，并补齐模型目录缺失上下文的回归覆盖。
+
+### Testing
+
+- 后端服务包、管理处理器、仓储和迁移包编译验证通过；前端分组定向测试、类型检查及 diff 检查通过。
+- 带 `unit` 标签的 service 测试仍受工作区既有 `gemini_cached_content_test.go` 编译错误阻塞。
+
+### Notes
+
+- 改动文件：`backend/internal/service/openai_subscription_long_context_test.go`、`progress.md`。
+- 回滚方式：关闭 GPT-6.1 Sol 订阅优化开关即可恢复原计费与目录默认值；代码回滚保留数据库迁移字段，必要时按 `docs/GPT61_SOL_GROUP_OPTIMIZATION.md` 回滚数据库。本轮未构建、部署或推送。
+
+## 2026-10-14 - Task: 发布 GPT-6.1 Sol 分组开关镜像
+
+### What was done
+
+- 基于当前工作区构建并推送 `iotwq/china-api:latest` 双架构镜像，包含 GPT-6.1 Sol 订阅优化分组开关及相关回归测试变更。
+
+### Testing
+
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 成功。
+- `docker buildx imagetools inspect iotwq/china-api:latest` 确认远端 OCI index digest 为 `sha256:40b2144da7bdccb347dfa81b0d6634d12d296961637e1079bc963d602a452c6a`，包含 `linux/amd64` 和 `linux/arm64` manifest。
+
+### Notes
+
+- 发布标签：`iotwq/china-api:latest`；amd64 子 manifest 为 `sha256:631b5fa8…`，arm64 子 manifest 为 `sha256:602929e8…`。
+- 回滚方式：将部署配置中的镜像固定到上一个已验证 digest；本次未修改数据库或运行中的服务。
+
+## 2026-10-23 - Task: Harden URL defaults, forwarded header trust, and public asset cleanup
+
+### What was done
+
+- 将 URL 安全相关生产默认值收紧为禁止不安全 HTTP、禁止私网地址，并将 API Key ACL 的 forwarded IP 兼容信任默认关闭；同步部署 Compose 和示例配置。
+- `/pg/assets` 保留现有 24 小时懒过期行为，新增可配置后台清理间隔（默认 1 小时，<=0 禁用），并接入服务关闭生命周期。
+- 公开资源上传生成 URL 仅在请求直连地址命中显式可信代理配置时采用 `X-Forwarded-Host`/`X-Forwarded-Proto`，否则使用请求自身地址。
+
+### Testing
+
+- `go test ./internal/config ./cmd/server` 通过。
+- `go test ./internal/handler -run 'TestPublicAsset' -count=1` 通过；完整 handler 包仍有工作区既有模型列表断言失败，与本轮无关。
+- `POSTGRES_PASSWORD=placeholder docker compose -f deploy/docker-compose.yml config --quiet` 通过；`git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`backend/internal/config/config.go`、`backend/internal/config/config_test.go`、`backend/internal/handler/public_asset_handler.go`、`backend/internal/handler/public_asset_handler_test.go`、`backend/cmd/server/wire.go`、`backend/cmd/server/wire_gen.go`、`backend/cmd/server/wire_gen_test.go`、`deploy/config.example.yaml`、`deploy/.env.example`、`deploy/docker-compose.yml`、`docker-compose.yaml`、`progress.md`。
+- 配置迁移：显式设置旧值的部署保持原行为；未显式设置的部署会拒绝 HTTP URL，并在启用 URL 白名单时拒绝私网地址。使用反向代理生成公开资源 URL 的部署需设置 `SERVER_TRUSTED_PROXIES` 为直接连接地址/CIDR；可通过 `SERVER_PUBLIC_ASSET_CLEANUP_INTERVAL_SECONDS<=0` 禁用后台清理，懒清理仍保留。
+- 回滚方式：恢复上述安全默认值、Compose/示例配置和 handler/wire 改动；不执行 `git restore` 覆盖包含其他用户修改的整文件，按本轮 diff 逐项回退即可。
+
+## 2026-10-22 - Task: 支持 Suno v6 音乐模型
+
+### What was done
+
+- 新增 `suno-v6-mini`、`suno-v6` 和 `suno-v6-wild` 的模型识别与 OpenAI Chat Completions 转发；请求体保留 `instrumental` 字段并继续复用现有 Suno 按次计费、结果标记和音频 URL 转本站地址流程。
+- 为 v6 系列增加 3000 个 UTF-16 单元提示词校验，同时保留旧版 `suno` 的现有文本字段行为；同步默认模型列表、接口文档和前端文档示例。
+- 调整模型列表测试对 Suno 归属的断言，避免新增 Suno 模型被错误要求为 `openai`。
+
+### Testing
+
+- `go test ./internal/service ./internal/handler ./internal/pkg/openai -count=1` 通过。
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm vue-tsc -b` 通过。
+- `git diff --check` 针对本轮文件通过。
+
+### Notes
+
+- 改动文件：`backend/internal/service/openai_suno.go`、`backend/internal/service/openai_suno_test.go`、`backend/internal/pkg/openai/constants.go`、`backend/internal/handler/gateway_models_test.go`、`docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`、`progress.md`。
+- 回滚方式：撤销上述 Suno v6 识别、校验、模型列表、文档及对应测试改动；不要对包含其他未提交定制的整文件执行 `git restore`。本轮未构建、部署或推送镜像。
+
+## 2026-10-22 - Task: 隐藏 Suno 内部地址并精简公开模型文档
+
+### What was done
+
+- 用户可见的 Suno 接口文档仅保留 `suno-v6-mini`、`suno-v6` 和 `suno-v6-wild`，移除旧版 `suno`、旧版字段说明和内部音频代理开关描述。
+- 响应示例改用通用音频地址占位符，不再展示本站 `/pg/assets/` 内部路径；3 个模型规格保留 3000 UTF-16、纯音乐和“1 次请求 1 个任务”说明。
+- 后端仍保留旧版 `suno` 的兼容实现，避免影响已有请求。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm vue-tsc -b` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`、`frontend/src/views/user/__tests__/ApiDocsView.spec.ts`、`progress.md`。
+- 回滚方式：恢复上述公开文档、前端模型展示和对应断言；不修改后端 Suno 路由或模型兼容逻辑。
+
+## 2026-10-22 - Task: 更新视频模型说明、规格和画幅
+
+### What was done
+
+- 按确认后的合并口径更新视频模型表：说明使用 `sd2.0`、`sd2.0-fast`、`sd2.5`，规格补充时长、分辨率及图片/视频/音频数量，画幅采用用户给出的范围。
+- 同步更新 Markdown 接口文档和前端用户接口文档，未修改视频请求路由、参数转换或计费逻辑。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm vue-tsc -b` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`docs/API_DOCS.md`、`frontend/src/views/user/ApiDocsView.vue`、`frontend/src/views/user/__tests__/ApiDocsView.spec.ts`、`progress.md`。
+- 回滚方式：恢复上述视频模型表格、对应测试断言和进度记录；不影响后端视频转发逻辑。
+
+## 2026-10-22 - Task: 更新生图网站入口说明
+
+### What was done
+
+- 将生图网站入口说明更新为“打开独立生图工作台，使用完整的图片、视频、音乐生成体验。”
+
+### Testing
+
+- 已检索确认旧文案不再出现，新文案已写入中文界面语言资源。
+- `pnpm vue-tsc -b` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`frontend/src/i18n/locales/zh/misc.ts`、`progress.md`。
+- 回滚方式：将该语言资源中的说明恢复为原文；不影响工作台功能和接口逻辑。
+
+## 2026-10-22 - Task: 发布更新后的双架构镜像
+
+### What was done
+
+- 基于当前工作区构建并推送 `iotwq/china-api:latest`，包含最新的生图网站入口文案和此前已完成的功能。
+- 发布为 `linux/amd64` 与 `linux/arm64` 双架构 OCI 镜像。
+
+### Testing
+
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 成功。
+- `docker buildx imagetools inspect iotwq/china-api:latest` 成功，确认远端 digest 为 `sha256:aeaf17be353c11c0d8a23b16d3aadb1bca6d0fac4b874ed00949ed1947e156e5`，包含 amd64 和 arm64 manifest。
+
+### Notes
+
+- 发布标签：`iotwq/china-api:latest`；amd64 manifest 为 `sha256:403bd748dd3acb0a7b9e82b40c9743bc1121c4e0224f5bfc2af3b1649a9cea66`，arm64 manifest 为 `sha256:d52177c2af8e644ea33d414e0c16aea4be88ab3b2bc13636d497aa71ce5416ad`。
+- 回滚方式：将部署配置中的镜像固定到上一个已验证 digest；本次未修改数据库或运行中的服务。
+
+## 2026-10-16 - Task: 同步主项目 0.2.17
+
+### What was done
+
+- 从 `https://github.com/Wei-Shaw/sub2api` 同步上游 `0.2.17`（`b0a02a330`），完成合并提交 `1edb782f1`。
+- 解决 Gemini 原生/Composite 路由、错误策略、OpenAI compact 模型筛选、GPT-5.5 退役过滤及 Responses 响应字段相关冲突。
+- 保留本地 Basispoints、OAuth、Suno、视频/生图路由、GPT-6.1 Sol 分组开关和计费定制；追加修复 Basispoints 用量归一化被响应字段补全覆盖的问题（`dbbc02687`）。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/handler ./internal/service ./internal/repository ./internal/web -run '^$'` 通过。
+- Basispoints、GPT-5.5 退役、GPT-6.1 Sol、Responses `created_at` 定向测试通过。
+- `pnpm typecheck` 通过。
+- `pnpm vitest run src/views/admin/__tests__/GroupsView.codexManifest.spec.ts src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `git diff --check` 通过；合并冲突已清零。完整 service 定向组合测试仍有工作区既有 Gemini thinking 断言失败，未修改该无关测试。
+
+### Notes
+
+- 备份分支：`backup/pre-upstream-sync-20261016`；自动恢复前的本地定制已恢复，仍保持为未提交工作区改动。
+- `backend/internal/handler/gemini_v1beta_handler.go`、`backend/internal/service/gemini_messages_compat_service.go`、`backend/internal/service/openai_account_scheduler.go`、`backend/internal/service/openai_codex_models_service.go`、`backend/internal/service/openai_gateway_model_availability.go`、`backend/internal/service/openai_gateway_response_handling.go`：完成上游与本地定制的合并；其中响应处理保留 Basispoints 计费口径。
+- 回滚方式：将主分支回退到 `39082875a`（合并前本地提交）并恢复备份分支；若仅回滚本轮补丁，可反向回退 `1edb782f1` 与 `dbbc02687`。本次未构建、部署或推送镜像。
+
+### Verification follow-up
+
+- 复测发现上游新增的 Gemini Chat Completions `reasoning_effort=none` 兼容断言未通过；已补充显式保留该意图并映射为 Gemini `thinkingLevel=minimal`（`a517830f7`）。
+- `TestGeminiForwardAsChatCompletions_NonStreamForwardsEffortWithoutThoughts`、Basispoints 用量归一化、GPT-5.5 退役、GPT-6.1 Sol 和 Responses 时间字段定向测试均通过。
+- 回滚方式：如需撤销本次后续修复，反向回退 `a517830f7`；上游合并本身仍可按本条 Notes 的提交回退方式处理。
+
+## 2026-10-16 - Task: 将 OpenAI 使用密钥默认模型改为 GPT-6.1 Sol
+
+### What was done
+
+- OpenAI 分组“使用密钥”生成的普通 Codex CLI 和 Codex WebSocket 配置默认模型及 review 模型改为 `gpt-6.1-sol`。
+- 保留远程模型目录已同步时的可用模型选择与回退逻辑；Composite、其他分组和服务端 `/responses/compact` 默认模型未修改。
+- 同步更新 OpenAI 配置生成测试，并在接口文档中说明默认模型行为。
+
+### Testing
+
+- `pnpm vitest run src/components/keys/__tests__/UseKeyModal.spec.ts`：34 项测试通过。
+- `pnpm typecheck`：通过。
+- `git diff --check`：通过。
+
+### Notes
+
+- `frontend/src/components/keys/UseKeyModal.vue`：调整 OpenAI 普通 CLI 与 WebSocket 配置的默认模型。
+- `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts`：更新 OpenAI 默认模型及远程目录断言，保留 Composite 的 `gpt-5.5` 断言。
+- `docs/API_DOCS.md`：补充“使用密钥”默认模型说明。
+- `progress.md`：追加本轮实施、验证和回滚记录。
+- 回滚方式：将上述两个生成函数中的默认模型字符串恢复为 `gpt-5.5`，并同步恢复对应测试断言；本轮未构建镜像、部署或推送。
+
+## 2026-10-17 - Task: 修复 unit 测试编译问题并统一 OpenAI 使用密钥默认模型
+
+### What was done
+
+- 移除重复的 OpenAI 模型可用性测试 stub，并让 Gemini 缓存计费测试适配计费函数的双返回值，恢复 `unit` 标签测试编译。
+- 将 CC Switch 导入和路由式 OpenAI Codex 配置的默认模型统一为 `gpt-6.1-sol`；Composite 分组继续保留 `gpt-5.5`，避免改变非 OpenAI 分组行为。
+- 修正 GPT-6.1 Sol 分组长上下文测试对 API Key 分组计费和账号统计口径的断言，未修改生产计费逻辑。
+
+### Testing
+
+- `go test -tags unit ./internal/service -run 'Test(OpenAISubscriptionLongContext|ApplyGPT61|OpenAIGatewayServiceRecordUsage_GPT61|FetchCodexModelsManifestOAuthPreservesResponsesLite|.*Basispoints|.*Suno|GeminiCachedContentStoragePricingAndSurcharge)' -count=1` 通过。
+- `pnpm vitest run src/components/keys/__tests__/UseKeyModal.spec.ts src/utils/__tests__/ccswitchImport.spec.ts`：52 项通过。
+- `pnpm typecheck`、`pnpm lint:check`、`git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`backend/internal/service/openai_gateway_model_availability_test.go`、`backend/internal/service/gemini_cached_content_test.go`、`backend/internal/service/openai_subscription_long_context_test.go`、`frontend/src/utils/ccswitchImport.ts`、`frontend/src/utils/__tests__/ccswitchImport.spec.ts`、`frontend/src/components/keys/UseKeyModal.vue`、`progress.md`。
+- 回滚方式：恢复上述测试文件的原始 stub/返回值断言，并将 OpenAI 默认模型字符串及 CC Switch 测试断言改回 `gpt-5.5`；不涉及数据库迁移、部署或镜像。
+
+## 2026-10-17 - Task: 完成 unit 测试桩的 nil 分组兼容
+
+### What was done
+
+- 将调度测试仓储 stub 的模型可用性查询改为支持空分组 ID，并保留平台过滤，避免无分组模型诊断测试发生空指针 panic。
+
+### Testing
+
+- `go test -tags unit ./internal/service -count=1` 通过。
+- 前端定向测试、`pnpm typecheck`、`pnpm lint:check` 和 `git diff --check` 保持通过。
+
+### Notes
+
+- 改动文件：`backend/internal/service/openai_account_scheduler_test.go`、`progress.md`。
+- 回滚方式：恢复调度测试 stub 的原始 `groupID` 解引用实现；仅影响测试代码，不涉及生产逻辑、数据库或部署。
+
+## 2026-10-18 - Task: 支持新版 Suno Chat Completions 字段
+
+### What was done
+
+- Suno Chat Completions 现在支持独立 `lyrics` 和 `style_text` 字符串字段，允许显式空字符串，并分别按 Unicode 字符数限制在 520000 以内。
+- `messages[].content` 的合并提示词上限提升至 520000 个 Unicode 字符；保留纯文本数组、`n=1`、流式用量字段和旧不支持参数的校验。
+- 更新 Markdown 和前端接口文档，补充歌词、曲风字段、限制和调用示例；请求正文继续原样转发到上游，未改变计费、音频地址代理或 SSE 行为。
+
+### Testing
+
+- `go test ./internal/service -run 'Test(ValidateSunoChatRequest|Suno)' -count=1` 通过。
+- `go test ./internal/service ./internal/handler -count=1` 通过。
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `pnpm vue-tsc -b` 通过。
+- `git diff --check -- backend/internal/service/openai_suno.go backend/internal/service/openai_suno_test.go docs/API_DOCS.md frontend/src/views/user/ApiDocsView.vue` 通过。
+
+### Notes
+
+- `backend/internal/service/openai_suno.go`：提升 Suno 文本限制并校验 `lyrics`、`style_text` 的字符串类型、空值和 Unicode 长度。
+- `backend/internal/service/openai_suno_test.go`：覆盖字段正常值、空字符串、中文边界、超长值、`null` 和错误类型。
+- `docs/API_DOCS.md`：补充新版 Suno 字段、限制、示例和参数表。
+- `frontend/src/views/user/ApiDocsView.vue`：同步用户接口文档示例和参数说明。
+- 回滚方式：仅撤销本轮 Suno 校验函数、对应测试，以及两个文档中的 Suno 新增字段区块；不要对包含其他未提交定制的整文件执行 `git restore`。本轮未构建、部署或推送镜像。
+
+## 2026-10-21 - Task: 发布新版双架构镜像
+
+### What was done
+
+- 基于当前工作区构建并推送 `iotwq/china-api:latest`，包含新版 Suno Chat Completions 字段支持及当前已有定制。
+- 发布为 `linux/amd64` 与 `linux/arm64` 双架构 OCI 镜像。
+
+### Testing
+
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 -t iotwq/china-api:latest --push .` 成功。
+- `docker buildx imagetools inspect iotwq/china-api:latest` 成功，确认远端 digest 为 `sha256:df1cc79b89ecfc1d3daf228d4d2c809033e9e0591a76aeb7c4b33f80b3b45218`，包含 amd64 和 arm64 manifest。
+
+### Notes
+
+- 发布标签：`iotwq/china-api:latest`；amd64 manifest 为 `sha256:4bc7484168377ce23a07b455e0f663929947eeb0e7f08c456bbaf46a8b663823`，arm64 manifest 为 `sha256:26ecbc52d5f95428af2f4ac2a962ee03e02bbb83229675ca8f7017ce40fe2da6`。
+- 回滚方式：将部署配置中的镜像固定到上一个已验证 digest；本次未修改数据库或运行中的服务。
+
+## 2026-10-23 - Task: Harden URL defaults, forwarded header trust, and public asset cleanup
+
+### What was done
+
+- 收紧 URL 安全默认值并关闭 API Key ACL 的 forwarded IP 兼容信任；同步部署 Compose 和示例配置。
+- `/pg/assets` 保留 24 小时 TTL，新增可配置后台清理间隔（默认 1 小时，<=0 禁用），并接入服务关闭生命周期。
+- 公开资源 URL 仅在请求直连地址命中显式可信代理时采用转发 host/proto，并补充定向测试。
+
+### Testing
+
+- `go test ./internal/config ./cmd/server` 通过。
+- `go test ./internal/handler -run 'TestPublicAsset' -count=1` 通过；完整 handler 包受工作区既有模型列表断言失败影响。
+- `POSTGRES_PASSWORD=placeholder docker compose -f deploy/docker-compose.yml config --quiet` 和 `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`backend/internal/config/config.go`、`backend/internal/config/config_test.go`、`backend/internal/handler/public_asset_handler.go`、`backend/internal/handler/public_asset_handler_test.go`、`backend/cmd/server/wire.go`、`backend/cmd/server/wire_gen.go`、`backend/cmd/server/wire_gen_test.go`、`deploy/config.example.yaml`、`deploy/.env.example`、`deploy/docker-compose.yml`、`docker-compose.yaml`、`progress.md`。
+- 配置迁移：反代部署需设置 `SERVER_TRUSTED_PROXIES` 为直接连接地址/CIDR；可通过 `SERVER_PUBLIC_ASSET_CLEANUP_INTERVAL_SECONDS<=0` 禁用后台清理，懒清理仍保留。allowlist disabled 时私网 DNS 阻断仍由现有 enabled 开关控制。
+- 回滚方式：按本轮 diff 逐项恢复上述文件；不要对包含其他用户修改的整文件执行 `git restore`。
+
+## 2026-10-23 - Task: 修复全面审查发现的计费、并发、协议文档与 SSRF 边界
+
+### What was done
+
+- 订阅组文本/Gemini 请求不再在入口跳过在途预留；订阅限额和 API Key scope 会参与并发准入，Live、音频及媒体失败路径会释放预留。
+- 图片、Nano Banana 和视频结算区分“待结算记录已持久化”和“记录写入失败”：前者由后台重试持有余额，后者立即释放余额；视频在没有可重试记录时解除失败补偿任务，避免悬挂补偿。
+- 默认关闭 URL 白名单时仍阻断私网解析地址，只有显式 `allow_private_hosts=true` 才允许内网上游；同步修正文档与配置告警。
+- 修正模型列表和 OpenAI 使用密钥默认模型相关测试契约，补充模型问答协议选择、媒体结算和私网保护说明。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./...` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/handler -count=1` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test -tags unit ./internal/service -run 'TestImageSettlementQueuesAndReplaysExactCost' -count=1` 通过。
+- `go test ./internal/repository -run 'TestHTTPUpstreamPrivateAddressProtectionIsIndependentOfAllowlist|TestHTTPUpstreamDoCanDisableRedirectsPerRequest|TestHTTPUpstreamDoWithTLSPlainHTTP' -count=1` 通过。
+- 前端全量 `pnpm vitest run`（394 个测试文件、3120 个测试）、`pnpm exec vue-tsc --noEmit`、`pnpm lint` 均通过；`git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`backend/internal/handler/gateway_inflight_reservation.go`、`backend/internal/handler/gateway_inflight_reservation_test.go`、`backend/internal/handler/openai_audio.go`、`backend/internal/handler/openai_images.go`、`backend/internal/handler/openai_live.go`、`backend/internal/handler/openai_nano_banana.go`、`backend/internal/handler/openai_videos.go`、`backend/internal/handler/openai_nano_banana_billing_test.go`、`backend/internal/service/billing_cache_service.go`、`backend/internal/service/gateway_usage_billing.go`、`backend/internal/service/pending_image_settlement.go`、`backend/internal/service/media_billing_recovery_test.go`、`backend/internal/repository/http_upstream.go`、`backend/internal/repository/http_upstream_test.go`、`backend/internal/config/config.go`、`backend/internal/handler/admin/account_handler_available_models_test.go`、`backend/internal/service/openai_codex_models_service_test.go`、`docs/BILLING_INTEGRITY.md`、`docs/MODEL_CHAT.md`、`progress.md`。
+- 回滚方式：按本条记录逐个反向恢复上述文件；不要对包含其他用户修改的整文件执行 `git restore`。恢复安全默认值前应明确确认部署是否依赖内网上游。
+
+## 2026-10-23 - Task: 收口全面审查后的会话交互问题
+
+### What was done
+
+- 将模型问答会话列表改为独立的真实选择按钮和删除按钮，消除嵌套交互控件导致的键盘误触和读屏语义问题。
+
+### Testing
+
+- `pnpm vitest run src/views/user/__tests__/ChatView.spec.ts` 通过（45 个测试）。
+- `pnpm exec vue-tsc --noEmit` 通过。
+- `pnpm exec eslint src/views/user/ChatView.vue` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`frontend/src/views/user/ChatView.vue`：拆分会话选择与删除控件，保留现有键盘定位语义。
+- 回滚方式：恢复本条对 `ChatView.vue` 会话列表模板的改动即可；不要回滚该文件中的其他模型问答、附件或布局改动。
+
+## 2026-10-23 - Task: 补充 Seedream 5.0 Flash（满血）用户接口文档
+
+### What was done
+
+- 在 OpenAI 兼容 Seedream / Midjourney 用户接口文档中新增 `seedream-5.0-Flash（满血）`，沿用 Seedream 的 1K / 2K、提示词和参考图规格，并说明使用现有图片生成与编辑接口。
+- 在媒体兼容说明中补充 Flash 完整模型名及 `seedream-5.0-flash` 到完整上游模型名的映射。
+- 同步前端接口文档模型表和模型数量测试断言。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过（1 个测试文件、1 个测试）。
+- `git diff --check -- frontend/src/views/user/ApiDocsView.vue frontend/src/views/user/__tests__/ApiDocsView.spec.ts docs/API_DOCS.md docs/OPENAI_MEDIA_COMPAT.md` 通过。
+
+### Notes
+
+- 改动文件：`frontend/src/views/user/ApiDocsView.vue`、`frontend/src/views/user/__tests__/ApiDocsView.spec.ts`、`docs/API_DOCS.md`、`docs/OPENAI_MEDIA_COMPAT.md`、`progress.md`。
+- 回滚方式：按本条记录反向移除 Flash 模型行、文档映射和测试断言；不要对包含其他未提交定制的整文件执行 `git restore`。
+
+## 2026-10-23 - Task: 支持 Seedream 5.0 Flash（满血）上游转发
+
+### What was done
+
+- 将 `seedream-5.0-flash` 纳入 OpenAI API Key 图片兼容模型识别，因此 `seedream-5.0-Flash（满血）` 会沿用现有 Seedream 的模型映射、图片生成/编辑转发、权限能力和计费链路。
+- 补充精确全称、基础别名、大小写及中英文括号标签的路由回归覆盖。
+
+### Testing
+
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -run 'TestCompatibleImagesMidjourneySeedreamAdmission|TestCompatibleImagesScreenshotModelMapping' -count=1` 通过。
+- `GOCACHE=/tmp/sub2api-go-cache go test ./internal/service -count=1` 通过。
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`backend/internal/service/openai_images.go`、`backend/internal/service/openai_images_midjourney_seedream_test.go`：新增 Flash 模型识别和转发回归；文档与前端文件见上一条记录。
+- 回滚方式：移除 `seedream-5.0-flash` 兼容判断及对应测试用例；不要对包含其他模型定制的整文件执行 `git restore`。
+
+## 2026-10-23 - Task: 移除 OAuth 账号 312 信号检测
+
+### What was done
+
+- 停止从 OAuth HTTP 响应、账号测试响应、WebSocket 握手和连接池新建连接中采集或保存 `x-codex-turn-state` 的 312 长度信号。
+- 移除账号 DTO、账号列表、编辑账号弹窗和账号用量区中的 312 检测状态与中英文文案；保留 `x-codex-turn-state` 的正常协议转发。
+- 保留历史 `codex_signal` 字段的服务端管理字段过滤，旧数据不会因账号编辑或接口映射重新暴露。
+
+### Testing
+
+- `go test -mod=readonly -tags=unit ./internal/service ./internal/handler/dto ./internal/repository` 通过。
+- `pnpm vitest run src/components/account/__tests__/AccountUsageCell.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts` 通过（165 个测试）。
+- `pnpm exec vue-tsc --noEmit` 通过。
+- `git diff --check` 通过。
+
+### Notes
+
+- 改动文件：`backend/internal/service/deferred_service.go`、`backend/internal/service/openai_plugin_transport.go`、`backend/internal/service/openai_ws_forwarder.go`、`backend/internal/service/openai_ws_pool.go`、`backend/internal/service/openai_ws_v2_passthrough_adapter.go`、`backend/internal/service/openai_codex_ticket.go`、`backend/internal/handler/dto/mappers.go`、`backend/internal/handler/dto/types.go`、`backend/internal/repository/account_repo_codex_signal.go`、`backend/internal/service/openai_codex_signal.go`、`backend/internal/service/openai_codex_signal_test.go`、`backend/internal/repository/account_repo_codex_signal_integration_test.go`、`backend/internal/handler/dto/account_codex_signal_test.go`、`backend/internal/service/admin_account_codex_signal_test.go`、`frontend/src/components/account/AccountUsageCell.vue`、`frontend/src/components/account/EditAccountModal.vue`、`frontend/src/components/account/CodexSignalBadge.vue`、`frontend/src/components/account/__tests__/AccountUsageCell.spec.ts`、`frontend/src/components/account/__tests__/CodexSignalBadge.spec.ts`、`frontend/src/i18n/locales/zh/admin/accounts.ts`、`frontend/src/i18n/locales/en/admin/accounts.ts`、`frontend/src/types/index.ts`。
+- 回滚方式：仅恢复本条涉及的删除文件，并反向应用本条对应 hunk；不要对包含其他未提交定制的整文件执行 `git restore` 或 `git reset --hard`。
+
+## 2026-10-23 - Task: 合并 Wei-Shaw/sub2api 最新代码至 0.2.18
+
+### What was done
+
+- 合并上游 `b0a02a330..5c185c5c5` 的 45 个提交、114 个文件，版本更新为 0.2.18；正式双父合并提交为 `f8f0b1b3b271d1fe564d2378f8d1d591fb99ed16`。
+- 同步 overload 安全重试、流式断开用量、Gemini 生图门禁、Vertex 配额、调度缓存与账号额度 SQL 优化，以及图片下载、Grok Fast 定价和依赖安全更新。
+- 保留 Basispoints、OAuth/TLS/并发保护、媒体路由及退款定制；恢复有用量时不再 failover 的互斥分支，修复 Gemini 多图计数和中断结果兼容。继续保留 312 检测删除与历史私有字段过滤。
+- 恢复原未提交改动；非本轮范围跟踪文件无意外差异，8 个原有未跟踪文件与 stash 哈希一致；合并后的兼容修复留在工作区，发布须包含当前完整工作区。
+
+### Testing
+
+- 前端 `pnpm install --frozen-lockfile`、`pnpm run typecheck`、`pnpm run test:run` 全部通过：393 个文件、3118 项测试；`pnpm run build --outDir /tmp/upstream-frontend-20261023-9Yi0rN/dist` 通过，包含 i18n 校验。
+- 后端 `go test -mod=readonly -tags=unit ./... -count=1 -timeout=15m` 覆盖所有包；除旧 server 契约断言外全部通过。补齐已有 GPT-6.1 Sol 分组开关字段预期后，`go test -mod=readonly -tags=unit ./internal/server -count=1` 完整复测通过。首次失败日志保留，未跳过测试。
+- 核心包初轮暴露 Gemini 合并兼容和测试 fixture 差异，修复后的 Gemini 定向回归、handler 全包和最终 service/repository 全包均通过。
+- `go test -mod=readonly -race -tags=unit ./internal/service ./internal/repository -run 'Test(SchedulerCacheSnapshotMemo|SetAccountModelRateLimitSnapshot|AccountPrepareSharedSnapshot|.*Basispoints|AccountTraffic|GeminiForward|GeminiCompatForward)' -count=1 -timeout=5m` 通过。
+- `go test -mod=readonly -tags=integration ./internal/repository -run 'Test(MigrationsRunner_|Migration246|Migration242|UsageBillingRepository|IncrementUsageBillingAccountQuota|EnsureSimpleModeDefaultGroups|UserPlatformQuotaRepository_RejectsUnregisteredPlatform|CompositeModelRouteRepository_RejectsUnregisteredTargetPlatform)' -count=1 -timeout=5m` 在隔离 PostgreSQL 18.1 / Redis 8.4 通过；旧 241 约束断言已对齐现有 242 迁移，不改生产 SQL。
+- `go run -mod=readonly github.com/google/wire/cmd/wire diff ./cmd/server` 无差异；`go build -mod=readonly -tags embed -trimpath -ldflags '-X main.Version=0.2.18' -o /tmp/sub2api-sync-20261023-server ./cmd/server` 与生成程序 `--version` 通过（使用现有 embed 资源；新前端另行构建验证）。
+- `git diff --check` 通过；完整证据日志、首次失败与复测结果详见 `docs/UPSTREAM_SYNC.md` 的 2026-10-23 条目。未测试生产迁移或真实付费上游。
+
+### Notes
+
+- 新增上游 246 迁移只开启存量 Gemini/Antigravity 分组的生图开关；现有 OpenAI/composite 与本地 GPT-6.1 Sol 默认关闭值不变。两个 246 文件按完整名称登记。源码回滚不等于数据库回滚。
+- 未 push GitHub、未构建或推送 Docker 镜像、未部署。已保留原 stash 和备份分支，不删除任何原有用户文件。
+- 可执行回滚：在仓库内运行 `restore_dir=$(mktemp -d /tmp/sub2api-pre-sync-20261023.XXXXXX)`，再运行 `git worktree add --detach "$restore_dir" backup/pre-upstream-sync-20261023` 和 `git -C "$restore_dir" stash apply --index 20c083d7b0a759b98c67e168974abbf87cad9da8`。该方式只在新目录恢复合并前完整工作区，不覆盖当前改动；本轮未执行。
+- 改动文件清单（仅本轮合并及兼容修复；不将原有定制重新计为本轮）：
+- `.github/workflows/backend-ci.yml`：synchronize Go patch version checks。
+- `.github/workflows/release.yml`：synchronize Go patch version checks。
+- `.github/workflows/security-scan.yml`：clear dependency security scan failures。
+- `Dockerfile`：对齐上游 Go 1.27.3 镜像版本。
+- `README.md`：update sponsors。
+- `README_CN.md`：update sponsors。
+- `README_JA.md`：update sponsors。
+- `assets/partners/logos/chenju_ai.png`：update sponsors。
+- `assets/partners/logos/ooko.ai.png`：update sponsors。
+- `backend/cmd/server/VERSION`：sync VERSION to 0.2.18 [skip ci]。
+- `backend/go.mod`：clear dependency security scan failures。
+- `backend/internal/handler/dto/account_quota_service_account_test.go`：Vertex 账号支持配额上限。
+- `backend/internal/handler/dto/mappers.go`：Vertex 账号支持配额上限。
+- `backend/internal/handler/gateway_compat_stream_usage_test.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/handler/gateway_handler.go`：单 antigravity 账号分组判定改为按需求值。
+- `backend/internal/handler/gateway_handler_chat_completions.go`：合入流式异常收尾与用量提交，保留已有可计费用量时不再切换账号的本地逻辑。
+- `backend/internal/handler/gateway_handler_responses.go`：合入 Responses 流式异常收尾与用量提交，避免已有用量时重复生成。
+- `backend/internal/handler/gateway_handler_warmup_intercept_unit_test.go`：单 antigravity 账号分组判定改为按需求值。
+- `backend/internal/handler/gemini_client_cancel_test.go`：合入客户端取消测试，并复用实际调度缓存使测试观察与生产路径一致。
+- `backend/internal/handler/gemini_image_generation_gate.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/handler/gemini_image_generation_gate_test.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/handler/gemini_v1beta_handler.go`：单 antigravity 账号分组判定改为按需求值。
+- `backend/internal/handler/single_account_retry_probe_unit_test.go`：合入按需查询调度桶回归，使用本站已有定价模型完成转发验证。
+- `backend/internal/pkg/antigravity/response_transformer.go`：prompt 被拦截只报缓存命中时 input_tokens 不再为负。
+- `backend/internal/pkg/antigravity/stream_transformer.go`：prompt 被拦截只报缓存命中时 input_tokens 不再为负。
+- `backend/internal/pkg/antigravity/usage_contract_test.go`：prompt 被拦截只报缓存命中时 input_tokens 不再为负。
+- `backend/internal/pkg/openai/request.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/pkg/openai/request_codex_identity_normalization_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/repository/scheduler_cache.go`：调度快照解码结果常驻进程内存。
+- `backend/internal/repository/scheduler_cache_snapshot_memo_unit_test.go`：调度快照解码结果常驻进程内存。
+- `backend/internal/repository/simple_mode_default_groups.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/repository/simple_mode_default_groups_integration_test.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/repository/usage_billing_repo.go`：合入按额度周期选择 SQL 和回退路径，保留本站原子记账与退款。
+- `backend/internal/repository/usage_billing_repo_integration_test.go`：账号配额累加按已设置的周期维度选择语句。
+- `backend/internal/repository/usage_billing_repo_unit_test.go`：账号配额累加按已设置的周期维度选择语句。
+- `backend/internal/service/account.go`：调度快照解码结果常驻进程内存。
+- `backend/internal/service/account_model_mapping_signature_test.go`：模型映射签名改为与遍历顺序无关、零分配。
+- `backend/internal/service/account_quota_schedulable_test.go`：Vertex 账号支持配额上限。
+- `backend/internal/service/account_quota_service_account_test.go`：Vertex 账号支持配额上限。
+- `backend/internal/service/account_shared_snapshot_test.go`：调度快照解码结果常驻进程内存。
+- `backend/internal/service/admin_group.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/admin_service_group_test.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/antigravity_gateway_claude.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/antigravity_gateway_compat.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/antigravity_gateway_gemini.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/antigravity_gateway_retry.go`：单 antigravity 账号分组判定改为按需求值。
+- `backend/internal/service/billing_service.go`：Grok 4.7 Fast 按官方 Fast 价卡计费 (#8119)。
+- `backend/internal/service/billing_service_test.go`：Grok 4.7 Fast 按官方 Fast 价卡计费 (#8119)。
+- `backend/internal/service/gateway_forward.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/gateway_forward_as_chat_completions.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/gateway_forward_as_chat_completions_ping_test.go`：Anthropic 账号 chat/responses 兼容流式客户端断开后读完上游再计费。
+- `backend/internal/service/gateway_forward_as_responses.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/gateway_forward_compat_client_disconnect_test.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/gateway_forward_compat_stream.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/gateway_scheduling.go`：单 antigravity 账号分组判定改为按需求值。
+- `backend/internal/service/gateway_usage_billing.go`：账号配额累加按已设置的周期维度选择语句。
+- `backend/internal/service/gateway_usage_billing_account_quota_test.go`：账号配额累加按已设置的周期维度选择语句。
+- `backend/internal/service/gemini_chat_completions_compat_service.go`：兼容客户端断开结果与本地实际图片计数，保留部分用量，忽略取消时未完成的尾行。
+- `backend/internal/service/gemini_image_generation_gate.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/gemini_image_generation_gate_test.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/gemini_messages_compat_service.go`：合入 Gemini 断开计费，保留多图、缓存、原生 GET 与读取异常部分用量处理。
+- `backend/internal/service/gemini_messages_compat_service_test.go`：normalize parameter constants and annotations。
+- `backend/internal/service/gemini_native_response_signal_test.go`：prompt 被拦截只报缓存命中时 input_tokens 不再为负。
+- `backend/internal/service/gemini_stream_client_abort.go`：流式中途客户端断开时按已收集用量计费。
+- `backend/internal/service/gemini_stream_client_abort_test.go`：合入中断计费回归，并核对读取失败仍保留已观测用量的本站行为。
+- `backend/internal/service/image_storage.go`：异步生图转存的图片下载与同步回填策略对齐。
+- `backend/internal/service/image_storage_test.go`：异步生图转存的图片下载与同步回填策略对齐。
+- `backend/internal/service/model_rate_limit.go`：模型限流快照写入改为写时复制。
+- `backend/internal/service/model_rate_limit_snapshot_cow_test.go`：调度快照解码结果常驻进程内存。
+- `backend/internal/service/openai_capacity_shed_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_codex_identity.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_codex_identity_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_codex_version_sync_service_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_gateway_anthropic_native_pump.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/openai_gateway_anthropic_native_pump_test.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/openai_gateway_chat_completions_anthropic_native.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/openai_gateway_deepseek_input_image_test.go`：avoid duplicate image payloads。
+- `backend/internal/service/openai_gateway_passthrough.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_gateway_request_body.go`：avoid duplicate image payloads。
+- `backend/internal/service/openai_gateway_responses_anthropic_native.go`：兼容流上游未正常结束时报错并对齐原生收尾。
+- `backend/internal/service/openai_gateway_service.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_gateway_upstream_errors.go`：合入 overload 与 Retry-After 处理，保留本站错误包装和渠道监控重试辅助。
+- `backend/internal/service/openai_oauth_passthrough_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_setup_token_compat_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_ws_forwarder_success_test.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/openai_ws_http_bridge_test.go`：preserve overload retries after queued and metadata events。
+- `backend/internal/service/pricing_service_test.go`：Grok 4.7 Fast 按官方 Fast 价卡计费 (#8119)。
+- `backend/internal/service/ratelimit_service.go`：avoid penalizing Cloudflare 1010 blocks。
+- `backend/internal/service/ratelimit_service_403_html_test.go`：avoid penalizing Cloudflare 1010 blocks。
+- `backend/internal/service/request_metadata.go`：合入单账号按需重试探测上下文，保留本站指定账号元数据。
+- `backend/internal/service/scheduler_cache.go`：调度快照解码结果常驻进程内存。
+- `backend/internal/service/setting_gateway_runtime.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/settings_view.go`：合并 Codex overload 身份与空流安全重试修复。
+- `backend/internal/service/single_account_retry_probe_test.go`：单 antigravity 账号分组判定改为按需求值。
+- `backend/internal/service/usage_billing.go`：增加账号日/周额度 SQL 选择标记，保留退款时间和余额冻结字段。
+- `backend/migrations/246_enable_gemini_image_generation_groups.sql`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/migrations/gemini_image_generation_groups_migration_test.go`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/resources/model-pricing/model_prices_and_context_window.json`：Grok 4.7 Fast 按官方 Fast 价卡计费 (#8119)。
+- `frontend/package.json`：bump dompurify to 3.4.17 for GHSA-cg2g-xh64-v4q7 / GHSA-mrv2-3pqr-j5jr。
+- `frontend/pnpm-lock.yaml`：bump dompurify to 3.4.17 for GHSA-cg2g-xh64-v4q7 / GHSA-mrv2-3pqr-j5jr。
+- `frontend/src/components/account/AccountCapacityCell.vue`：Vertex 账号支持配额上限。
+- `frontend/src/components/account/AccountUsageCell.vue`：Vertex 账号支持配额上限。
+- `frontend/src/components/account/CreateAccountModal.vue`：Vertex 账号支持配额上限。
+- `frontend/src/components/account/EditAccountModal.vue`：Vertex 账号支持配额上限。
+- `frontend/src/components/account/__tests__/AccountUsageCell.spec.ts`：Vertex 账号支持配额上限。
+- `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`：Vertex 账号支持配额上限。
+- `frontend/src/components/admin/account/AccountActionMenu.vue`：Vertex 账号支持配额上限。
+- `frontend/src/i18n/locales/en/admin/settings.ts`：合并 Codex overload 身份与空流安全重试修复。
+- `frontend/src/i18n/locales/zh/admin/settings.ts`：合并 Codex overload 身份与空流安全重试修复。
+- `frontend/src/utils/accountQuota.ts`：Vertex 账号支持配额上限。
+- `frontend/src/views/admin/AccountsView.vue`：persist platform and status filters。
+- `frontend/src/views/admin/GroupsView.vue`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `frontend/src/views/admin/__tests__/groupsImagePricing.spec.ts`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `frontend/src/views/admin/groupsImagePricing.ts`：分组「允许当前分组生图」开关对 Gemini 系入口生效。
+- `backend/internal/service/openai_images.go`：补齐 Gemini 专用模型分类供新生图权限门禁复用，保留原有 Seedream/Midjourney 等媒体路由。
+- `backend/internal/service/gemini_merge_image_accounting_test.go`：新增多图、零图、无 token 图片取消与取消尾行的合并回归。
+- `backend/internal/repository/migrations_schema_integration_test.go`：将旧平台约束断言对齐已存在的 242 迁移，不修改生产 SQL。
+- `backend/internal/repository/gemini_image_generation_migration_integration_test.go`：验证 246 生图迁移只影响指定平台，两个同编号不同名迁移均登记且本地开关仍默认关闭。
+- `backend/internal/server/api_contract_test.go`：补齐既有 GPT-6.1 Sol 分组开关的契约预期，不改变运行行为。
+- `docs/UPSTREAM_SYNC.md`：追加 0.2.18 同步结果、验证边界、迁移影响和安全恢复步骤。
+- `docs/upstream-sync-20261023-files.md`：记录本轮完整文件范围、上游来源和本地冲突兼容选择。
+- `progress.md`：仅在末尾追加本轮工作、验证证据、逐文件清单和回滚方式。
+
+## 2026-10-24 - Task: 构建并推送 0.2.18 双架构镜像
+
+### What was done
+
+- 从完整工作区构建并推送 `iotwq/china-api:latest` 和 `iotwq/china-api:0.2.18-20261024-000457`，包含 amd64/arm64；构建标识 `f8f0b1b3b271-dirty`。
+- 两标签索引摘要为 `sha256:223aaf973bddc02987b75837a065fdaf739c22f95cb367d9158c7d5be5fa9425`；未改业务源码、未部署、未推送 Git。
+
+### Testing
+
+- Docker 内语言检查、类型检查、前端生产构建和双架构 Go embed 编译通过。
+- 远端标签摘要、平台清单与构建 metadata 核对一致。
+- 两架构按子 manifest 拉取后，在断网、只读、非 root 容器执行 `--version` 均通过，返回 0.2.18 / f8f0b1b3b271-dirty / 2026-10-23T16:04:57Z。
+- 沿用上一轮业务测试；证据目录 `/tmp/sub2api-publish-20261024.xCr6qq`。
+
+### Notes
+
+- `docs/IMAGE_RELEASE_20261024.md`：新增镜像标签、摘要、验证、迁移影响及回滚记录。
+- `progress.md`：仅追加本轮发布日志。
+- 回滚远端标签：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:aeaf17be353c11c0d8a23b16d3aadb1bca6d0fac4b874ed00949ed1947e156e5`；部署也可固定旧摘要。源码/镜像回退不自动还原数据库开关；本轮未执行回滚。
+
+## 2026-10-24 - Task: 精简 Suno v6 接口文档超时说明
+
+### What was done
+
+- 删除公开 Suno 接口文档中关于画布客户端内部 `/api-jobs` 代理路径的说明。
+- 保留 Suno v6 系列实际生成可能超过 200 秒，以及客户端和反向代理读取/响应超时至少 600 秒的建议；同时保留结果不明确时复用同一幂等键的提示。
+
+### Testing
+
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过（1 个测试文件、1 个测试）。
+- `git diff --check` 通过。
+
+### Notes
+
+- `docs/API_DOCS.md`：移除内部代理路径说明，保留公开接口超时与幂等提示。
+- `frontend/src/views/user/ApiDocsView.vue`：同步移除界面文档中的内部代理路径说明。
+- 回滚方式：仅需恢复上述两个文件本轮对应的两行文档改动；未修改业务接口、路由或数据库。
+
+## 2026-10-25 - Task: 接口文档移除 Seedream 5.0 Flash 展示
+
+### What was done
+
+- 从接口文档页面及配套文档中移除 `seedream-5.0-Flash（满血）` 的模型行和介绍，将 Seedream / Midjourney 模型数量说明调整为三个。
+- 保留后端模型转发能力，仅同步已有页面测试的模型列表与数量预期。
+
+### Testing
+
+- `cd frontend && pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过（1 个测试）。
+- 检索确认两份接口文档无 Seedream Flash 名称残留；与本轮修改前备份逐项核对，仅涉及指定模型展示和对应测试。
+- `git diff --check` 通过。
+
+### Notes
+
+- `frontend/src/views/user/ApiDocsView.vue`：删除 Flash 模型展示、介绍，并调整模型数量说明。
+- `docs/API_DOCS.md`：同步删除 Flash 模型行及说明。
+- `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：移除 Flash 展示预期，将该分类模型数量改为三个。
+- `progress.md`：仅追加本轮修改、验证和回滚记录。
+- 回滚点：`/tmp/sub2api-docs-remove-flash-20261025.rVsbQX` 保存了本轮修改前三个文件的完整副本（含既有未提交改动）。若此后尚无新的文件修改，可在仓库根目录逐条执行：`cp /tmp/sub2api-docs-remove-flash-20261025.rVsbQX/API_DOCS.md docs/API_DOCS.md`、`cp /tmp/sub2api-docs-remove-flash-20261025.rVsbQX/ApiDocsView.vue frontend/src/views/user/ApiDocsView.vue`、`cp /tmp/sub2api-docs-remove-flash-20261025.rVsbQX/ApiDocsView.spec.ts frontend/src/views/user/__tests__/ApiDocsView.spec.ts`；如有后续改动，仅按备份反向恢复本轮文案和断言，不覆盖整文件。进度历史保留。
+
+
+## 2026-10-25 - Task: 支持 GPT Image D 两个型号的上游图片转发
+
+### What was done
+
+- 将 `gpt-image-2-D`、`gpt-image-2.5-D` 按 `seedream-5.0-pro（X）` 的兼容图片方式接入，仅选择 OpenAI API Key 账号，直接调用和模型映射均保留完整上游模型名。
+- 复用现有图片生成、图片编辑、上传内容和响应处理；排除这两个兼容型号进入原生图片模型转换，避免误走 Codex OAuth/Setup Token 生图路径。
+- 同步接入文档，说明模型白名单/映射、分组图片生成开关及独立图片价格配置要求；未新增价格或改动数据库。
+
+### Testing
+
+- 修改前运行 `cd backend && go test -tags=unit ./internal/service -run '^TestCompatibleImages(MidjourneySeedreamAdmission|GPTImageDNativeRejection)$' -count=1`，新增用例稳定复现两个型号被归为 `images-native` 且被转换为原生 Responses 图片工具的问题。
+- 修改后运行 `cd backend && go test -tags=unit ./internal/service ./internal/handler ./internal/server/routes -run 'Test.*(Images|ImageGeneration|GPTImage|ModelRateLimit|ModelPricing)' -count=1`，三个包全部通过。新增用例覆盖两个型号的 API Key 能力限制、直接及账号映射转发、JSON 生成和 multipart 编辑的完整模型名/自定义字段/上传字节保留，以及直接请求、渠道映射、账号映射下的 OAuth/Setup Token 拒绝；同时回归原有图片模型、价格和限流相关测试。
+- 两个修改的 Go 文件 `gofmt -d` 无输出；`git diff --check` 通过。逐项与本轮修改前备份核对增量，确认保留已有未提交改动及 UTF-8/LF 编码格式。
+- `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-gpt-image-d-20261025.6pztyu68/task.patch` 通过，验证仅撤销本轮业务代码、测试和接入文档的补丁可用。
+- 验证使用模拟上游，未调用真实供应商、未验证实际出图能力，未构建发布镜像或部署。测试日志和修改前备份位于 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-gpt-image-d-20261025.6pztyu68`。
+
+### Notes
+
+- `backend/internal/service/openai_images.go`：将两个 D 型号归为 API Key 兼容图片模型，并从原生图片模型转换中排除。
+- `backend/internal/service/openai_images_midjourney_seedream_test.go`：扩展现有转发矩阵，补充两个型号的准入、模型映射、内容保留及原生通道拒绝验证。
+- `docs/OPENAI_MEDIA_COMPAT.md`：新增两个型号的接入名称、映射示例及使用约束。
+- `progress.md`：仅在末尾追加本轮工作、验证证据、文件清单和回滚方式。
+- 回滚方式：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-gpt-image-d-20261025.6pztyu68/task.patch`，确认通过后执行 `git apply --reverse /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-gpt-image-d-20261025.6pztyu68/task.patch`；仅撤销本轮增量，保留既有未提交修改及进度历史。如果后续修改造成补丁冲突，依据同目录备份仅反向恢复本轮对应改动，不覆盖整文件。
+
+## 2026-10-25 - Task: 支持 midjourney-D 上游图片转发
+
+### What was done
+
+- 将 `midjourney-D` 加入 API Key 兼容图片模型，与 Seedream 及两个 GPT Image D 型号共用现有生成、编辑和模型映射转发方式，保留完整上游模型名。
+- 补充接入名称和 `Midjourney-V7` 到 `midjourney-D` 的映射示例，沿用分组图片开关、白名单/映射和实际图片价格配置要求。
+
+### Testing
+
+- 修改前执行 `cd backend && go test -tags=unit ./internal/service -run '^TestCompatibleImages(MidjourneySeedreamAdmission|ScreenshotModelMapping)$' -count=1`，新增用例复现直接请求及映射后的模型被拒绝：`images endpoint requires an image model, got "midjourney-D"`。
+- 修改后执行 `cd backend && go test -tags=unit ./internal/service -run '^TestCompatibleImages' -count=1`，全部通过。覆盖 API Key 账号限制、渠道映射能力判定、直接及账号映射的 JSON 生成和 multipart 编辑转发，验证完整模型名、自定义字段、上传字节及图片响应处理；同时回归已有兼容模型。`midjourney-D-chat` 仍被拒绝。
+- 两个修改的 Go 文件 `gofmt -d` 无输出；`git diff --check` 通过。核对本轮增量并保持原 UTF-8/LF 格式；本轮反向补丁检查通过。
+- 使用模拟上游验证，未实测真实供应商出图、未构建发布镜像或部署。测试日志和修改前备份位于 `/tmp/sub2api-midjourney-d-20261025.0w4_putk`。
+
+### Notes
+
+- `backend/internal/service/openai_images.go`：新增 `midjourney-D` 兼容图片模型识别。
+- `backend/internal/service/openai_images_midjourney_seedream_test.go`：扩展准入、近似名称拒绝及直接/映射转发用例。
+- `docs/OPENAI_MEDIA_COMPAT.md`：补充模型名称、映射示例及配置说明。
+- `progress.md`：仅追加本轮工作、验证和回滚记录。
+- 回滚方式：在仓库根目录执行 `git apply --reverse --check /tmp/sub2api-midjourney-d-20261025.0w4_putk/task.patch`，检查通过后执行 `git apply --reverse /tmp/sub2api-midjourney-d-20261025.0w4_putk/task.patch`。补丁仅撤销本轮代码、测试及接入文档增量，保留此前两个 GPT Image D 型号支持和进度历史；若后续改动导致冲突，参考同目录备份逐项反向恢复本轮改动，不覆盖整文件。
+
+
+## 2026-10-25 - Task: 仅继续合并 Basispoints 独立功能至上游 v2.17.2
+
+### What was done
+
+- 按用户明确授权，从 ranxi2001/sub2api production 固定提交 `9fcfe25d600a331abcc28a1788e597e5542d4cd3`，相对本站 v2.9.4 移植基线进行 BPS 专项适配，未整仓合并。
+- 更新工具目录、工具示例、历史/新线程交接、加密任务完整性、安全 Schema 诊断及有界续轮纠错，修复新版转换失败与本站错误处理不兼容的问题。
+- 加入官方浏览器 Excel OAuth 独立账号入口及重新授权/刷新契约，阻止 Excel 主凭据进入原生 Codex、WS、图片与自动回退路径；复用本站现有凭据生命周期。
+- 接入实际 BPS 模型/推理档位发现、模型级权限冷却、无数据进展超时和可选 Redis 会话状态。已接受请求失败不重放，有用量保留，无用量不制造记录；继续保留原始计费语义。
+- 更新使用说明与来源记录。未引入代理池、质量运维、托管登录 worker、双 grant 数据库、多宿主图片 owner 路由及其他业务功能；未修改生产账号或部署。既有 D 型号图片转发及其他未提交工作保留。
+
+### Testing
+
+- `go -C backend test -tags=unit ./internal/service ./internal/service/basispoints ./internal/handler ./internal/handler/admin ./internal/repository ./internal/config ./internal/pkg/openai` 全部通过（日志 `backend-unit-full.log`）。覆盖普通 Codex、账号调度、OAuth、错误记录、计费与取消回归。
+- `go -C backend test ./...` 全项目标准测试通过（`backend-standard.log`）。
+- `go -C backend test -race ./internal/service/basispoints` 完整协议竞态检查通过（`protocol-race.log`）；`go -C backend test -tags=unit -race ./internal/service ./internal/repository ./internal/handler -run 'Test.*(Basispoints|Excel|BPSSharedState|OpsBridgeFailure)' -count=1` 通过（`integration-race.log`）。
+- `go -C backend test -tags=unit ./internal/service ./internal/repository ./internal/handler/admin ./internal/config -run 'Test.*(Excel|BasispointsSharedState|BPSSharedState|BasispointsDoesNotInventPermissions)' -count=1` 通过（`final-targeted.log`）。新增验证覆盖流式/非流式超时且有/无用量、无重放、真实 HTTP 状态、跨实例目录恢复、会话隔离、存储缺失、权限缓存新鲜度、授权/原生通道隔离及模型冷却调度。
+- 最终差异审查后运行 `go -C backend test -tags=unit ./internal/service ./internal/handler/admin -run 'Test.*(Basispoints|Excel|UpstreamModel|AvailableModels)' -count=1` 通过（`backend-review.log`）。审查补齐模型同步的现有 nil 检查顺序与发现服务缺失时的明确拒绝。
+- `pnpm --dir frontend exec vitest run src/components/account/__tests__/CreateAccountModal.spec.ts src/components/account/__tests__/OAuthAuthorizationFlow.excel.spec.ts src/components/account/__tests__/EditAccountModal.spec.ts src/composables/__tests__/useOpenAIOAuth.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts` 通过，5 个测试文件、174 项测试（`frontend-tests-review.log`）。
+- `pnpm --dir frontend run typecheck` 通过；最终 `pnpm --dir frontend run build` 通过（`frontend-build-review.log`），包含 i18n 完整性、Vue/TypeScript 编译与生产打包。构建提示既有 Browserslist 数据版本和大 chunk 建议，无构建失败。
+- 初次联调发现新版桥接错误不再解析为 UpstreamFailure，旧非流式处理会访问 nil；修复错误分类适配后通过。超时回归随后发现旧通用流处理返回可切号错误，补齐 BPS 专用终止与部分用量保留后通过；没有跳过失败用例。
+- 修改文件的 Go 格式检查、UTF-8/LF 编码核对、`git diff --check` 和本轮增量反向补丁检查通过。测试日志、固定上游源码和修改前副本统一保存于 `/tmp/sub2api-bps-sync-20261025.ggeah1q8`。
+- 验证使用模拟上游、本地 token contract 服务及 miniredis；未调用真实生产 OAuth/BPS。通过测试不代表普通问答/推理题“降智”已解决，需真实账号对照验证。
+
+### Notes
+
+- `backend/internal/service/basispoints/agent_assignment.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/agent_assignment_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/attachments.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/attachments_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/bridge_failure.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/catalog.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/catalog_cache.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/catalog_compact_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/catalog_items.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/catalog_items_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/catalog_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/encrypted_content.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/history_delegation_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/history_message_id_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/history_messages.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/history_recovery_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/persistent_state.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/plan.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/plan_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/progress_timeout.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/progress_timeout_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/protocol_completion_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/request.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/stream.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/tool_duplicates_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/tool_examples.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/tool_examples_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/tool_repair.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/tool_schema.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/tool_schema_diagnostics.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/tool_schema_diagnostics_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/tools.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/unknown_tool_continuation_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/basispoints/unknown_tool_repair.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/service/basispoints/upstream_failure.go`：同步上游 BPS 独立协议实现，保留本站既有兼容策略。
+- `backend/internal/repository/gateway_cache_bps_state.go`：实现有容量/闲置过期限制与版本比较的 Redis 会话状态。
+- `backend/internal/repository/gateway_cache_bps_state_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/config/config.go`：新增 BPS 独立读取超时与 Redis 状态配置、默认值及范围校验。
+- `backend/internal/service/openai_basispoints_forward.go`：接入共享状态、任务完整性、模型冷却和已接受请求的无重放处理。
+- `backend/internal/service/openai_basispoints_progress.go`：限制上游读取等待，保留非流式部分用量并输出明确终止错误。
+- `backend/internal/service/ops_upstream_context.go`：携带 BPS 本地转换失败的结构化上下文。
+- `backend/internal/handler/ops_error_logger.go`：把 BPS 本地转换失败归属于网关，并保留真实上游 HTTP 证据。
+- `backend/internal/service/openai_basispoints_failure.go`：兼容新版桥接失败类型，保留错误来源与真实上游状态。
+- `backend/internal/service/openai_basispoints_agent_assignment_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/openai_basispoints_schema_diagnostics_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/openai_basispoints_progress_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/handler/ops_error_logger_bridge_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/pkg/openai/oauth.go`：加入官方 Excel 公共客户端、固定回调与 PKCE 授权 URL。
+- `backend/internal/repository/openai_oauth_service.go`：按 Excel 客户端使用独立 token contract 并脱敏错误。
+- `backend/internal/handler/admin/openai_oauth_handler.go`：接收 Excel OAuth 入口参数并拒绝格式错误的请求。
+- `backend/internal/service/openai_oauth_service.go`：创建/兑换/刷新绑定 Excel 客户端，固定回调并跳过 Codex 专属补全。
+- `backend/internal/service/openai_excel_bps_model_access.go`：发现账号实际 BPS 模型和推理档位，使用隔离且只读新鲜结果的缓存。
+- `backend/internal/service/openai_excel_bps_model_cooldown.go`：新增有界的账号/实际模型权限冷却。
+- `backend/internal/service/openai_gateway_service.go`：承载独立 BPS 模型目录缓存和模型权限冷却状态。
+- `backend/internal/service/openai_basispoints_repair.go`：纠错请求同步模型权限冷却，并保留安全的转换诊断。
+- `backend/internal/service/openai_basispoints_fallback.go`：排除模型级权限拒绝及 Excel 主凭据的 Codex 自动回退。
+- `backend/internal/service/openai_models_list.go`：标准模型发现按账号的 BPS 路由选择独立权限接口。
+- `backend/internal/service/openai_codex_models_service.go`：BPS 账号从独立权限目录生成 Codex manifest。
+- `backend/internal/service/openai_excel_oauth_routing.go`：识别 Excel 主凭据并定义原生通道拒绝原因。
+- `backend/internal/service/openai_agent_identity.go`：在统一原生认证头构造处阻止 Excel 主凭据进入 Codex。
+- `backend/internal/service/account.go`：限制 Excel 主凭据的调度资格及原生图片能力。
+- `backend/internal/service/openai_ws_forwarder_payload.go`：阻止 Excel 主凭据建立原生 Codex WebSocket 连接。
+- `backend/internal/service/openai_gateway_forward.go`：在转发分流前拦截 Excel 凭据的原生 Codex 路由。
+- `backend/internal/service/account_test_service.go`：BPS 账号测试使用真实权限目录，并隔离 Excel 原生通道。
+- `backend/internal/repository/openai_excel_oauth_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/handler/admin/openai_excel_auth_url_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/openai_oauth_service_auth_url_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/openai_excel_bps_model_access_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/openai_excel_bps_bridge_failure_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `frontend/src/composables/useOpenAIOAuth.ts`：向既有授权接口传递 Excel 客户端选择并导出公共客户端标识。
+- `frontend/src/components/account/CreateAccountModal.vue`：提供独立 Excel 授权入口，创建 BPS 账号并隐藏不适用的原生选项。
+- `frontend/src/components/account/ReAuthAccountModal.vue`：Excel 账号重新授权沿用 Excel 客户端。
+- `frontend/src/components/account/OAuthAuthorizationFlow.vue`：显示官方 Excel 回调指引，重新生成链接时清理旧授权输入。
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`：补充 Excel 授权入口及回调的中文说明。
+- `frontend/src/i18n/locales/en/admin/accounts.ts`：补充 Excel 授权入口及回调的英文说明。
+- `backend/internal/pkg/openai/constants.go`：模型目录支持保留 BPS 返回的可用推理档位。
+- `backend/internal/service/upstream_models.go`：模型同步复用 BPS 权限发现，不以原生目录替代失败结果。
+- `backend/internal/handler/admin/account_handler.go`：BPS 模型发现失败时明确返回错误，避免回退到虚构的默认权限。
+- `backend/internal/service/openai_excel_bps_model_cooldown_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `frontend/src/components/account/EditAccountModal.vue`：Excel 账号仅提供 BPS 路由，隐藏原生 WS/透传和自动回退选项。
+- `frontend/src/components/account/__tests__/OAuthAuthorizationFlow.excel.spec.ts`：验证 Excel 授权参数、回调解析或账号创建配置与既有账号界面兼容。
+- `frontend/src/composables/__tests__/useOpenAIOAuth.spec.ts`：验证 Excel 授权参数、回调解析或账号创建配置与既有账号界面兼容。
+- `backend/internal/service/openai_gateway_response_handling.go`：已接受的 BPS 流读取失败不进入通用 Codex 重试和账号惩罚分支。
+- `backend/internal/service/openai_account_scheduler.go`：调度时排除被 BPS 模型权限冷却的候选并保留独立原因。
+- `backend/internal/service/openai_gateway_scheduling.go`：将模型权限冷却接入既有普通选号流程。
+- `backend/internal/service/openai_account_runtime_block_fastpath.go`：在请求运行时检查中考虑 BPS 模型级权限冷却。
+- `backend/internal/config/config_test.go`：验证 BPS 默认配置、环境变量覆盖与合法取值范围。
+- `deploy/config.example.yaml`：说明两个 BPS 配置项及其默认值。
+- `backend/internal/service/openai_excel_oauth_routing_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/service/openai_basispoints_state_test.go`：移植或补充对应 BPS 行为回归，验证协议/授权/状态隔离与错误处理。
+- `backend/internal/handler/admin/account_handler_available_models_test.go`：验证 BPS 缺少发现服务时不返回默认模型列表。
+- `frontend/src/components/account/__tests__/CreateAccountModal.spec.ts`：验证 Excel 授权参数、回调解析或账号创建配置与既有账号界面兼容。
+- `docs/OPENAI_OAUTH_BASISPOINTS.md`：记录本轮行为、授权步骤、配置、范围限制和质量验证边界。
+- `backend/internal/service/basispoints/NOTICE.md`：追加本轮来源归属和本站适配范围。
+- `docs/UPSTREAM_SYNC.md`：记录固定来源、选择性移植提交及未引入的外部系统。
+- `progress.md`：仅追加本轮工作、验证证据、文件清单和回滚记录。
+- 回滚：在仓库根目录执行 `git apply --reverse --check /tmp/sub2api-bps-sync-20261025.ggeah1q8/task.patch`，检查通过后执行 `git apply --reverse /tmp/sub2api-bps-sync-20261025.ggeah1q8/task.patch`。补丁只撤销本轮代码、测试和文档增量，保留既有未提交改动及进度历史；若后续修改产生冲突，按 `before/` 副本与 `task.patch` 逐项反向恢复，禁止整仓 reset 或覆盖整文件。正式保留回滚点时应同时归档此目录，避免临时目录被系统清理。
+
+
+## 2026-10-25 - Task: 单请求缓存率展示及管理员/用户可见性开关
+
+### What was done
+- 按用户标注实现“单请求缓存率”和“展示开关”两项关联能力，选择性移植上游 `4dc4a0f08` / `c8e35e518`；缓存率基于已有互斥输入桶计算，空输入显示占位符，不重算费用。
+- 使用记录、Token 提示、管理员 Excel 与用户 CSV 导出统一可见性规则：总开关默认开启，用户展示默认关闭；总开关关闭后两端隐藏，设置界面同步取消用户展示。
+- 补齐设置默认值、保存、管理读取、公共读取及 HTML 初始配置，省略新字段时保留原值。复用现有设置表，无数据库结构变更。
+- 保留当前未提交的 BPS、媒体和计费定制，补充中文使用说明与上游同步记录。本轮未部署、未调用真实模型、未修改运行中数据库。
+
+### Testing
+- `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/handler/admin ./internal/handler ./internal/service ./internal/server -run 'Test(SettingsUsageCacheRate|APIContracts|.*PublicSettings)' -count=1`：通过，覆盖设置默认值、保存/省略字段、公共读取/HTML 注入和 API 契约。
+- `cd frontend && pnpm exec vitest run src/utils/__tests__/usageCacheRate.spec.ts src/components/admin/usage/__tests__/UsageTable.spec.ts src/views/admin/__tests__/UsageView.spec.ts src/views/user/__tests__/UsageView.spec.ts src/views/admin/__tests__/SettingsView.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`：6 个文件、134 项全部通过。覆盖公式、表格/提示、两端导出、设置保存与翻译键。
+- `cd frontend && pnpm run build`：通过，包括中英文检查、Vue/TypeScript 编译和 Vite 生产构建；构建产物位于既有忽略目录 `backend/internal/web/dist/`。仅有已有体积提示。
+- 对本轮 17 个前端源码/测试/类型/翻译文件执行 `pnpm exec eslint ...`：通过，无输出；完整命令涉及文件均列于下方。
+- 本轮源码差异空白检查及 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-usage-cache-rate-20261025.xotiic6a/task.patch`：通过。新增 Go 字段对齐调整仅涉及空白，已比较非空白内容一致。
+- 验证日志保存在 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-usage-cache-rate-20261025.xotiic6a` 的 `backend-tests.log`、`frontend-tests.log`、`frontend-build.log`、`frontend-lint.log`。前端测试有现有 router-link stub 提示，无测试失败或未处理错误；未进行生产浏览器或真实业务流量验收。
+
+### Notes
+- `Makefile`：将缓存率计算和默认可见性测试加入前端关键测试集合。
+- `backend/internal/handler/admin/setting_handler.go`：管理设置读取返回两个缓存率展示开关。
+- `backend/internal/handler/admin/setting_handler_update.go`：支持更新两个开关，省略字段时保留原值，并返回保存结果。
+- `backend/internal/handler/admin/setting_handler_usage_cache_rate_test.go`：验证默认值、保存、省略字段、公共读取与 HTML 配置注入。
+- `backend/internal/handler/dto/settings.go`：管理与公共设置 DTO 增加两个展示字段。
+- `backend/internal/handler/setting_handler.go`：公共设置接口输出缓存率展示配置。
+- `backend/internal/server/api_contract_test.go`：更新设置接口契约的默认字段断言。
+- `backend/internal/service/domain_constants.go`：声明缓存率总开关与用户展示开关的设置键。
+- `backend/internal/service/setting_parse.go`：初始化并解析管理员默认显示、用户默认隐藏的配置。
+- `backend/internal/service/setting_public.go`：公共设置读取和 HTML 初始配置透传两个展示开关。
+- `backend/internal/service/setting_update.go`：使用现有设置存储持久化两个布尔值。
+- `backend/internal/service/settings_view.go`：系统设置和公共设置结构新增展示字段。
+- `docs/UPSTREAM_SYNC.md`：追加本次上游来源、选择性移植范围与验证结论。
+- `docs/USAGE_CACHE_RATE.md`：记录入口、默认值、公式、接口、验证与回退方式。
+- `frontend/src/api/admin/settings.ts`：补齐管理设置响应和更新请求的类型。
+- `frontend/src/components/admin/usage/UsageTable.vue`：展示单条缓存率和计算提示，并统一控制列表、Token 提示的可见性。
+- `frontend/src/components/admin/usage/__tests__/UsageTable.spec.ts`：覆盖管理员、用户和总开关组合下的列表与提示展示。
+- `frontend/src/i18n/locales/en/admin/settings.ts`：增加两个开关的英文说明。
+- `frontend/src/i18n/locales/en/dashboard.ts`：增加缓存率标签及计算口径英文提示。
+- `frontend/src/i18n/locales/zh/admin/settings.ts`：增加两个开关的中文说明。
+- `frontend/src/i18n/locales/zh/dashboard.ts`：增加缓存率标签及计算口径中文提示。
+- `frontend/src/stores/app.ts`：公共设置兜底配置采用管理员显示、用户隐藏。
+- `frontend/src/types/index.ts`：公共设置类型增加两个可选字段以兼容旧响应。
+- `frontend/src/utils/__tests__/usageCacheRate.spec.ts`：覆盖缓存写入分母、空输入、无效值、百分比及开关组合。
+- `frontend/src/utils/usageCacheRate.ts`：移植互斥输入桶计算、百分比格式化及统一可见性规则。
+- `frontend/src/views/admin/SettingsView.vue`：在网关使用记录设置中新增两个开关及保存逻辑。
+- `frontend/src/views/admin/UsageView.vue`：管理员 Excel 导出按开关加入缓存率，固定本次导出的列配置。
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`：验证开关默认值、保存刷新、总开关联动及已存值回填。
+- `frontend/src/views/admin/__tests__/UsageView.spec.ts`：验证管理员导出随总开关变化且表头与数据列一致。
+- `frontend/src/views/user/UsageView.vue`：用户表格使用用户可见性规则，CSV 导出遵守相同开关。
+- `frontend/src/views/user/__tests__/UsageView.spec.ts`：验证用户表格传参与 CSV 导出的开关组合和列一致性。
+- `progress.md`：仅在末尾追加本轮实现、验证、文件清单与回滚记录。
+- 回滚：在仓库根目录先执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-usage-cache-rate-20261025.xotiic6a/task.patch`，检查通过后执行 `git apply --reverse /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-usage-cache-rate-20261025.xotiic6a/task.patch`。仅回退本轮源码、测试和文档，保留更早未提交改动及进度历史。备份原文件在 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-usage-cache-rate-20261025.xotiic6a/before/`；后续重叠修改有冲突时应按补丁逐项反向恢复，禁止整仓重置。需长期保留回滚点时归档此目录。运行时可先关闭“显示使用记录缓存率”，无需删表或删除用量记录。
+
+
+## 2026-10-25 - Task: 模型广场充值比例、渠道优先价格与分组默认模型展示
+### What was done
+- 增加仅用于模型广场展示的充值比例设置，默认 1，本站可保存为 6；输入有限正数，省略保持旧值。
+- 将“官方价格”改为“模型价格”、“折扣倍率”改为“实际倍率”，输入、输出与缓存价格统一优先渠道配置，否则使用项目默认/官方价格。
+- Token 使用模型价 × 分组/专属倍率 ÷ 充值比例；按用户明确确认，普通按次/按张先将模型价除充值比例，再乘分组/专属倍率 ÷ 充值比例。
+- 明确读取图片/视频独立倍率开关，不用分组倍率是否为 1 推断。独立媒体实际倍率直接使用独立值；按次图片模型也按媒体类型处理，整组同倍率时同步标题与筛选。
+- 补齐 OpenAI、Anthropic、Grok、Gemini 与 Composite 中账号支持且分组允许的模型，未配置渠道价也可展示默认价。新增渠道模型、修改渠道价格、账号新增默认定价模型均在下一次页面加载更新。
+- 本轮只调整模型广场展示与设置，未改变支付、实际扣费、数据库结构或鉴权路径，未部署线上。
+
+### Testing
+- 后端：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service ./internal/handler ./internal/handler/admin ./internal/server -run 'Test.*(Plaza|ReasoningEffort|ListGroups_|APIContracts)' -count=1`，4 个包全部通过。
+- 更新专项：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run 'Test(ListPlazaGroups_ReflectsChannelAndAccountChanges|InvalidateCache)' -count=1`，通过；连续验证默认价展示、渠道新增、渠道改价、账号新增模型与价格缓存失效。
+- 前端：`cd frontend && pnpm exec vitest run src/components/modelPlaza/__tests__ src/utils/__tests__/modelPlaza.spec.ts src/views/admin/__tests__/SettingsView.spec.ts`，4 文件 109 项测试通过。
+- `cd frontend && pnpm run build` 通过，包括 3 项 i18n 完整性测试、vue-tsc 与 Vite 生产构建；仅有既有大 chunk 提示。
+- 对本轮 14 个前端 TS/Vue 文件执行定向 ESLint，通过；`git diff --check` 与本轮反向补丁预检通过。
+- `go test ./cmd/server -run '^Test.*Wire' -count=1` 编译通过，筛选未命中测试，仅作为依赖注入编译验证。
+- 使用生产构建和本地模拟数据进行浏览器检查：R=6、G=0.36 时 Token 实付正确；普通按次模型价 1/实付 0.06；独立生图倍率 1 时模型价 1/实付 1，标题与倍率筛选均为 1x，筛选结果正确。未连接生产数据或调用付费模型。
+- 验证日志、展示截图及基线备份保存在 `/private/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-model-plaza-20261025.fgi8yp7w`。
+
+### Notes
+- `backend/internal/service/domain_constants.go`：增加充值比例设置键。
+- `backend/internal/service/settings_view.go`：设置视图增加充值比例字段。
+- `backend/internal/handler/dto/settings.go`：管理员设置响应增加充值比例字段。
+- `backend/internal/service/setting_parse.go`：充值比例默认值、读取及有限正数归一化。
+- `backend/internal/service/setting_update.go`：将充值比例写入现有设置存储。
+- `backend/internal/service/setting_public.go`：模型广场运行配置读取充值比例。
+- `backend/internal/handler/admin/setting_handler_update.go`：接收正数充值比例，省略时保留旧值并返回保存结果。
+- `backend/internal/handler/admin/setting_handler.go`：设置查询返回充值比例。
+- `backend/internal/handler/admin/setting_handler_audit.go`：记录充值比例变更键。
+- `backend/internal/handler/model_plaza_handler.go`：广场返回充值比例与按次媒体类型。
+- `backend/internal/server/api_contract_test.go`：更新管理员设置字段契约。
+- `frontend/src/api/admin/settings.ts`：补充管理员充值比例读写类型。
+- `frontend/src/views/admin/SettingsView.vue`：增加充值比例输入框及加载保存。
+- `frontend/src/i18n/locales/zh/admin/settings.ts`：增加中文充值比例标签与说明。
+- `frontend/src/i18n/locales/en/admin/settings.ts`：增加英文充值比例标签与说明。
+- `backend/internal/service/model_plaza_service.go`：渠道价优先、默认价回落并合并账号模型，识别按次媒体类型。
+- `backend/cmd/server/wire_gen.go`：模型广场注入现有账号仓库。
+- `backend/internal/service/model_plaza_service_test.go`：验证价格来源、四平台账号模型、通配定价、媒体识别及连续配置更新。
+- `backend/internal/handler/model_plaza_handler_test.go`：适配依赖并验证广场返回充值比例。
+- `backend/internal/service/model_plaza_models.go`：从四个平台及 Composite 分组账号补充支持模型。
+- `frontend/src/api/modelPlaza.ts`：增加充值比例和媒体类型并更新价格口径说明。
+- `frontend/src/components/modelPlaza/ModelPlazaContent.vue`：传递充值比例并统一分组筛选倍率。
+- `frontend/src/components/modelPlaza/PlazaGroupSection.vue`：分组标题展示实际倍率并将充值比例传给价格表。
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`：两栏同源展示模型价格，应用 Token 与按次/按张换算及独立倍率。
+- `frontend/src/i18n/locales/zh/dashboard.ts`：更新模型价格、实际倍率和阶梯说明中文文案。
+- `frontend/src/i18n/locales/en/dashboard.ts`：更新模型价格、实际倍率和阶梯说明英文文案。
+- `frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`：验证同源价格、缓存价、充值换算、独立倍率及分时精度。
+- `backend/internal/handler/admin/setting_handler_model_plaza_test.go`：验证充值比例保存读取、省略保留及非法值拒绝/回落。
+- `frontend/src/views/admin/__tests__/SettingsView.spec.ts`：验证充值比例加载与保存。
+- `backend/internal/service/reasoning_effort_billing_test.go`：调整广场展示来源断言并保留原计费配置不变验证。
+- `docs/MODEL_PLAZA_PRICING.md`：记录配置路径、价格公式、模型来源、刷新语义和验证命令。
+- `frontend/src/utils/modelPlaza.ts`：统一独立媒体分组的标题与筛选倍率。
+- `frontend/src/utils/__tests__/modelPlaza.spec.ts`：验证独立倍率、普通倍率为 1、混合分组及用户专属倍率。
+- `progress.md`：仅在末尾追加本轮实现、测试、文件清单与回滚记录。
+- 回滚：在仓库根目录执行 `git apply --reverse --check /private/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-model-plaza-20261025.fgi8yp7w/task.patch`，预检通过后执行 `git apply --reverse /private/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-model-plaza-20261025.fgi8yp7w/task.patch`。补丁仅包含本轮源码、测试与文档，保留之前未提交改动和进度历史。原文件备份在 `/private/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-model-plaza-20261025.fgi8yp7w/before/`；后续重叠修改有冲突时按补丁逐项反向恢复，禁止整仓重置。需要长期保留回滚点时归档该目录。
+
+
+## 2026-10-25 - Task: 模型广场展示账号映射左侧名称并关联价格
+### What was done
+- 模型广场按账号模型映射左侧请求名称展示，保留配置大小写；查价与展示名称分离，左侧有单独渠道定价时优先，否则查询右侧实际模型的渠道/默认价格。
+- 隐藏仅作为映射目标的右侧渠道条目；同组账号白名单直接开放的模型仍保留名称和价格，各分组独立处理。
+- Token 输入、输出、缓存与媒体按次价格跟随选定查价模型；别名也保留图片/视频分类及此前充值比例、独立倍率的展示规则。
+- 只修改模型广场展示层，未改实际转发、扣费、鉴权或数据库结构，未部署。
+
+### Testing
+- 修复前执行 `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run 'TestPlaza(AccountAliases|Alias)' -count=1`，复现四个别名没有价格且右侧模型被额外展示（预期 5 条，实际 9 条）。
+- 修复后执行 `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service ./internal/handler -run 'Test.*(Plaza|ListGroups_)' -count=1`，两个包全部通过。覆盖截图四组映射、同组映射与白名单并存、跨分组隔离、别名单独渠道价、映射目标默认 Token/缓存价、分组名单过滤及媒体独立倍率分类。
+- `gofmt` 仅作用于本轮 3 个 Go 文件；定向 `git diff --check` 与本轮反向补丁预检通过。
+- 测试日志与本轮修改前基线保存在 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-mapping-20261025.illgllmt`。本轮无前端源码变更，无需重复生产构建；未连接生产数据或调用模型。
+
+### Notes
+- `backend/internal/service/model_plaza_models.go`：优先枚举配置的请求名称，保留映射目标并识别同组直接开放的渠道模型。
+- `backend/internal/service/model_plaza_service.go`：合并映射名称与目标价格，过滤内部目标条目并保持白名单、平台与分组隔离。
+- `backend/internal/service/model_plaza_mapping_test.go`：新增映射、白名单共存、查价优先级及媒体分类回归用例。
+- `docs/MODEL_PLAZA_PRICING.md`：补充账号映射展示、查价和白名单规则。
+- `progress.md`：仅追加本轮实现、验证与回滚记录。
+- 回滚：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-mapping-20261025.illgllmt/task.patch`，通过后执行 `git apply --reverse /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-mapping-20261025.illgllmt/task.patch`；仅回退本轮源码、测试与文档，保留上一轮充值比例功能和进度历史。修改前文件在 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-mapping-20261025.illgllmt/before/`，后续重叠改动有冲突时按补丁逐项恢复，禁止整仓重置；需长期保存回滚点时归档该目录。
+
+
+## 2026-10-25 - Task: 修复模型广场按秒视频模型的计费标签与单价单位
+### What was done
+- 修复广场漏识别 `video` 按秒计费模式的问题：模型标签显示“按秒计费”，模型价格及实付价格均使用“/ 秒”，覆盖普通单价与 768P、2K 等分辨率档位。
+- 单位依据渠道计费模式判断，按次视频仍显示“/ 次”，图片仍显示“/ 张”；沿用现有充值比例、独立倍率与价格数值计算。
+- 补齐中英文文案及使用说明；本轮仅改广场前端展示，未改后端扣费或部署线上。
+
+### Testing
+- 修复前扩充现有价格表验证并执行 `cd frontend && pnpm exec vitest run src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`，7 项断言失败，复现视频单价和分辨率档位错误显示按次单位。
+- 修复后执行 `cd frontend && pnpm exec vitest run src/components/modelPlaza/__tests__ src/utils/__tests__/modelPlaza.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`，4 文件 59 项测试全部通过；包括 MiniMax-H3 的 768P/2K 单价、充值比例换算、视频独立倍率与其他计费单位保留。
+- 对本轮 4 个前端文件执行定向 ESLint，通过；`pnpm run build` 通过（i18n、vue-tsc、Vite），仅有既有 Browserslist 数据及大 chunk 提示。
+- 定向 `git diff --check` 与独立反向补丁预检通过。验证日志与修改前基线保存于 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-video-unit-20261025.psqus5m0`。
+
+### Notes
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`：按视频计费模式展示按秒标签与价格单位。
+- `frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`：补强现有视频单价、分辨率档位及按次/按张单位断言。
+- `frontend/src/i18n/locales/zh/dashboard.ts`：增加“按秒计费”和“/ 秒”中文文案。
+- `frontend/src/i18n/locales/en/dashboard.ts`：增加对应英文文案。
+- `docs/MODEL_PLAZA_PRICING.md`：说明按秒视频单位及其与按次计费的区别。
+- `progress.md`：仅追加本轮实现、验证与回滚记录。
+- 回滚：仓库根目录先运行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-video-unit-20261025.psqus5m0/task.patch`，通过后运行 `git apply --reverse /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-video-unit-20261025.psqus5m0/task.patch`。只回退本轮修改，保留此前映射、充值比例功能及进度历史；修改前文件在 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-plaza-video-unit-20261025.psqus5m0/before/`。后续有重叠改动时按补丁逐项恢复，禁止整仓重置；需长期保留回滚点时归档该目录。
+
+## 2026-10-25 - Task: 构建并推送最新双架构镜像
+
+### What was done
+
+- 从完整当前工作区构建并推送 `iotwq/china-api:latest` 与 `iotwq/china-api:0.2.18-20261025-185138`，包含此前功能修改及视频按秒展示修复。
+- 两标签摘要为 `sha256:aa2e7ada64c2f505445b28e789023a9337f9c510253d609f3fa84253f84eb1f6`；未部署、未推送 Git。
+
+### Testing
+
+- Docker 内语言检查、类型检查、前端生产构建及 amd64/arm64 Go embed 编译通过。
+- 远端标签摘要与构建 metadata 一致，两个架构拉取后在断网、只读、非 root 容器执行 `--version` 均通过。
+- amd64 首次拉取网络 EOF，重试成功；业务验证沿用前轮测试。证据目录：`/tmp/sub2api-publish-20261025.g6qzJu`。
+- 发布记录与 metadata、平台 manifest、版本输出核对通过。
+
+### Notes
+
+- `docs/IMAGE_RELEASE_20261025.md`：新增标签、摘要、验证、充值比例设置提示及回滚说明。
+- `progress.md`：仅追加本轮发布记录。
+- 回滚远端 latest：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:223aaf973bddc02987b75837a065fdaf739c22f95cb367d9158c7d5be5fa9425`；本轮未执行回滚。文档撤销可删除本轮新增发布文档，保留进度历史。
+
+## 2026-10-25 - Task: 修复模型广场混合媒体倍率与价格小数显示
+
+### What was done
+
+- 在启用生图独立倍率的混合分组中，图片继续使用图片独立倍率；Token 语言模型继续按充值比例和分组倍率计算；按次、按秒视频及音乐等其他媒体计费行固定按 1x 计算和展示。
+- 模型广场价格和实际倍率统一限制为最多 4 位小数，同时保留至少 2 位价格小数。
+
+### Testing
+
+- `cd frontend && pnpm exec vitest run src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts src/utils/__tests__/modelPlaza.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`：3 个文件、54 项测试通过。
+- 定向 ESLint 通过；`cd frontend && pnpm run build` 通过（i18n、vue-tsc、Vite）。
+- `git diff --check` 通过。
+
+### Notes
+
+- `frontend/src/components/modelPlaza/PlazaModelPricingTable.vue`：修正混合媒体行倍率选择，并限制价格/倍率显示精度。
+- `frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts`：补充混合媒体固定 1x 和四位小数回归断言。
+- `docs/MODEL_PLAZA_PRICING.md`：同步混合媒体倍率及显示精度规则。
+- `progress.md`：仅追加本轮记录。
+- 回滚：在仓库根目录执行 `git diff -- frontend/src/components/modelPlaza/PlazaModelPricingTable.vue frontend/src/components/modelPlaza/__tests__/PlazaModelPricingTable.spec.ts docs/MODEL_PLAZA_PRICING.md > /tmp/model-plaza-mixed-media.patch` 保存当前补丁；如需撤销本轮改动，先按补丁逐项反向恢复上述三个文件，禁止整仓重置，保留其他未提交改动与进度历史。
+
+## 2026-10-25 - Task: 构建并推送模型广场修复后的双架构镜像
+
+### What was done
+
+- 从完整当前工作区构建并推送 `iotwq/china-api:latest` 与 `iotwq/china-api:0.2.18-20261025-205747`，包含混合媒体倍率和价格精度修复。
+- 两标签摘要为 `sha256:e4b8e26e6f3cf143918215de9f77b5c33bf968d4aeb6304e02ae3455dccb822a`；未部署、未推送 Git。
+
+### Testing
+
+- Docker 内前端构建及 amd64/arm64 Go embed 编译通过。
+- 远端两个标签摘要一致，平台清单包含 amd64/arm64。
+- 两架构拉取后在断网、只读、非 root 容器执行 `--version` 均通过，返回 0.2.18、`f8f0b1b3b271-dirty` 和 `2026-10-25T12:57:47Z`。拉取时出现网络 EOF，重试成功。
+- 发布证据目录：`/tmp/sub2api-publish-20261025.1u7ayn`。
+
+### Notes
+
+- `docs/IMAGE_RELEASE_20261025_205747.md`：记录本次镜像标签、摘要、架构验证及回滚命令。
+- `progress.md`：仅追加本轮发布记录。
+- 回滚远端 latest：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:aa2e7ada64c2f505445b28e789023a9337f9c510253d609f3fa84253f84eb1f6`；本轮未执行回滚。删除本轮新增发布文档并保留进度历史即可撤销记录文件，不要重置工作区。
+
+## 2026-10-27 - Task: OpenAI 平台支持 Grok Imagine 图片模型兼容转发
+
+### What was done
+- 将 `grok-imagine-image`、`grok-imagine-image-2.0`、`grok-imagine-image-quality`、`svggrok-imagine-image-2.0` 和 `svggrok-imagine-image-quality` 纳入 OpenAI API URL + Key 图片兼容能力判定。
+- 复用现有 `/v1/images/generations`、`/v1/images/edits` 转发、账号模型映射、请求体模型替换、图片响应解析和计费链路；这些模型不会进入 Codex OAuth/Setup Token 原生生图路径。
+- 补充模型准入、能力选择、直接/映射转发回归测试，并同步 OpenAI 媒体兼容文档和 API 文档。
+
+### Testing
+- `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run 'Test(CompatibleImages|OpenAIGatewayServiceParseOpenAIImagesRequest_AllowsGrokImageModels)' -count=1`：通过。
+- `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run 'Test.*(OpenAIImages|ImageGenerationIntent|Grok)' -count=1`：通过。
+- `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -count=1`：通过。
+- `git diff --check`：通过；修改的 Go 文件已执行 `gofmt`。
+
+### Notes
+- `backend/internal/service/openai_images.go`：增加 Grok Imagine 标准名和 `svggrok` 上游名的 API Key 兼容图片能力判定。
+- `backend/internal/service/openai_images_test.go`：补充 Grok 图片模型的能力分类回归断言。
+- `backend/internal/service/openai_images_midjourney_seedream_test.go`：补充 Grok 模型直接准入、账号/渠道映射和 OAuth/Setup Token 拒绝回归测试。
+- `docs/OPENAI_MEDIA_COMPAT.md`：说明 OpenAI API Key 接入 Grok Imagine 图片模型的接口、账号类型和配置要求。
+- `docs/API_DOCS.md`：补充 OpenAI 兼容 Grok Imagine 图片模型说明。
+- `progress.md`：仅追加本轮实现、验证与回滚记录。
+- 回滚：保留本轮补丁后，执行 `git apply --reverse --check /tmp/sub2api-openai-grok-images-20261027/task.patch && git apply --reverse /tmp/sub2api-openai-grok-images-20261027/task.patch`；该补丁仅包含本轮 6 个文件的增量，禁止整仓重置。
+
+## 2026-10-27 - Task: 移除 svggrok Imagine 图片模型兼容项
+
+### What was done
+- 按要求从 OpenAI API Key 图片兼容判定、回归测试和文档中移除 `svggrok-imagine-image-2.0` 与 `svggrok-imagine-image-quality`。
+- 保留 `grok-imagine-image`、`grok-imagine-image-2.0` 和 `grok-imagine-image-quality` 的现有兼容转发支持。
+
+### Testing
+- `cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run 'Test(CompatibleImages|OpenAIGatewayServiceParseOpenAIImagesRequest_AllowsGrokImageModels)' -count=1`：通过。
+- `git diff --check`：通过；修改的 Go 文件已执行 `gofmt`。
+- `rg` 核对源码和文档，已无 `svggrok-imagine-image` 残留。
+
+### Notes
+- `backend/internal/service/openai_images.go`：移除两个 `svggrok` 模型的兼容能力判定。
+- `backend/internal/service/openai_images_test.go`：移除两个模型的准入测试样例。
+- `backend/internal/service/openai_images_midjourney_seedream_test.go`：移除两个模型的映射测试样例。
+- `docs/OPENAI_MEDIA_COMPAT.md`：删除两个模型的支持说明。
+- `docs/API_DOCS.md`：删除两个模型的支持说明。
+- `progress.md`：仅追加本轮实现、验证与回滚记录。
+- 回滚：执行 `git apply --reverse --check /tmp/sub2api-remove-svggrok-20261027/task.patch && git apply --reverse /tmp/sub2api-remove-svggrok-20261027/task.patch`；仅回退本轮文件增量，禁止整仓重置。
+
+## 2026-10-27 - Task: 检查并修复 Grok 图片模型兼容转发的意图识别回归
+
+### What was done
+- 检查新增的三个标准 Grok 图片模型在 OpenAI API Key 转发、模型映射、原生账号拒绝和图片计费识别中的影响。
+- 修复兼容名单引入的图片意图识别回归：三个模型虽然不属于 OpenAI 原生图片工具模型，仍需被共享及 Grok 专用图片意图判断识别；恢复 HTTP 图片权限拦截及请求体模型识别。
+- 增补三个模型直接转发、JSON/multipart 模型映射及 OAuth/Setup Token 在直接、渠道映射、账号映射场景下拒绝转发的测试覆盖；继续使用现有 API Key 图片转发链路。
+
+### Testing
+- 修复前：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run '^TestIsImageGenerationIntentForPlatform_GrokPreservesHardSignals$' -count=1`，新增 6 个子测试失败，复现三个模型的请求模型名及请求体模型名均未被识别为生图意图。
+- 修复前：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/handler -run '^TestOpenAIGatewayHandlerResponses_GrokImageModelsRespectPermissionGate$' -count=1`，3 个子测试失败；禁用生图的分组未在权限入口返回 403，而继续调度并在测试环境返回 502。
+- 修复后：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service ./internal/handler -run 'Test.*(CompatibleImages|OpenAIImages|ImageGenerationIntent|Grok|CalculateImageCost|ImagePermission|ImageIntent|ModelRateLimit)' -count=1`，两个包均通过；覆盖直接及映射转发、原生账号拒绝、Grok 意图识别、权限拦截、图片计费和相关限流回归。
+- 本轮修改的 Go 文件已执行定向 `gofmt`；`git diff --check` 与本轮补丁反向应用预检通过。
+- 未调用真实上游生成图片，未构建或发布镜像；以上验证为本地回归测试。失败/成功日志与修改前快照保存在 `/tmp/sub2api-grok-image-review-20261027-0njqhtq7/`。
+
+### Notes
+- `backend/internal/service/image_generation_intent.go`：将图片意图模型识别与 OpenAI 原生工具分类分开，保留 Grok 图片模型意图。
+- `backend/internal/service/image_generation_intent_grok_test.go`：覆盖三个模型的参数、请求体和共享意图判断入口。
+- `backend/internal/service/openai_images_midjourney_seedream_test.go`：补齐三个模型的直接转发与原生账号拒绝测试。
+- `backend/internal/handler/openai_grok_image_intent_gate_test.go`：验证禁用生图分组对三个模型均返回权限错误。
+- `docs/OPENAI_MEDIA_COMPAT.md`：说明 OpenAI API Key 路由限制与 Grok 图片意图识别的区别。
+- `progress.md`：仅追加本轮检查、修复、验证与回滚记录。
+- 回滚：在仓库根目录执行 `git apply --reverse --check /tmp/sub2api-grok-image-review-20261027-0njqhtq7/task.patch`，通过后执行 `git apply --reverse /tmp/sub2api-grok-image-review-20261027-0njqhtq7/task.patch`；只回退本轮五个代码/测试/文档文件增量，保留本日志与此前未提交修改。后续如有重叠修改，按补丁逐项恢复，禁止整仓重置；需要长期回滚时请归档该临时目录。
+
+
+## 2026-10-27 - Task: OpenAI API Key 上游支持两个 Grok Imagine 视频模型
+
+### What was done
+- OpenAI 平台的视频创建支持 `grok-imagine-video-1.5` 与 `grok-imagine-video`，继续要求 OpenAI API Key 账号，并复用账号白名单、模型映射、Base URL 与现有视频计费。
+- 开放 OpenAI 分组的 `POST /v1/videos/generations` 及无 `/v1` 前缀别名，原有 `POST /v1/videos` 也可调用；映射后的上述两个模型统一提交上游 `/v1/videos/generations`，其他视频模型保留原路径。
+- 兼容上游 `request_id`（含 data/video 包装）作为任务 ID，补齐任务绑定和记账；保留原有 task_id/id 优先级，识别 `done` 完成状态。查询继续固定创建账号，保留上游视频 URL；内容接口仍要求上游支持 `/content`。
+- 文档补充账号配置、JSON 调用示例、查询与下载边界、现有按次/按秒及默认价格规则；不新增或修改单价。
+
+### Testing
+- 修复前定向测试复现：两个模型准入被拒绝、OpenAI `/videos/generations` 返回 404、`request_id` 未提取、`done` 未识别。证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-openai-grok-video-20261027-g9kj2dph/before-test.log`。
+- 修复后定向测试通过：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service ./internal/server/routes -run 'TestOpenAIGrokVideo|TestGatewayRoutesOpenAIVideoTaskPathsAreRegistered' -count=1`；两个包均通过，退出码 0。证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-openai-grok-video-20261027-g9kj2dph/targeted-test.log`。
+- 最终回归通过：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service ./internal/handler ./internal/server/routes -run 'Test.*(Video|Grok.*Media|CompatibleImages|ImageGenerationIntent)' -count=1`；service 1.240s、handler 1.819s、routes 1.363s，退出码 0。覆盖两模型直接及映射转发、带/不带 /v1 的 Base URL、参数保留、API Key 限制、任务绑定、done 状态、渠道按次/按秒和默认计费，并回归原视频查询/下载/退款补偿及图片兼容功能。证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-openai-grok-video-20261027-g9kj2dph/regression-test.log`。
+- 四个改动 Go 文件通过定向 gofmt 检查；`git diff --check` 与本轮增量补丁反向应用预检通过。
+- 本轮使用模拟上游验证，未调用真实付费视频上游，未制作或推送镜像。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/openai_videos.go`：新增两模型准入、Grok 创建路径选择、request_id 提取和 done 完成状态识别。
+  - `backend/internal/service/openai_grok_videos_test.go`：新增两模型创建转发、账号限制、任务绑定、状态与计费回归测试。
+  - `backend/internal/server/routes/gateway.go`：OpenAI 分组的 videos/generations 入口接入既有视频处理器。
+  - `backend/internal/server/routes/gateway_test.go`：验证新增创建入口，继续拒绝 OpenAI 分组的视频 edits/extensions 创建入口。
+  - `docs/OPENAI_MEDIA_COMPAT.md`：补充 OpenAI API Key 接入 Grok 视频的配置、调用及计费/下载边界。
+  - `docs/API_DOCS.md`：补充 Grok 视频对 OpenAI API Key 的支持和任务查询说明。
+  - `progress.md`：仅在末尾追加本轮实施和验证记录。
+- 回滚点：本轮修改前快照与仅本轮代码/测试/文档增量补丁位于 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-openai-grok-video-20261027-g9kj2dph/`；不包含此前未提交改动，也不删除历史进度日志。
+- 可执行回滚：在仓库根目录执行 `git apply --reverse --check '/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-openai-grok-video-20261027-g9kj2dph/task.patch' && git apply --reverse '/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-openai-grok-video-20261027-g9kj2dph/task.patch'`；保留本记录，回滚后另行追加说明。若文件后续继续修改，应先处理反向预检冲突，禁止整文件 reset。
+
+
+## 2026-10-28 - Task: 按 Kunrou 上游文档修正 OpenAI Grok 视频兼容接口
+
+### What was done
+- 按用户本轮提供的 `api.kunrouai.com` 文档核对并修正上一版兼容缺口：OpenAI 平台调用 `POST /v1/videos` 时改为转发上游同路径，不再因两个 Grok 模型名而强制改写到 `/videos/generations`。原有显式 `/videos/generations` 调用继续转发同路径，适配使用该协议的上游；不增加自动探测或失败后改路径重发。
+- 两个模型支持 JSON `image.url` 图生视频省略 prompt，以及 multipart `input_reference` 图片文件上传；保留文件内容、文件名、Content-Type、boundary、模型映射和其他请求字段。纯文生视频仍需 prompt；不兼容的 JSON 图片结构明确拒绝，避免误按文生视频收费。
+- 补齐 multipart 的 seconds/size 计费信息，以及文档中已知尺寸到 480p/720p/1080p 的映射；显式 resolution 优先，未知尺寸需明确填写 resolution，避免 720p 请求被当成默认 480p 计费。已有 duration/seconds、1–15 秒及默认 8 秒计费规则保留，不修改单价。
+- 模拟验证创建返回 id、轮询 in_progress/completed、最终 /content 下载 MP4 的异步流程；不要求状态响应含 URL，不重复计费。更新接入说明和 curl 上传示例。
+- 本轮未新增 `/v1/tasks/{id}/artifacts` 及文件列表下载子路径；用户文档的主要生成、查询、/content 下载链路可通过现有接口完成。
+
+### Testing
+- 修复前定向测试复现创建路径不一致、JSON 首帧省略 prompt 被拒、Grok multipart 被拒、size=1280x720 被识别为 480p。证据：`/tmp/sub2api-kunrou-video-20261028-vm24ptn1/before-test.log`。
+- 修复后首轮定向测试通过：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service -run 'TestOpenAIGrokVideo' -count=1`，退出码 0。证据：`/tmp/sub2api-kunrou-video-20261028-vm24ptn1/targeted-test.log`。
+- 最终回归通过：`cd backend && GOMAXPROCS=4 go test -tags=unit ./internal/service ./internal/handler ./internal/server/routes -run 'Test.*(Video|Grok.*Media|CompatibleImages|ImageGenerationIntent)' -count=1`。service 1.588s、handler 2.031s、routes 1.535s，退出码 0。证据：`/tmp/sub2api-kunrou-video-20261028-vm24ptn1/regression-test.log`。
+- 新增验证覆盖：两模型的文本及 JSON 首帧输入、HTTP/data URL/纯 Base64、无提示词上传、文件字节与字段保留、错误图片结构、两种创建路径、已知 size 档位和实际默认单价计算、无 URL 状态响应、MP4 透传及查询/下载不新增视频计费数量。相关原视频下载 Range/HEAD、账号绑定、退款补偿和图片兼容测试一并回归。
+- 定向 gofmt、`git diff --check`、本轮增量补丁反向应用预检通过；日志只在末尾追加。
+- 使用用户提供的文档和模拟上游进行验证，未使用真实上游 Key 发起付费生成，未部署、制作或推送镜像。日期按 Asia/Shanghai 记录。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/openai_videos.go`：修正 Grok 创建路径选择，支持 JSON 首帧可选提示词和 multipart 上传，补齐 size/seconds 计费解析。
+  - `backend/internal/service/openai_grok_videos_test.go`：新增上游文档对应的输入、计费、协议保留和创建/查询/下载回归测试。
+  - `docs/OPENAI_MEDIA_COMPAT.md`：说明 Kunrou 的 /videos 接入方式、图片上传、异步取回视频、尺寸计费和未新增的 artifacts 接口。
+  - `docs/API_DOCS.md`：区分 Grok 平台原协议与 OpenAI API Key 上游协议，补充单首帧与任务下载说明。
+  - `progress.md`：仅追加本轮修复、验证和回滚记录。
+- 回滚点：本轮修改前快照及仅本轮增量补丁位于 `/tmp/sub2api-kunrou-video-20261028-vm24ptn1/`，不包含前轮或其他未提交改动。
+- 可执行回滚：在仓库根目录运行 `git apply --reverse --check '/tmp/sub2api-kunrou-video-20261028-vm24ptn1/task.patch' && git apply --reverse '/tmp/sub2api-kunrou-video-20261028-vm24ptn1/task.patch'`。补丁不删除本条进度记录；回滚后另行追加说明。若后续改动导致预检冲突，需逐处确认，禁止整文件 reset。
+
+
+## 2026-10-28 - Task: 构建并推送 Grok 视频兼容修正后的双架构镜像
+
+### What was done
+- 按既有发布方式从当前完整工作区构建 `iotwq/china-api:0.2.18-20261028-003819`，包含最近 Grok 图片和视频兼容修正；保留现有未提交改动，不修改业务代码。
+- 先推送固定标签并验证两个架构，再更新 `iotwq/china-api:latest`；两个标签摘要均为 `sha256:38327c6cef96ed67e3706f2e8853d6e65a0a512d8b4dd7dc003099455f53cfa9`。
+- 未执行线上部署、重启业务服务、生产数据库修改或 Git push。
+
+### Testing
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 --build-arg VERSION=0.2.18 --build-arg COMMIT=f8f0b1b3b271-dirty --build-arg DATE=2026-10-27T16:38:19Z --tag iotwq/china-api:0.2.18-20261028-003819 --metadata-file /tmp/sub2api-publish-20261028.1wu8_yss/build-metadata.json --progress plain --push .` 成功，退出码 0；Docker 内前端构建和双架构 Go embed 编译通过。
+- `docker buildx imagetools inspect` 验证固定标签与构建元数据摘要一致，平台包含 linux/amd64、linux/arm64。
+- 分别按平台摘要拉取并检查镜像架构，在 `--network none --read-only --user 1000:1000` 容器执行 `--version`，均通过并返回 `0.2.18`、`f8f0b1b3b271-dirty`、`2026-10-27T16:38:19Z`。
+- latest 发布后再次核对两个远端标签：摘要一致，双架构清单正确。
+- `git diff --check` 通过；进度记录仅在末尾追加。
+- 发布证据目录：`/tmp/sub2api-publish-20261028.1wu8_yss`。本轮未运行真实付费上游生成，镜像冒烟验证不代替生产环境联调。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261028_003819.md`：新增镜像标签、平台摘要、构建及运行验证、下载指令和回滚方式。
+  - `progress.md`：仅追加本次构建发布记录。
+- 回滚远端 latest：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:e4b8e26e6f3cf143918215de9f77b5c33bf968d4aeb6304e02ae3455dccb822a`。部署侧也可固定到 `iotwq/china-api@sha256:e4b8e26e6f3cf143918215de9f77b5c33bf968d4aeb6304e02ae3455dccb822a`；本轮未执行回滚。
+- 如仅撤销本次发布文档，执行 `rm -- docs/IMAGE_RELEASE_20261028_003819.md` 并保留历史进度记录；禁止整仓 reset。镜像回退不会自动撤销数据库或后台配置。
+
+
+## 2026-10-28 - Task: 合并 Wei-Shaw/sub2api 最新 0.2.19 并保留本站定制
+
+### What was done
+- 按用户要求把 `upstream/main` 从 `5c185c5c5d4f5e409e2139806e0964ae944e03e8` 合并至 `a3298b46ebe239fb0720b068a1eb3383955bdac2`，版本为 0.2.19，覆盖 76 个提交和 261 个上游路径；本地合并提交为 `4491998af6177e37b9b5d5041ee296e3dcb56bd6`。
+- 用户显式确认管理 API 密钥权限、分组按张计费开关和两项数据库迁移一并合入。完成八处上游合并冲突和十一处本地定制恢复冲突处理，保留原有业务、账号、计费和媒体能力。
+- 修复模型目录接口签名适配、Ent 字段索引及 Wire 装配；保留模型广场的渠道价优先与本站默认模型顺序，适配上游新增测试。进一步修复 Terra none 推理参数在本地 Chat 转换器中丢失的问题并补测试。
+- 最后追加 5 个 OAuth 非流式 Responses 修复提交并重新运行全量后端、定向 race 和完整前后端 embed 编译，仍保留本地 BPS 中断保护。
+- 管理密钥、按张计费、Grok 目录、Gemini 模型与重试、DeepSeek 缓存/角色兼容、Claude UTF-16 和依赖修复已合入；按张计费默认关闭。同步使用说明、迁移边界、逐文件来源和可执行恢复步骤。
+- 不推送 Git、不制作或推送镜像、不部署、不修改生产数据库或生产账号；保留现有 53 个未跟踪文件和 8 项删除状态。最终镜像须包含当前完整工作区。
+
+### Testing
+- 前端冻结依赖安装、typecheck、lint、400 个测试文件 / 3299 项测试、翻译完整性和生产构建通过；产物位于 `/tmp/sub2api-sync-20261028-xemq5ef3/frontend-dist`，保留既有大 chunk 警告。
+- 后端最终全量 `GOMAXPROCS=4 go test -mod=readonly -p 4 -tags=unit ./... -count=1 -timeout=15m -json` 退出码 0；60 个有测试包通过，26416 个通过事件（含子测试），没有跳过指定用例来规避失败。需要真实数据库的管理密钥用例另外显式提供独立测试 DSN 执行。
+- service/handler/admin/repository/server/middleware/routes 的 Grok、Gemini、BPS/Excel、视频、图片计费、模型广场定向回归通过；Grok 目录、管理员权限、BPS/Excel、媒体的定向 race 通过。
+- 最后追加的 OAuth 非流式增量通过全量后端复测；OAuth 流式/非流式、SSE 聚合、compact、BPS/Excel 定向 race 通过（同一用例集合以 `-parallel 1` 调度，`oauth-followup-race.log`），覆盖客户端非流式标志、缺失 Content-Type、incomplete/cancelled 状态和用量。
+- Basispoints、apicompat、tlsfingerprint 和 openai_ws_v2 四包完整 race 通过。首轮命令将 WS 包路径误写在 pkg 下，其他三包已通过，随后按实际 service 路径完成 WS 全包；Terra 修正后 apicompat 全包 race 再次通过。
+- 独立 PostgreSQL 18.1 / Redis 8.4 集成通过：完整迁移与幂等/并发、246/248 共存、Grok 目录 CAS 和普通更新、BPS 403 状态与事务；另一个隔离库通过原子计费、退款、去重、请求中删除 Key/账号后的扣费、视频审账；图片超过预估/已释放冻结后重试结算单独通过。
+- 新管理密钥的独立 PostgreSQL 权限、生命周期、代理选择、并发轮换和事务回滚用例通过；加 race 复测也通过。测试容器已清理，未使用生产数据库。
+- Wire diff 无差异；Ent 从合并后的 schema 重新生成，最终只有预期分组相关文件存在差异。使用完整最终后端源码和本轮前端产物在临时目录执行 embed 生产编译成功，`--version` 返回 `0.2.19` / `4491998af-dirty`；编译源码哈希与最终工作区一致。
+- 保留失败证据：生成器首次 readonly 缺少工具依赖，改用临时 modfile；一次过早并行编译读到 Ent 生成中间态，生成完成后废弃该结果并重跑；上游模型目录返回签名与本地 BPS/MiniMax 分支不一致、两个图片计费测试签名、两项广场规则与默认模型排序断言均已适配。后续全量测试进一步暴露 Terra none 被本地转换器丢弃，修复运行逻辑并补覆盖后最终全量通过。未把失败命令标记为成功。
+- `git diff --check`、无冲突标记/未合并索引检查通过；逐项核对合并前 4753 个路径，改动仅在上游增量与明确兼容/文档范围。53 个原有未跟踪文件哈希均一致，8 项原有删除保持删除，进度历史未改写。没有调用真实付费模型上游。
+- 扩展 race 首轮暴露既有 compact 测试同时写入 Gin 全局模式的测试夹具竞争（两个相关文件与合并前哈希一致），失败日志保留为 `oauth-followup-race-parallel-failed.log`；同一用例集合保持 race 检测开启，以 `-parallel 1` 调度复测通过。未修改无关旧测试，也不据此声称全 service 包在默认并行 race 下通过。
+- 后续合并前发现无人持有、已残留约 22 分钟的空 `.git/index.lock`；核对进程和 lsof 后将该锁移入证据目录，随后正常完成合并与局部 stash 恢复，未强制覆盖索引。
+- 原始证据：`/tmp/sub2api-sync-20261028-xemq5ef3`，最终后端结果为 `backend-unit-followup.jsonl` / `backend-unit-followup-summary.json`，生产编译为 `production-build-followup.log`；其他失败/成功日志均保留。
+
+### Notes
+- 来源与兼容范围：`docs/upstream-sync-20261028-files.md`。下面逐项列出上游及本轮适配文件；原有工作区定制没有整体纳入合并提交。
+
+| 文件 | 本轮说明 |
+| --- | --- |
+| `.gitignore` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `README.md` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `README_CN.md` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `README_JA.md` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `assets/partners/banners/wandapi-cn-dark.svg` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `assets/partners/banners/wandapi-cn.svg` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `assets/partners/banners/wandapi-en-dark.svg` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `assets/partners/banners/wandapi-en.svg` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `assets/partners/logos/NiuProxy.jpg` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `assets/partners/logos/soleapi.png` | 同步上游：3f1c8f36c chore: update Sponsors |
+| `backend/cmd/server/VERSION` | 同步上游：a9240d501 chore: sync VERSION to 0.2.19 [skip ci] |
+| `backend/cmd/server/wire_gen.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/ent/group.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/group/group.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/group/where.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/group_create.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/group_update.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/migrate/schema.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/mutation.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/runtime/runtime.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/ent/schema/group.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/go.mod` | 同步上游：0a2a29b32 chore(deps): bump golang.org/x/net to v0.62.0 (GO-2026-6860) |
+| `backend/go.sum` | 同步上游：0a2a29b32 chore(deps): bump golang.org/x/net to v0.62.0 (GO-2026-6860) |
+| `backend/internal/config/config.go` | 同步上游：4197fa620 feat(gemini): 同账号重试次数改为可配置 gateway.max_same_account_retries_gemini |
+| `backend/internal/config/config_test.go` | 同步上游：4197fa620 feat(gemini): 同账号重试次数改为可配置 gateway.max_same_account_retries_gemini |
+| `backend/internal/handler/admin/account_handler.go` | 同步上游：d4136cea5 fix(grok): 提供账号模型目录差异诊断 |
+| `backend/internal/handler/admin/account_handler_grok_model_diagnostics_test.go` | 同步上游：dfc13ce7f fix(grok): 修复模型目录审计相关 lint 错误 |
+| `backend/internal/handler/admin/admin_helpers_test.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/handler/admin/announcement_handler.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_accounts.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_accounts_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_codex_import.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_codex_import_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_commit_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_group_models.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_proxies.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_proxies_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_users.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_key_users_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_keys.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_admin_keys_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/custom_legacy_admin_key_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/group_handler.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/handler/admin/idempotency_helper.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/ops_dashboard_handler.go` | 同步上游：f96528048 fix(pagination): keep page offsets from overflowing int |
+| `backend/internal/handler/admin/promo_handler.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/proxy_handler.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/scoped_admin_content_response.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/scoped_admin_content_response_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/scoped_admin_subscription_response.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/scoped_admin_subscription_response_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/scoped_admin_usage_response.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/scoped_admin_usage_response_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/setting_handler_runtime.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/subscription_handler.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/usage_handler.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/admin/user_handler.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/handler/dto/account_mapper_redact_test.go` | 同步上游：d4136cea5 fix(grok): 提供账号模型目录差异诊断 |
+| `backend/internal/handler/dto/mappers.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/handler/dto/types.go` | 同步上游：d4136cea5 fix(grok): 提供账号模型目录差异诊断 |
+| `backend/internal/handler/gateway_models_test.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/handler/gemini_cached_content_bound_retry_test.go` | 同步上游：a20741237 fix(gemini): 绑定显式缓存的请求在池模式上游网关账号上按配置同账号重试 |
+| `backend/internal/handler/gemini_mixed_models_test.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/handler/gemini_v1beta_handler.go` | 同步上游：de44e3a0b fix(gemini): 分组账号都声明模型映射时，/v1beta/models 列表与详情按声明的模型应答 |
+| `backend/internal/pkg/adminaccess/catalog.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/pkg/adminaccess/policy.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/pkg/adminaccess/policy_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/pkg/antigravity/response_transformer.go` | 同步上游：14a5fe305 fix(antigravity): reject malformed non-streaming tool calls |
+| `backend/internal/pkg/antigravity/response_transformer_malformed_test.go` | 同步上游：14a5fe305 fix(antigravity): reject malformed non-streaming tool calls |
+| `backend/internal/pkg/apicompat/anthropic_to_responses.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/pkg/apicompat/reasoning.go` | 补齐 Terra none 推理档位保留，兼容本站 Chat 转换器。 |
+| `backend/internal/pkg/apicompat/reasoning_gpt61_terra_test.go` | 覆盖平铺和嵌套 none 参数向 Responses 转换。 |
+| `backend/internal/pkg/gemini/models.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/pkg/gemini/models_test.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/pkg/geminicli/models.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/pkg/geminicli/models_test.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/pkg/openai/constants.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/pkg/pagination/pagination.go` | 同步上游：f96528048 fix(pagination): keep page offsets from overflowing int |
+| `backend/internal/pkg/pagination/pagination_test.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/pkg/response/response.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/pkg/response/response_test.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/repository/account_repo.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/repository/account_repo_codex_ticket_test.go` | 适配账号锁定查询新增 Grok 列，保留本站门票测试。 |
+| `backend/internal/repository/account_repo_grok_managed_extra_integration_test.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/repository/account_repo_grok_managed_extra_test.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/repository/account_repo_grok_models.go` | 同步上游：87266a7b1 fix(grok): 原子保存模型目录观测快照 |
+| `backend/internal/repository/account_repo_grok_models_integration_test.go` | 同步上游：87266a7b1 fix(grok): 原子保存模型目录观测快照 |
+| `backend/internal/repository/account_repo_grok_models_test.go` | 同步上游：b1cb2eb1f fix(grok): 补齐取消与调用方事务的回归断言 |
+| `backend/internal/repository/account_repo_opencode_go_usage_test.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/repository/account_repo_upstream_billing_probe_update_test.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/repository/api_key_repo.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/repository/custom_account_proxy_selection.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_account_proxy_selection_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_key_group_models.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_key_group_models_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_key_review_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_key_scope.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_key_scope_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_key_transaction.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_keys.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_keys_postgres_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_admin_keys_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_proxy_options.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_proxy_sample_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/custom_proxy_search.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/group_repo.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/repository/image_count_billing_migration_integration_test.go` | 验证 248 默认关闭、重复应用及本站分组字段保留。 |
+| `backend/internal/repository/pagination_test.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/repository/setting_repo.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/repository/wire.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/securityaudit/prompt_handler.go` | 同步上游：f96528048 fix(pagination): keep page offsets from overflowing int |
+| `backend/internal/securityaudit/prompt_handler_test.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/server/api_contract_test.go` | 同步上游：cb2959245 test(api): include image_count_billing in available groups contract |
+| `backend/internal/server/middleware/admin_auth.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/middleware/custom_admin_key_rate_limit_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/middleware/custom_admin_keys_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/middleware/panel_rate_limit.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/admin.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/custom_admin_key_access_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/custom_admin_key_group_models_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/custom_admin_key_payment_rate_limit_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/custom_admin_key_user_responses_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/custom_admin_keys.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/custom_admin_keys_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/server/routes/payment.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/account_test_service.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/service/account_test_service_gemini_test.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/service/admin_account.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/service/admin_account_grok_catalog_test.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/service/admin_group.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/service/admin_group_duplicate.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/service/admin_service.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/service/admin_service_role_test.go` | 同步上游：88d9c43b3 fix(admin): 管理员保护规则返回 400 而不是 500 |
+| `backend/internal/service/admin_user.go` | 同步上游：88d9c43b3 fix(admin): 管理员保护规则返回 400 而不是 500 |
+| `backend/internal/service/antigravity_gateway_compat.go` | 同步上游：14a5fe305 fix(antigravity): reject malformed non-streaming tool calls |
+| `backend/internal/service/antigravity_gateway_gemini.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/antigravity_gateway_nonstream_malformed_test.go` | 同步上游：14a5fe305 fix(antigravity): reject malformed non-streaming tool calls |
+| `backend/internal/service/antigravity_gateway_streaming.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/service/antigravity_image_test.go` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `backend/internal/service/api_key_auth_cache.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/service/api_key_auth_cache_impl.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/api_key_service.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/service/billing_service.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/billing_service_test.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/channel_service.go` | 同步上游：9eba61736 fix(channels): preserve web_search_emulation platform dimensions on update |
+| `backend/internal/service/channel_websearch_merge_test.go` | 同步上游：1352e899e test(channels): use checked type assertions in web search merge tests |
+| `backend/internal/service/custom_admin_key_accounts.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_accounts_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_codex_import.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_codex_import_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_group_models.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_group_models_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_proxy_selection.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_proxy_selection_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_recovery_review_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_testdb_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_transaction.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_key_transaction_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_keys.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_admin_keys_test.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/custom_proxy_options.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/deepseek_pricing_test.go` | 同步上游：5db2d6956 fix(billing): retain DeepSeek V4 Pro pricing after September 14 |
+| `backend/internal/service/gateway_billing_block.go` | 同步上游：7bce2cfb4 fix(claude): match JavaScript UTF-16 billing fingerprint semantics |
+| `backend/internal/service/gateway_billing_block_test.go` | 同步上游：7bce2cfb4 fix(claude): match JavaScript UTF-16 billing fingerprint semantics |
+| `backend/internal/service/gateway_billing_header_test.go` | 同步上游：7bce2cfb4 fix(claude): match JavaScript UTF-16 billing fingerprint semantics |
+| `backend/internal/service/gateway_service.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/gateway_usage_billing.go` | 同步上游：3ce09c8af fix(billing): keep tokens for channel per-request image tiers |
+| `backend/internal/service/gemini_cached_content.go` | 同步上游：a20741237 fix(gemini): 绑定显式缓存的请求在池模式上游网关账号上按配置同账号重试 |
+| `backend/internal/service/gemini_cached_content_hardening_test.go` | 同步上游：a20741237 fix(gemini): 绑定显式缓存的请求在池模式上游网关账号上按配置同账号重试 |
+| `backend/internal/service/gemini_chat_completions_compat_service.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/gemini_error_policy_single_check_test.go` | 同步上游：4197fa620 feat(gemini): 同账号重试次数改为可配置 gateway.max_same_account_retries_gemini |
+| `backend/internal/service/gemini_image_output_accounting.go` | 同步上游：917dbdc70 fix(gemini): count fileData image outputs for billing |
+| `backend/internal/service/gemini_image_output_accounting_test.go` | 同步上游：917dbdc70 fix(gemini): count fileData image outputs for billing |
+| `backend/internal/service/gemini_messages_compat_service.go` | 同步上游：a20741237 fix(gemini): 绑定显式缓存的请求在池模式上游网关账号上按配置同账号重试 |
+| `backend/internal/service/gemini_models_endpoints.go` | 同步上游：de44e3a0b fix(gemini): 分组账号都声明模型映射时，/v1beta/models 列表与详情按声明的模型应答 |
+| `backend/internal/service/gemini_same_account_retries_test.go` | 同步上游：4197fa620 feat(gemini): 同账号重试次数改为可配置 gateway.max_same_account_retries_gemini |
+| `backend/internal/service/gemini_vertex_api_key_forward_test.go` | 同步上游：4197fa620 feat(gemini): 同账号重试次数改为可配置 gateway.max_same_account_retries_gemini |
+| `backend/internal/service/grok_media.go` | 同步上游：cde6ddfd8 fix(images): reject oversized multipart uploads instead of truncating them |
+| `backend/internal/service/grok_model_catalog.go` | 同步上游：dfc13ce7f fix(grok): 修复模型目录审计相关 lint 错误 |
+| `backend/internal/service/grok_model_catalog_store.go` | 同步上游：87266a7b1 fix(grok): 原子保存模型目录观测快照 |
+| `backend/internal/service/grok_model_catalog_store_test.go` | 同步上游：b1cb2eb1f fix(grok): 补齐取消与调用方事务的回归断言 |
+| `backend/internal/service/grok_model_catalog_sync_test.go` | 同步上游：41a6ff8ac fix(grok): 对齐手动同步与后台目录观察 |
+| `backend/internal/service/grok_model_catalog_test.go` | 同步上游：6202da0f5 fix(grok): 统一模型目录解析与观测状态 |
+| `backend/internal/service/grok_model_diagnostics.go` | 同步上游：bb11e83c4 fix(grok): 裸别名无法核验且自定义 ID 保留大小写 |
+| `backend/internal/service/grok_model_diagnostics_test.go` | 同步上游：bb11e83c4 fix(grok): 裸别名无法核验且自定义 ID 保留大小写 |
+| `backend/internal/service/grok_observed_models.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/service/grok_observed_models_log_test.go` | 同步上游：02db748cd fix(grok): 保留受管目录快照并阻止非法时间与敏感失败日志 |
+| `backend/internal/service/grok_p2_test.go` | 同步上游：6202da0f5 fix(grok): 统一模型目录解析与观测状态 |
+| `backend/internal/service/grok_quota_service_test.go` | 同步上游：635b83535 fix(grok): 让旧后台观察测试走 CAS 持久化 |
+| `backend/internal/service/grok_response_model_audit_test.go` | 同步上游：d01f2eb42 fix(grok): 固定聚合前序模型审计并跳过非 Grok |
+| `backend/internal/service/group.go` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/internal/service/group_service.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/image_billing_count.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/image_billing_count_test.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/image_count_billing_switch_test.go` | 同步上游：3ce09c8af fix(billing): keep tokens for channel per-request image tiers |
+| `backend/internal/service/media_price_config.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/model_plaza_service.go` | 同步上游：d0afece15 fix(model-plaza): prefer group model pricing over image fallback tiers |
+| `backend/internal/service/model_plaza_service_test.go` | 同步上游：d0afece15 fix(model-plaza): prefer group model pricing over image fallback tiers |
+| `backend/internal/service/openai_chat_roles.go` | 同步上游：ba5b21879 fix(gateway): 修复 OpenCode 转发 DeepSeek 的角色兼容 |
+| `backend/internal/service/openai_chat_roles_test.go` | 同步上游：ba5b21879 fix(gateway): 修复 OpenCode 转发 DeepSeek 的角色兼容 |
+| `backend/internal/service/openai_codex_models_service.go` | 同步上游：b2b1bcf26 fix(models): 模型列表刷新进入 singleflight 后复查缓存，避免并发冷启动重复请求上游 |
+| `backend/internal/service/openai_codex_transform.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_compat_model.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_gateway_chat_completions.go` | 同步上游：d01f2eb42 fix(grok): 固定聚合前序模型审计并跳过非 Grok |
+| `backend/internal/service/openai_gateway_chat_completions_raw.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_gateway_grok.go` | 同步上游：014cc016f fix(grok): 补全原生 Responses 响应模型审计 |
+| `backend/internal/service/openai_gateway_messages.go` | 同步上游：d01f2eb42 fix(grok): 固定聚合前序模型审计并跳过非 Grok |
+| `backend/internal/service/openai_gateway_messages_chat_fallback.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_gateway_passthrough.go` | 同步上游：4db8402b5 fix(openai): detect SSE body without Content-Type in OAuth passthrough non-stream |
+| `backend/internal/service/openai_gateway_response_handling.go` | 同步上游：3e18e78ab fix(usage): DeepSeek prompt_cache_hit_tokens 计为缓存读取 |
+| `backend/internal/service/openai_gateway_responses_chat_fallback.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_gateway_service.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/openai_gateway_usage.go` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `backend/internal/service/openai_gpt61_terra_test.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_images.go` | 同步上游：cde6ddfd8 fix(images): reject oversized multipart uploads instead of truncating them |
+| `backend/internal/service/openai_images_responses.go` | 同步上游：cde6ddfd8 fix(images): reject oversized multipart uploads instead of truncating them |
+| `backend/internal/service/openai_images_upload_limit_test.go` | 同步上游：cde6ddfd8 fix(images): reject oversized multipart uploads instead of truncating them |
+| `backend/internal/service/openai_model_alias.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/openai_oauth_passthrough_non_stream_test.go` | 同步上游：4db8402b5 fix(openai): detect SSE body without Content-Type in OAuth passthrough non-stream |
+| `backend/internal/service/openai_usage_deepseek_cache_test.go` | 同步上游：3e18e78ab fix(usage): DeepSeek prompt_cache_hit_tokens 计为缓存读取 |
+| `backend/internal/service/pagination_test.go` | 同步上游：9aa16c8c6 fix(pagination): validate numeric ranges and reuse safe offsets |
+| `backend/internal/service/pricing_service.go` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `backend/internal/service/ratelimit_cn_frequency_429_test.go` | 同步上游：de908ed6d fix(ratelimit): 国产 Coding Plan 的频率型 429 改用秒级冷却 |
+| `backend/internal/service/ratelimit_cn_providers.go` | 同步上游：de908ed6d fix(ratelimit): 国产 Coding Plan 的频率型 429 改用秒级冷却 |
+| `backend/internal/service/response_model_billing_test.go` | 同步上游：014cc016f fix(grok): 补全原生 Responses 响应模型审计 |
+| `backend/internal/service/setting_features.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/setting_service.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/internal/service/upstream_models.go` | 同步上游：d4136cea5 fix(grok): 提供账号模型目录差异诊断 |
+| `backend/internal/service/upstream_models_test.go` | 同步上游：41a6ff8ac fix(grok): 对齐手动同步与后台目录观察 |
+| `backend/internal/service/upstream_response_model_test.go` | 同步上游：014cc016f fix(grok): 补全原生 Responses 响应模型审计 |
+| `backend/internal/service/wire.go` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/migrations/247_scoped_admin_api_keys.sql` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `backend/migrations/248_group_image_count_billing.sql` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `backend/resources/model-pricing/model_prices_and_context_window.json` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `docs/UPSTREAM_SYNC.md` | 追加上游同步结论、验证和回滚点。 |
+| `docs/admin-api-keys.md` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `docs/upstream-sync-20261028-files.md` | 记录上游逐文件来源、本地适配和迁移说明。 |
+| `frontend/src/api/__tests__/admin.accounts.grokModelDiagnostics.spec.ts` | 同步上游：60931bce3 fix(grok): 展示模型目录诊断并保留编辑草稿 |
+| `frontend/src/api/admin/accounts.ts` | 同步上游：60931bce3 fix(grok): 展示模型目录诊断并保留编辑草稿 |
+| `frontend/src/api/admin/adminAccessKeys.ts` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/components/account/EditAccountModal.vue` | 同步上游：9534f1c08 fix(grok): 提高删除图标对比度并补齐同步按钮 Label in Name |
+| `frontend/src/components/account/GrokModelDiagnosticsPanel.vue` | 同步上游：9534f1c08 fix(grok): 提高删除图标对比度并补齐同步按钮 Label in Name |
+| `frontend/src/components/account/ModelWhitelistSelector.vue` | 同步上游：dfc13ce7f fix(grok): 修复模型目录审计相关 lint 错误 |
+| `frontend/src/components/account/__tests__/EditAccountModal.grokUpstream.spec.ts` | 同步上游：dfc13ce7f fix(grok): 修复模型目录审计相关 lint 错误 |
+| `frontend/src/components/account/__tests__/GrokModelDiagnosticsPanel.spec.ts` | 同步上游：9534f1c08 fix(grok): 提高删除图标对比度并补齐同步按钮 Label in Name |
+| `frontend/src/components/account/__tests__/ModelWhitelistSelector.spec.ts` | 同步上游：21b5b49d0 fix(grok): 统一目录同步入口并保留模式隔离 |
+| `frontend/src/components/admin/settings/AdminAccessKeysSettings.vue` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/components/admin/settings/__tests__/AdminAccessKeysSettings.spec.ts` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/components/keys/UseKeyModal.vue` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts` | 同步上游：342366742 feat(openai): support GPT-6.1 Terra |
+| `frontend/src/composables/__tests__/useModelWhitelist.spec.ts` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `frontend/src/composables/useModelWhitelist.ts` | 同步上游：31564b2e8 fix(gemini): 刷新 Gemini 默认模型列表，移除已停用的 2.x 模型 |
+| `frontend/src/i18n/locales/en/admin/accounts.ts` | 同步上游：7f18239be fix(grok): 对齐模型编辑布局与响应式展示 |
+| `frontend/src/i18n/locales/en/admin/channels.ts` | 同步上游：9eba61736 fix(channels): preserve web_search_emulation platform dimensions on update |
+| `frontend/src/i18n/locales/en/admin/overview.ts` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `frontend/src/i18n/locales/en/adminAccessKeys.ts` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/i18n/locales/en/index.ts` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/i18n/locales/zh/admin/accounts.ts` | 同步上游：7f18239be fix(grok): 对齐模型编辑布局与响应式展示 |
+| `frontend/src/i18n/locales/zh/admin/channels.ts` | 同步上游：9eba61736 fix(channels): preserve web_search_emulation platform dimensions on update |
+| `frontend/src/i18n/locales/zh/admin/overview.ts` | 同步上游：fd998129e feat(billing): support per-image billing for multi-image requests |
+| `frontend/src/i18n/locales/zh/adminAccessKeys.ts` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/i18n/locales/zh/index.ts` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/types/index.ts` | 同步上游：60931bce3 fix(grok): 展示模型目录诊断并保留编辑草稿 |
+| `frontend/src/views/admin/ChannelsView.vue` | 同步上游：9eba61736 fix(channels): preserve web_search_emulation platform dimensions on update |
+| `frontend/src/views/admin/GroupsView.vue` | 同步上游：aa1a1b11c fix(billing): gate per-image billing by endpoint and pricing mode |
+| `frontend/src/views/admin/SettingsView.vue` | 同步上游：e445cc3e2 新增按操作与资源范围授权的管理员 API 密钥 |
+| `frontend/src/views/admin/__tests__/ChannelsView.webSearchEmulation.spec.ts` | 同步上游：9eba61736 fix(channels): preserve web_search_emulation platform dimensions on update |
+| `progress.md` | 仅追加本轮实施、验证、文件清单和恢复方式。 |
+
+- 回滚点：`codex/pre-upstream-sync-20261028-212354` / 原 HEAD `f8f0b1b3b271d1fe564d2378f8d1d591fb99ed16`；stash `955af774301674df7874d00a3e929a688ce2234a`；完整归档 `/tmp/sub2api-sync-20261028-xemq5ef3/before.tgz`。保留本条历史记录，回滚另行追加。
+- 可执行恢复（仅在新目录恢复，不覆盖当前工作区；本轮未执行回滚）：
+
+```sh
+restore_dir=$(mktemp -d /tmp/sub2api-pre-sync-20261028.XXXXXX)
+git worktree add --detach "$restore_dir" codex/pre-upstream-sync-20261028-212354
+git -C "$restore_dir" stash apply --index 955af774301674df7874d00a3e929a688ce2234a
+tar -xzf /tmp/sub2api-sync-20261028-xemq5ef3/before.tgz -C "$restore_dir"
+```
+
+- 后续部署会自动执行 247/248 迁移，部署前备份数据库；上述源码恢复不自动回滚数据库。临时证据目录需长期保存时应另行归档。禁止整仓 reset 或覆盖其他未提交工作。
+
+
+## 2026-10-29 - Task: 构建并推送合并上游 0.2.19 后的双架构镜像
+
+### What was done
+- 基于当前完整工作区构建并推送 `iotwq/china-api:0.2.19-20261029-005248`，包含上一轮上游合并与既有未提交定制；构建标识 `4491998af617-dirty`，没有修改业务代码。
+- 先推送固定标签，通过双架构运行验证后更新 `iotwq/china-api:latest`；两个标签摘要均为 `sha256:a50a36f344de1e8b283415f7dc4ce8afbb1496d6cb6768568bba8d9a5c75d917`。
+- 完成发布说明和回滚记录；未部署、重启生产服务、修改生产数据或执行 Git push。
+
+### Testing
+- `docker buildx build --builder codex-multiarch --platform linux/amd64,linux/arm64 --file Dockerfile --build-arg VERSION=0.2.19 --build-arg COMMIT=4491998af617-dirty --build-arg DATE=2026-10-28T16:52:48Z --tag iotwq/china-api:0.2.19-20261029-005248 --metadata-file /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261029-zxu9zcw6/build-metadata.json --progress plain --push .` 退出码 0；Docker 内前端生产构建和两个目标架构的 Go embed 编译通过。
+- 后端 3670 个源码快照文件与上一轮验证通过的版本一致；本轮未重复宣称运行上一轮全量单元测试。
+- 远端固定标签与构建元数据摘要一致，包含 linux/amd64、linux/arm64；两个平台分别拉取并检查系统/架构。
+- 两个平台在断网、只读、UID 1000、删除 capabilities、禁止提权容器中执行 `--version`，均返回 `0.2.19` / `4491998af617-dirty` / `2026-10-28T16:52:48Z`，退出码 0。
+- latest 更新后再次核对两个远端标签，摘要和双架构清单一致；固定标签读取曾发生 Docker Hub 临时 EOF，失败日志保留，重试后通过。
+- 构建前 4844 个路径逐项核对，业务源码、原有删除和文件权限均保留；`git diff --check` 与进度追加校验通过。
+- 证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261029-zxu9zcw6`。没有请求真实付费上游；版本运行验证不代替生产环境联调。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261029_005248.md`：新增镜像标签、平台摘要、构建和运行验证、迁移提示及回滚说明。
+  - `progress.md`：仅追加本次镜像构建和发布记录。
+- 回滚远端 latest：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:38327c6cef96ed67e3706f2e8853d6e65a0a512d8b4dd7dc003099455f53cfa9`。部署侧可固定旧摘要；本轮未执行回滚。镜像回退不会自动撤销 247/248 数据库迁移或后台设置。
+- 如仅撤销本次新增文档，执行 `rm -- docs/IMAGE_RELEASE_20261029_005248.md`；保留本条进度历史并追加撤销说明，禁止整仓 reset。
+
+
+## 2026-10-31 - Task: 渠道状态按平台分类展示及分组数量统计
+
+### What was done
+- 渠道状态 V1 卡片页按 OpenAI、Anthropic、Grok、Gemini、DeepSeek、Zhipu GLM、Kimi 的固定顺序分类；各平台标题展示现有图标和当前可见监控卡片数，无卡片的平台不显示标题。
+- 平台内保持接口返回的卡片顺序；其他已有平台随后按首次出现顺序展示，避免遗漏现有监控项。刷新列表后分类、数量和平台可见性自动更新。
+- 保留卡片详情、可用率窗口、自动刷新、空列表和响应式布局；同步使用说明，仅补齐相关测试 fixture 的平台字段。V2 趋势视图未修改。
+
+### Testing
+- 在 frontend 下执行 `pnpm exec vitest run src/views/user/__tests__/ChannelStatusV1View.details.spec.ts src/views/user/__tests__/ChannelStatusV1View.refresh.spec.ts src/views/user/__tests__/ChannelStatusView.mode.spec.ts src/components/user/__tests__/MonitorCard.quota.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`：5 个文件、19 项测试通过。
+- fixture 补齐 provider 后，单独重跑 `pnpm exec vitest run src/views/user/__tests__/ChannelStatusV1View.details.spec.ts`：4 项通过，消除了缺少 provider 的 Vue 警告。
+- `pnpm run typecheck` 和 `pnpm exec eslint src/components/user/monitor/MonitorCardGrid.vue src/views/user/__tests__/ChannelStatusV1View.details.spec.ts` 通过。测试环境已有 localStorage experimental warning 和 Browserslist 数据老旧提示，未改动依赖。
+- 仓库外临时 Vite 预览使用模拟数据和真实卡片组件验证：乱序数据按七平台顺序展示，其他已有平台随后显示；刷新后数量正确、空平台消失；卡片点击事件和空列表正常。1440px 桌面三列、390px 手机单列且无横向溢出，深浅主题均核对；临时服务和浏览器预览已关闭。未调用真实付费上游。
+- 将 tracked / untracked 非 ignored 文件 SHA256 与施工前 manifest 比较：实现及说明阶段仅 3 个预期文件变化，原有未提交修改和删除状态均保留；最终检查应仅增加本条 progress.md 记录，共 4 个文件。`git diff --check` 和日志仅追加校验作为收尾检查。
+- 备份与截图证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-channel-platforms-20261031-g1m8lpix`。截图 `platform-groups-desktop.png` 为本地模拟数据示例，不是生产截图；本轮未构建、推送镜像或部署生产。
+
+### Notes
+- 改动文件：
+  - `frontend/src/components/user/monitor/MonitorCardGrid.vue`：按平台分类卡片，添加标题、图标和动态数量。
+  - `frontend/src/views/user/__tests__/ChannelStatusV1View.details.spec.ts`：补齐既有 fixture 的 provider 字段，使其符合接口数据。
+  - `docs/CHANNEL_MONITOR.md`：追加 V1 平台展示顺序、数量口径和刷新规则。
+  - `progress.md`：仅在末尾追加本轮实施、验证和回滚记录。
+- 可执行回滚（在仓库根目录执行，仅恢复本轮三个实现/说明文件；执行前应确认这些文件没有后续改动）：
+
+```sh
+task_backup='/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-channel-platforms-20261031-g1m8lpix'
+cp -- "$task_backup/frontend/src/components/user/monitor/MonitorCardGrid.vue" frontend/src/components/user/monitor/MonitorCardGrid.vue
+cp -- "$task_backup/frontend/src/views/user/__tests__/ChannelStatusV1View.details.spec.ts" frontend/src/views/user/__tests__/ChannelStatusV1View.details.spec.ts
+cp -- "$task_backup/docs/CHANNEL_MONITOR.md" docs/CHANNEL_MONITOR.md
+```
+
+- 保留本条进度历史，回滚后另行追加撤销说明；不要截断 progress.md、执行整仓 reset 或覆盖其他未提交工作。临时备份需要长期保存时另行归档。
+
+- 收尾验证结果：4 个预期文件的 `git diff --check` 通过；施工前 manifest 核对通过；progress.md 历史内容前缀校验通过，仅追加本轮记录。
+
+
+## 2026-10-31 - Task: 去掉模型问答重复的思考及回答状态提示
+
+### What was done
+- 移除模型问答消息列表底部重复的流式状态气泡，当前回复的“模型正在思考”“正在回答”等状态和耗时统一保留在助手消息内。
+- 保留请求发起时的连接、等待提示，以及原有思考摘要、正文输出、完成、停止和失败状态；仅删除重复展示，不改请求转发或流式事件处理。
+- 同步模型问答使用说明；本轮仅修改 1 处页面模板、说明文档及进度记录，保留既有未提交工作。
+
+### Testing
+- 修改前和修改后分别在 frontend 执行 `pnpm exec vitest run src/views/user/__tests__/ChatView.spec.ts`，两次均为 1 个文件、45 项测试通过；包含实际流式事件驱动状态、思考摘要、完成状态保存、停止回复、失败恢复及内容显示等已有验证。
+- `pnpm run typecheck` 和 `pnpm exec eslint src/views/user/ChatView.vue` 均退出码 0。
+- 核对施工前后页面差异，仅删除底部 7 行提示模板；消息内状态仍有 `role="status"`，请求等待上游之前已初始化助手消息状态，耗时仍按现有计时更新。未新增机械性测试，未请求真实付费上游或进行生产联调。
+- `git diff --check -- frontend/src/views/user/ChatView.vue docs/MODEL_CHAT.md` 通过。记录前 manifest 核对仅 2 个预期文件变化，最终范围应为页面、说明与本条进度记录 3 个文件；另做日志仅追加和最终差异校验。
+- 测试环境仍有已有 localStorage experimental warning 及 Browserslist 数据老旧提示，未改依赖。本轮未构建、推送镜像或发布上线。
+
+### Notes
+- 改动文件：
+  - `frontend/src/views/user/ChatView.vue`：删除消息列表底部重复的状态及耗时气泡。
+  - `docs/MODEL_CHAT.md`：补充回复状态统一显示在助手消息内的说明。
+  - `progress.md`：仅追加本轮实施、验证和回滚记录。
+- 本轮备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-chat-status-20261031-ra4o5l5w`，包含施工前文件、状态及 manifest。
+- 可执行回滚（仓库根目录执行；执行前确认以下文件没有后续改动，避免覆盖后续工作）：
+
+```sh
+task_backup='/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-chat-status-20261031-ra4o5l5w'
+cp -- "$task_backup/frontend/src/views/user/ChatView.vue" frontend/src/views/user/ChatView.vue
+cp -- "$task_backup/docs/MODEL_CHAT.md" docs/MODEL_CHAT.md
+```
+
+- 保留本条进度历史，回滚后另行追加说明，不执行整仓 reset；临时备份如需长期保留应另行归档。
+
+
+## 2026-10-31 - Task: 渠道监控黄色阈值改为 10 秒并显示延时较高
+
+### What was done
+- 将成功探活的黄色状态阈值从 6 秒调整为 10 秒；保持原有边界规则，低于 10 秒绿色，达到或超过 10 秒黄色。内部状态码和历史记录格式保持兼容。
+- 黄色慢响应在用户卡片、详情、历史悬浮提示及管理员主模型、附加模型和手动检测结果中统一显示“延时较高”，英文为“High latency”。纯配额检测没有探活耗时，保留其既有告警含义，避免把余额或用量告警误标为延时问题。
+- 同步说明和针对性回归验证；新阈值在部署后的新检测中生效，历史状态不回算。保留原有其他未提交工作。
+
+### Testing
+- backend：`go test -tags unit ./internal/service -run '^(TestRunCheckForModel_|TestMonitorIntelligence)' -count=1` 退出码 0，测试耗时 14.148 秒；使用项目自动选择的 Go 1.27.3。
+- 在既有探活测试中明确验证 7000ms、9999ms 为正常，10000ms、10001ms 为黄色；更新智力检测慢响应样例为 11000ms，验证糖果题结果与耗时不改变普通探活状态，Responses 回退仍保留慢响应结果。
+- frontend：`pnpm exec vitest run src/components/user/__tests__/MonitorCard.quota.spec.ts src/components/user/__tests__/MonitorDetailDialog.spec.ts src/components/user/__tests__/MonitorIntelligence.spec.ts src/components/admin/monitor/__tests__/MonitorPrimaryModelCell.spec.ts src/views/user/__tests__/ChannelStatusV1View.details.spec.ts src/views/user/__tests__/ChannelStatusV1View.refresh.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts`：7 个文件、30 项测试通过；包含慢响应标签、黄色样式及配额告警不受配额展示开关影响的验证。
+- `pnpm run typecheck` 和本轮 9 个前端文件的 `pnpm exec eslint` 均通过；3 个 Go 文件的 `gofmt -l` 无输出，`git diff --check` 通过。
+- 前端测试仍有既有 localStorage experimental warning 和 Browserslist 数据老旧提示，未修改依赖。未请求真实付费上游，未构建、推送镜像或部署生产。
+- 实现及说明阶段与施工前 4845 个路径的 SHA256 manifest 比较，仅 13 个预期文件变化；最后核对加上本条日志共 14 个文件、日志历史前缀和回滚补丁可逆性。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/channel_monitor_const.go`：将黄色阈值改为 10 秒并明确含边界。
+  - `backend/internal/service/channel_monitor_checker_body_test.go`：补充 7 秒及 10 秒前后的明确边界验证。
+  - `backend/internal/service/channel_monitor_intelligence_test.go`：将既有慢响应样例和断言更新为 11 秒。
+  - `frontend/src/composables/useChannelMonitorFormat.ts`：按是否存在探活耗时区分慢响应与配额告警文案。
+  - `frontend/src/i18n/locales/zh/dashboard.ts`：新增“延时较高”中文文案。
+  - `frontend/src/i18n/locales/en/dashboard.ts`：新增“High latency”英文文案。
+  - `frontend/src/components/user/monitor/MonitorCard.vue`：卡片状态文案传入探活耗时。
+  - `frontend/src/components/user/monitor/MonitorTimeline.vue`：历史悬浮提示传入探活耗时并更新注释。
+  - `frontend/src/components/user/MonitorDetailDialog.vue`：详情模型状态文案传入探活耗时。
+  - `frontend/src/components/admin/monitor/MonitorPrimaryModelCell.vue`：主模型及附加模型状态文案传入探活耗时。
+  - `frontend/src/components/admin/monitor/MonitorRunResultDialog.vue`：手动检测结果文案传入探活耗时。
+  - `frontend/src/components/user/__tests__/MonitorCard.quota.spec.ts`：验证慢响应标签和纯配额告警的区别。
+  - `docs/CHANNEL_MONITOR.md`：说明 10 秒阈值、显示口径及历史状态不回算。
+  - `progress.md`：仅追加本轮实施、验证及回滚记录。
+- 施工前备份、manifest 和仅包含本轮 13 个实现/测试/说明文件改动的补丁保存在 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-monitor-latency-20261031-po1t0lmu`。
+- 可执行回滚（在仓库根目录执行；有后续修改导致冲突时停止，不强制覆盖）：
+
+```sh
+task_patch='/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-monitor-latency-20261031-po1t0lmu/task-changes.patch'
+git apply --reverse --check "$task_patch" && git apply --reverse "$task_patch"
+```
+
+- 回滚保留本条进度历史并追加撤销说明，不执行整仓 reset；临时备份需要长期保留时另行归档。
+
+- 收尾验证结果：仅 14 个预期文件变化，原有未提交内容和删除状态均保留；progress.md 历史前缀、全仓 `git diff --check` 及本轮补丁 `git apply --reverse --check` 均通过。
+
+
+## 2026-10-31 - Task: Gemini、DeepSeek、Zhipu GLM、Kimi 渠道探测统一多账号重试及成功耗时口径
+
+### What was done
+- 为 Gemini、DeepSeek、Zhipu GLM、Kimi 的主动探测启用与现有 OpenAI、Anthropic、Grok 一致的五个不同账号探测预算；DeepSeek、Zhipu GLM、Kimi 复用已有 Chat Completions 切换路径。
+- Gemini 原生 generateContent 入口接入相同预算及成功账号单次耗时回传；账号耗尽后不再循环选回已失败账号。出现成功即停止，本轮失败尝试不会覆盖后续成功的状态，前面失败等待时间不再累计到成功耗时。
+- 继续遵守更低的账号切换配置、原有错误可重试规则、缓存账号绑定及请求取消约束。成功低于 10 秒显示正常，达到或超过 10 秒显示延时较高；适用探测预算内无成功才记录失败。普通请求保持原有规则。
+- 补齐四个平台的模拟切换、状态与延时回归，并同步渠道监控说明；未扩展到其他平台或其他业务功能。
+
+### Testing
+- backend：`go test -tags unit ./internal/handler -run '^(TestGeminiV1BetaModels_ChannelMonitorProbe|TestChatCompletions_ChannelMonitorCompatiblePlatforms)$' -count=1` 通过，耗时 2.670 秒。覆盖首次成功停止、失败后第二个账号成功、第五个账号成功、五账号预算耗尽、少于五个可用账号全部失败；Gemini 还验证更低切换限制及普通请求可以继续使用第六个账号，成功耗时排除前面失败等待。
+- 初次模拟中 DeepSeek 使用 GPT 模型名，被现有 DeepSeek 模型白名单在选号时拦截；改用各平台对应的模型名后上述验证通过，没有修改模型权限或放宽白名单。
+- backend：`go test -tags unit ./internal/service -run '^(TestRunCheckForModel_|TestMonitorIntelligence|TestGrokMonitor|TestGeminiMonitor)' -count=1` 通过，耗时 11.116 秒。包含四个平台携带探测预算、禁止自定义头覆盖预算、采用成功单次耗时的绿/黄判断及失败状态，原有探活与智力检测回归通过。
+- backend：`go test -json -tags unit ./internal/handler -run '^(TestGeminiV1BetaModels_|TestGeminiV1BetaHandler_|TestGeminiV1BetaListModels_|TestGeminiV1BetaGetModel_|TestGeminiModelAllowlist_|TestGeminiNativeMissingPricing|TestChatCompletions_ChannelMonitorCompatiblePlatforms|TestResolveChannelMonitorProbePolicy|TestChannelMonitorProbe|TestOrdinaryRequestDoesNotExposeChannelMonitorProbeLatency|TestOpenAIResponses_ChannelMonitor|TestGeminiGroupRequestsDoNotReadAntigravityBucket|TestGatewayChatCompletions_GeminiClientCancel)' -count=1` 通过，23 个顶层测试、含子测试 64 项，耗时 7.518 秒。包括缓存绑定账号的池模式重试及耗尽透传、客户端取消、定价预检、平台路由、原有 OpenAI 探测和通用预算/耗时回归。
+- 四个本轮 Go 文件的 `gofmt -l` 无输出；本轮独立补丁 `git apply --reverse --check` 通过。记录前与施工前 SHA256 manifest 比对，仅五个预期实现/测试/说明文件变化，progress.md 尚未变化；收尾另核对日志仅追加及差异检查。
+- 验证使用本地模拟上游，未调用真实付费接口或进行生产联调；本轮未构建镜像或部署，代码需部署后对新探测生效。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/channel_monitor_checker.go`：将四个平台加入内部多账号探测预算的发送范围。
+  - `backend/internal/handler/gemini_v1beta_handler.go`：限制监控探测账号数、阻止失败账号循环重选并回传当前成功尝试的耗时。
+  - `backend/internal/service/channel_monitor_checker_body_test.go`：补充四个平台探测预算、成功耗时和最终状态的回归。
+  - `backend/internal/handler/channel_monitor_platform_probe_test.go`：新增原生 Gemini 与三个兼容平台的实际 Handler 多账号切换模拟验证。
+  - `docs/CHANNEL_MONITOR.md`：说明七平台统一规则、配置及缓存约束和外部网关兼容边界。
+  - `progress.md`：仅追加本轮实施、验证、文件清单与回滚记录。
+- 施工前文件、SHA256 manifest、测试 JSON 输出与仅包含本轮五个实现/测试/说明文件改动的补丁：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-monitor-platform-probes-20261031-46zsyg4p`。
+- 可执行回滚（仓库根目录执行；如有后续修改导致冲突则停止，不强制覆盖）：
+
+```sh
+task_patch='/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-monitor-platform-probes-20261031-46zsyg4p/task-changes.patch'
+git apply --reverse --check "$task_patch" && git apply --reverse "$task_patch"
+```
+
+- 回滚时保留进度历史并另行追加撤销说明，不执行整仓 reset；临时证据如需长期保留应另行归档。
+
+
+## 2026-10-31 - Task: 渠道状态卡片的智力检测标题改为智商检测-糖果题
+
+### What was done
+- 将开启智力检测的渠道状态卡片中检测条标题改为「智商检测-糖果题」，增加此位置独立的中英文文案。
+- 管理端开关、详情表头与检测规则沿用原有设置；同步使用说明。
+
+### Testing
+- frontend：`pnpm exec vitest run src/components/user/__tests__/MonitorIntelligence.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts` 通过，2 个文件、9 项测试，耗时 2.61 秒；覆盖检测卡片开关显示、检测条及结果展示、多语言键完整性。
+- 校验组件引用新增标题键、中英文标题值与原有共用标题、管理端开关文案，全部通过。
+- `git diff --check` 与本轮独立补丁 `git apply --reverse --check` 通过；本轮只修改标题文案、使用说明及进度记录。
+
+### Notes
+- 改动文件：
+  - `frontend/src/components/user/monitor/MonitorIntelligenceTimeline.vue`：卡片检测条使用独立标题键。
+  - `frontend/src/i18n/locales/zh/dashboard.ts`：新增「智商检测-糖果题」标题。
+  - `frontend/src/i18n/locales/en/dashboard.ts`：新增对应英文标题。
+  - `docs/channel-monitor-intelligence.md`：说明渠道状态卡片的新标题。
+  - `progress.md`：仅追加本轮修改、验证和回滚记录。
+- 施工前文件备份及本轮独立补丁位于 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-candy-label-20261031-dovgfsbp`。
+- 可执行回滚（仓库根目录执行；如后续重叠修改导致检查失败则停止，不覆盖后续工作）：
+
+```sh
+task_patch='/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-candy-label-20261031-dovgfsbp/task-changes.patch'
+git apply --reverse --check "$task_patch" && git apply --reverse "$task_patch"
+```
+
+- 补丁仅回退本轮组件、语言和使用说明；回滚时保留进度历史并追加撤销说明。部署包含本次修改的前端构建后显示新标题。
+
+
+## 2026-10-31 - Task: 制作并推送当前工作区双架构镜像
+
+### What was done
+- 基于当前完整工作区构建并推送 `iotwq/china-api:0.2.19-20261031-191004`，双架构验证后更新 `latest`；两个标签均指向 `sha256:266675ffadc254981399cb03fb8f42fcefa1a8a9c06bb7eb6f3f022af204a044`。
+- 镜像包含本轮渠道状态、探测及糖果题标题等已完成修改，保留所有既有定制；仅发布镜像，未部署或推送 Git。
+
+### Testing
+- Docker buildx 双架构构建及固定标签推送退出 0；构建内前端 i18n 3 项测试、vue-tsc、Vite 与两架构 Go embed 编译通过。
+- 按远端 manifest 摘要分别拉取 linux/amd64、linux/arm64，检查系统/架构，在断网只读非 root 容器执行 --version，均退出 0，版本为 0.2.19、提交标识 4491998af617-dirty、构建时间 2026-10-31T11:10:04Z。
+- 固定标签匹配 build metadata；更新前确认 latest 未被其他发布改变；更新后两个标签摘要和完整清单一致。Docker Hub 一次鉴权 EOF 重试后通过。
+- 构建期间 4846 个工作区路径未改变；收尾核对原路径哈希/权限、仅追加日志、新增发布说明及 git diff --check。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261031_191004.md`：记录镜像标签、摘要、内容、验证证据和回滚命令。
+  - `progress.md`：仅追加本轮发布与验证记录。
+- 证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261031-v5ecr3xx`，包含 build metadata、发布前后清单、运行日志及源码复核结果。
+- 可执行回滚：`docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:a50a36f344de1e8b283415f7dc4ce8afbb1496d6cb6768568bba8d9a5c75d917`。回退远端标签不会自动替换生产容器或撤销数据库迁移；发布前固定版本为 `0.2.19-20261029-005248`。
+- 如需撤销本轮说明文件，可删除 `docs/IMAGE_RELEASE_20261031_191004.md`；保留进度历史并另行追加撤销记录。
+
+## 2026-10-31 - Task: 修正渠道监控高延迟提示文案
+
+### What was done
+- 将渠道监控当前用户可见的中文提示从“延时较高”改为“延迟较高”。
+- 同步更新渠道监控说明、前端注释和后端阈值注释；历史发布记录保持不变。
+
+### Testing
+- frontend：`pnpm exec vitest run src/components/user/__tests__/MonitorCard.quota.spec.ts src/i18n/__tests__/localeKeyCompleteness.spec.ts` 通过，2 个文件、10 项测试。
+- `rg` 复核当前源码、文档和测试范围，不再存在当前生效的“延时较高”文案；`git diff --check` 通过。
+
+### Notes
+- 改动文件：
+  - `frontend/src/i18n/locales/zh/dashboard.ts`：更新高延迟状态中文文案。
+  - `docs/CHANNEL_MONITOR.md`：同步渠道监控说明。
+  - `frontend/src/components/user/monitor/MonitorTimeline.vue`：同步状态说明注释。
+  - `backend/internal/service/channel_monitor_const.go`：同步阈值注释。
+  - `progress.md`：追加本轮修改、验证和回滚记录。
+- 回滚方式：将上述 4 个源码/文档文件中的“延迟较高”恢复为“延时较高”，并保留本进度历史；本轮未改变阈值或业务逻辑。
+
+## 2026-11-01 - Task: 修复 BPS 渠道映射后的模型冷却调度键
+
+### What was done
+- OpenAI `/v1/messages` 桥接路径在账号调度前优先使用渠道映射后的模型，与 BPS 实际转发模型保持一致；无渠道映射时保留原有 dispatch 映射行为。
+- 补充渠道映射模型在 BPS 403 后写入冷却键的回归测试，并同步 Basispoints 说明。
+
+### Testing
+- backend：`go test ./internal/handler -run 'TestOpenAIMessagesSchedulingModel' -count=1` 通过。
+- backend：`go test ./internal/service -run 'TestExcelBPSModelPermissionForward' -count=1` 通过，覆盖原有 BPS 403 冷却和渠道映射模型冷却键。
+- 相关 Go 文件已执行 `gofmt`；本轮差异检查待全部三项修复完成后统一执行。
+
+### Notes
+- 改动文件：
+  - `backend/internal/handler/openai_gateway_handler.go`：让 Messages 调度使用渠道映射模型。
+  - `backend/internal/handler/openai_gateway_handler_test.go`：新增调度模型优先级回归。
+  - `backend/internal/service/openai_excel_bps_model_cooldown_test.go`：新增渠道映射模型 403 冷却键回归。
+  - `docs/OPENAI_OAUTH_BASISPOINTS.md`：补充渠道映射冷却键规则。
+  - `progress.md`：追加本轮记录。
+- 回滚方式：`git apply --reverse --check` 检查并反向应用本轮对应补丁；不要使用整仓 reset，以保留其他未提交修改。
+
+## 2026-11-01 - Task: 补全 BPS 模型冷却键与 Messages dispatch 回退的一致性
+
+### What was done
+- 调度读取模型冷却时，按账号模型映射、Codex 上游规范化及 Messages dispatch 回退解析，与 BPS 实际转发模型保持一致。
+- 渠道映射模型优先作为 Messages 调度模型；普通候选筛选、粘性账号复检和运行时阻断均使用同一冷却判断。
+
+### Testing
+- `go test ./internal/service ./internal/handler ./internal/config` 通过，三个完整 Go 测试包通过。
+- BPS 冷却、Messages 调度模型、v25 快照拒绝、安全默认值和转发 IP 迁移定向测试均通过。
+- `git diff --check` 和涉及 Go 文件的 `gofmt -l` 检查通过。
+
+### Notes
+- 改动文件：
+  - `backend/internal/handler/openai_gateway_handler.go`：Messages 调度采用渠道映射模型并传递 dispatch 回退值。
+  - `backend/internal/handler/openai_gateway_handler_test.go`：验证渠道映射模型的调度优先级。
+  - `backend/internal/service/openai_compaction_context.go`：增加请求级 Messages dispatch 回退值。
+  - `backend/internal/service/openai_excel_bps_model_cooldown.go`：统一冷却写入和查询的实际上游模型解析。
+  - `backend/internal/service/openai_excel_bps_model_cooldown_test.go`：覆盖渠道映射、规范化和 dispatch 回退冷却。
+  - `backend/internal/service/openai_account_runtime_block_fastpath.go`：运行时阻断按请求上下文判断模型冷却。
+  - `backend/internal/service/openai_account_scheduler.go`：调度过滤及兼容性复检使用请求上下文。
+  - `backend/internal/service/openai_gateway_scheduling.go`：候选与粘性账号路径使用请求上下文。
+  - `backend/internal/service/openai_ws_forwarder_support.go`：WebSocket 账号复检沿用上下文冷却判断。
+  - `progress.md`：仅追加本轮实施、验证与回滚记录。
+- 回滚点：反向删除 `WithOpenAIMessagesDispatchMappedModel` 及其调用和测试；将上述调度调用恢复为原 `isExcelBPSModelCoolingDown` / `isOpenAIAccountRequestRuntimeBlocked`，并恢复 Messages 原调度模型选择。不要对包含其他工作区修改的文件执行整文件还原。
+
+## 2026-11-01 - Task: 升级 API Key 认证快照版本
+
+### What was done
+- 认证快照版本由 25 升到 26，避免旧 Redis L2 快照把新增的 GPT-6.1 Sol 分组开关反序列化为默认关闭。
+- 新增 v25 快照被拒绝并回源的回归测试。
+
+### Testing
+- `go test ./internal/service ./internal/handler ./internal/config` 通过。
+- `TestAPIKeyService_RejectsV25AuthSnapshotWithoutGPT61SolOptimization` 定向测试通过。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/api_key_auth_cache_impl.go`：快照结构版本升至 26。
+  - `backend/internal/service/api_key_auth_cache_version_test.go`：验证旧 v25 快照不会作为有效认证缓存返回。
+  - `progress.md`：仅追加本轮实施、验证与回滚记录。
+- 回滚点：将 `apiKeyAuthSnapshotVersion` 与对应测试预期恢复到 25，并移除新增 v25 拒绝测试；不要还原包含其他认证字段修改的整份文件。
+
+## 2026-11-01 - Task: 明确安全默认值的升级迁移和恢复配置
+
+### What was done
+- 保持私网地址、HTTP 上游和原始转发 IP 兼容开关默认关闭；缺少显式 YAML/环境变量时启动日志提示可能影响及对应配置方式。
+- 部署说明与 `docs/` 安全完整性说明明确旧配置升级行为、数据库中转发 IP 设置的保留与迁移条件。
+
+### Testing
+- `go test ./internal/service ./internal/handler ./internal/config` 通过。
+- `TestLoadHTTPIngressSafetyDefaults`、`TestLoadDefaultSecurityToggles` 和转发 IP 设置迁移测试通过。
+- `git diff --check` 通过。
+
+### Notes
+- 改动文件：
+  - `backend/internal/config/config.go`：为未显式设置且默认关闭的安全项增加启动告警。
+  - `backend/internal/config/config_test.go`：验证安全默认值仍为关闭。
+  - `deploy/EDGE_SECURITY.md`：说明升级行为、代理信任策略和配置恢复方式。
+  - `docs/BILLING_INTEGRITY.md`：补充安全默认值、升级影响及数据库迁移说明。
+  - `progress.md`：仅追加本轮实施、验证与回滚记录。
+- 回滚点：恢复三个默认值为旧值 `true`，移除相应启动告警，并恢复两份文档原文；不要对配置文件整文件还原，以免覆盖无关工作区修改。
+
 ## 2026-11-01 - Task: 全站前端主色统一为黑白灰并支持深浅模式
 
 ### What was done
@@ -9797,3 +12187,1183 @@ cp /tmp/sub2api-dola-video-20260920.VzQVHD/OPENAI_MEDIA_COMPAT.md docs/OPENAI_ME
   - docs/FRONTEND_THEME.md：更新已中性化位置和保留项说明。
   - progress.md：仅追加本轮记录。
 - 回滚点：四轮配色改动已合并为一个本地提交（标题 feat(frontend): switch theme to monochrome light/dark palette），整体回滚用 git revert 该提交；该提交不含别人未提交的改动，回滚不会影响它们。
+
+## 2026-11-01 - Task: 管理控制台“Token / 实际消费”切换按钮改为与同页一致的灰色样式
+
+### What was done
+- 管理控制台“最近使用 (Top 12)”上方的“Token / 实际消费”切换按钮，选中态由蓝底白字改为与同页“模型分布 / 用户消费榜”一致的灰色分段样式：浅色为浅灰底上的白色选中块，深色为深灰底上的灰色选中块。按钮文字、点击行为和无障碍属性不变。
+
+### Testing
+- 页面上读取两组切换按钮的实际颜色，浅色和深色下两组的选中块、未选中文字和外框底色完全相同（浅色选中块 rgb(255,255,255)、外框 rgb(244,244,245)；深色选中块 rgb(46,46,51)、外框 rgb(31,31,35)）。
+- 截图确认深色模式下两组切换按钮样式一致。
+- vue-tsc 通过；eslint 对 DashboardView.vue 通过；DashboardView 单测 2 项通过（含切换指标的用例）；vitest 全量 400 个文件、3301 项通过。
+
+### Notes
+- 改动文件：
+  - frontend/src/views/admin/DashboardView.vue：“Token / 实际消费”切换按钮的外框和选中样式改为灰色分段样式。
+  - docs/FRONTEND_THEME.md：把该按钮从“未改”移到“已中性化”。
+  - progress.md：仅追加本轮记录。
+- 本轮改动尚未提交。
+- 回滚点：DashboardView.vue 本轮之前与 HEAD 一致，可用 git checkout HEAD -- frontend/src/views/admin/DashboardView.vue 整文件还原；docs/FRONTEND_THEME.md 只回退本轮这一条说明。
+
+## 2026-11-01 - Task: 前端首屏下载体积优化，取消公共第三方大包
+
+### What was done
+- 取消把所有未单独分包的第三方库合并成一个公共包的做法。该公共包压缩后 285 KB，里面含有三维动画渲染库（单独约 176 KB）、文档解析和代码高亮等大库，而图表和表格页只用到其中的小组件，结果所有带图表或表格的页面都要整包下载。现在按页面实际引用拆分，页面只下载自己用到的库。
+- 公告弹窗和管理员合规确认弹窗改为登录后才加载。两者都依赖 Markdown 渲染库，因此首页和登录页不再下载该库。
+- 10 个登录相关页面改为直接引用登录页布局，不再经过会连带引出登录后界面和引导功能的统一出口。
+- 首页三维动画在画布滚出屏幕后停止渲染，滚回屏幕后恢复。动画本身的效果不变。
+
+### Testing
+- 生产构建的静态依赖分析（压缩后体积）：/home 315.5 KB 降到 280.4 KB，/login 336.4 KB 降到 294.7 KB，/dashboard 699.0 KB 降到 413.8 KB，/admin/dashboard 698.2 KB 降到 413.0 KB，/keys 680.9 KB 降到 409.0 KB。所有页面共用的部分从 162.1 KB 降到 127.1 KB。
+- 用生产构建配合模拟后端在浏览器实测：8 个路由均无脚本报错，且都不再下载旧的公共大包；未登录的 /home 和 /login 不下载 Markdown 渲染库和引导库；登录后的仪表盘、密钥、管理控制台、账号、设置、聊天页都不下载三维动画库。
+- 首页动画实测：画布在屏幕内时 120 帧每秒，滚出屏幕后降为 0，滚回后恢复 120。
+- 公告弹窗实测：登录后出现，Markdown 加粗正常渲染，弹窗打开时页面滚动被锁定。
+- vue-tsc 通过；eslint 对改动的测试文件通过；vitest 全量 400 个文件、3301 项通过（其中 Stripe 分包测试因公共包取消而失效，已改为直接断言 Stripe 单独分包且公共包不再存在，重跑 4 项通过）。
+- 未验证：/login 仍下载三维动画库（约 176 KB），因为登录页使用与首页相同的动画背景，去掉会改变页面外观，本轮保留。各语言文案仍是每个路由都下载的最大单文件（约 146 KB），拆分需要改文案加载方式，本轮未做。
+
+### Notes
+- 改动文件：
+  - frontend/vite.config.ts：删除第三方库公共包兜底，未单独列出的库按实际引用分包。
+  - frontend/src/App.vue：公告弹窗和合规确认弹窗改为登录后按需加载。
+  - frontend/src/components/home/HomeThreeScene.vue：画布滚出屏幕后停止动画循环。
+  - frontend/src/views/auth/ 下 10 个页面：登录布局改为直接引用，不再走统一出口。
+  - frontend/src/views/user/__tests__/stripeLazyLoading.spec.ts：分包断言改为适配取消公共包后的配置。
+  - docs/FRONTEND_BUNDLE_PERFORMANCE.md：新增，记录优化前后体积、实测结果和保留项。
+  - progress.md：仅追加本轮记录。
+- 本轮改动尚未提交。工作区里还有他人未提交的改动和上一轮“Token / 实际消费”切换按钮的改动，提交时需要分开。
+- 注意：开发服务实际读取的是被 git 忽略的 frontend/vite.config.js，它由构建命令里的类型检查步骤从 vite.config.ts 重新生成。单独运行 vite build 可能沿用旧的 vite.config.js，从而看不到本次分包效果，应使用 pnpm build。
+- 回滚点：本轮改动均在上述文件内，可用 git checkout HEAD -- <文件> 逐个还原；docs/FRONTEND_BUNDLE_PERFORMANCE.md 为本轮新增文件，删除即可。10 个登录页的改动都是单行 import，可单独还原。
+
+
+## 2026-11-02 - Task: 审查近期前端与 UI 改动并修复确认问题
+
+### What was done
+- 核对 2026-11-01 黑白主题提交及其后未提交的分包、异步弹窗、登录布局引用和动画离屏暂停改动，保留现有主题与性能优化。未发现这些改动引入的明确功能回归。
+- 在涉及组件中复现并修复三处已有缺口：动画库加载中离开页面后仍创建无法释放的场景资源；减少动态效果模式下调整窗口导致静态画布消失；新手引导底部操作按钮在手机宽度、以及英文桌面文案下被裁切。对比主题提交父版本确认，这三处不是此次配色变更新增的问题。
+- 页面卸载后跳过场景初始化；减少动态效果模式在画布尺寸变化后重绘静态帧；引导页脚在空间不足时换行，按钮保持右对齐。同步行为说明与回归检查。
+
+### Testing
+- 修改前：`pnpm typecheck` 通过，现有全量 Vitest 400 个文件 / 3301 项通过。
+- 先补复现用例：延迟加载后卸载用例修复前失败（旧画布仍创建 renderer）；静态场景 resize 用例修复前失败（尺寸改变后没有重绘）。修复后场景 4 项测试全部通过，另覆盖离屏暂停/恢复单个动画循环、卸载释放资源。
+- 修改后：`pnpm typecheck` 通过；`pnpm exec eslint src/components/home/HomeThreeScene.vue src/components/home/__tests__/HomeThreeScene.spec.ts` 通过；全量 `pnpm test:run` 401 个文件 / 3305 项通过；限定本轮文件的 `git diff --check` 通过。
+- 使用明确的 `vite.config.ts` 构建，输出到临时目录 `build-final`，生产构建通过。未覆盖仓库中已有的 `backend/internal/web/dist`。构建仍提示已有大分包和 Browserslist 数据较旧，均不阻断构建，本轮未调整依赖或分包策略。
+- Chromium 配合现有本地模拟后端：10 个主要路由的浅/深色、375/768/1440px 共 60 组开发环境检查，及 40 组生产构建检查，均无页面脚本错误、路由失败或整页横向溢出。后续对最终构建的首页、登录、管理仪表盘、账号页额外检查 16 组，关闭公告及引导遮罩后查看页面，同样通过。
+- 公告弹窗在 16 组登录后页面检查中均可显示、关闭并解除滚动锁定；管理员合规提示事件能显示异步弹窗并锁定背景滚动。未提交合规确认。
+- 引导页脚修复前，320/375px 中英文按钮和 1440px 英文主按钮超出弹窗边界；修复后 6 组对应尺寸/语言检查中所有操作按钮均在弹窗内。减少动态效果模式下，从 1440px 调整至 768/375px 后画布仍可见，截图核实通过。
+- 验证使用本地模拟业务数据及独立 Chromium 测试配置；不代表真实登录、支付或上游转发联调，也未验证 Safari/Firefox。
+
+### Notes
+- 改动文件：
+  - `frontend/src/components/home/HomeThreeScene.vue`：仅新增卸载后的初始化保护和静态画布 resize 重绘，保留已有离屏暂停逻辑。
+  - `frontend/src/components/home/__tests__/HomeThreeScene.spec.ts`：新增 4 个动画生命周期、离屏恢复和静态重绘回归用例。
+  - `frontend/src/styles/onboarding.css`：引导页脚允许换行，并让操作按钮组右对齐。
+  - `docs/HOME_THREE_SCENE.md`：说明加载期间卸载、离屏暂停和静态帧重绘行为，补回归命令。
+  - `docs/FRONTEND_THEME.md`：说明引导页脚的窄屏布局与中英文验证尺寸。
+  - `progress.md`：仅在末尾追加本轮审查记录。
+- 本轮未修改后端、鉴权、网络转发或数据库结构；未提交、构建镜像或 push。工作树中的其他既有改动保留。
+- 修改前备份、失败复现日志、最终测试日志及截图：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-ui-review-20261102-pgscyjsr/`。
+- 精确回滚本轮（不覆盖开始审查前已有改动）：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-ui-review-20261102-pgscyjsr/frontend-ui-review.patch`，检查成功后执行同一命令去掉 `--check`。补丁以本轮开始时的文件备份为基准，包含本轮新增测试及日志追加。
+
+
+## 2026-11-02 - Task: 接口文档、用户群聊和生图网站显示框对齐模型问答
+
+### What was done
+- 将接口文档、用户群聊、生图网站站内入口页的外框对齐模型问答普通模式：缩小与侧栏、顶栏和右边界的留白，采用同一响应式内边距、圆角和视口高度。
+- 接口文档改为固定显示框内滚动，保留全部模型文档、示例和复制操作；群聊消息区及输入区使用更大的面板空间；生图入口卡片填满同等高度的显示框。
+- 实测 1024px 宽度发现接口文档长说明会挤出顶栏账户操作，影响目标页面整体宽度。因此在本次布局依赖范围内调整共享顶栏：标题/说明允许收缩及省略显示，鼠标悬停可查看全文。未调整导航、登录或账户操作逻辑。
+- 同步布局文档，保留现有颜色、内容和生图网站外链目标。
+
+### Testing
+- `pnpm typecheck` 通过。
+- `pnpm exec eslint src/views/user/ApiDocsView.vue src/views/user/CommunityChatView.vue src/views/user/ImageBridgeView.vue src/components/layout/AppHeader.vue` 通过。
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts src/views/user/__tests__/CommunityChatView.behavior.spec.ts src/views/user/__tests__/ChatView.spec.ts src/components/layout/__tests__`：8 个测试文件、102 项测试全部通过。
+- `pnpm exec vite build --config vite.config.ts --outDir /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-workspace-layout-20261102-dt9ljyhl/build --emptyOutDir` 通过，未覆盖既有后端内嵌前端产物。已有分包体积及 Browserslist 提示不阻断构建。
+- Chromium + 生产构建 + 本地模拟后端：四个页面、浅深两种主题、1440×900 / 1024×768 / 768×1024 / 375×812 / 320×667 / 1440×450 六种视口，共 48 组检查全部通过。三个目标页面的外框位置、高度及可用内容宽度与模型问答一致，无整页横向溢出或页面脚本异常；短窗口保留与模型问答一致的最小可用高度。
+- 接口文档 12 组尺寸/主题检查均可在框内滚动到最后一个模型章节，未出现内容被截断或必须滚动整页才能查看文档的问题。人工检查桌面和手机浅深色截图，群聊输入区、生图跳转按钮均可见。
+- 顶栏修复前，1024px 接口文档页面横向内容宽度达到 1158px，账户按钮超出屏幕；修复后横向溢出消失，外框与模型问答对齐。
+- `git diff --check` 通过。三个页面的模板与脚本相对本轮开始时完全一致，仅修改 scoped CSS；共享顶栏仅改模板布局类及全文提示。
+- 浏览器使用模拟业务数据，未实际发送群聊消息或调用外部生图网站。Vite 预览的既有 `/api` 代理会误接管 `/api-docs` 路由，布局验证改用临时静态服务器和 `/api/` 前缀代理完成，未扩大修改项目代理配置。
+
+### Notes
+- 改动文件：
+  - `frontend/src/views/user/ApiDocsView.vue`：统一外框尺寸与边距，文档在框内滚动。
+  - `frontend/src/views/user/CommunityChatView.vue`：缩小外层留白，面板高度对齐模型问答。
+  - `frontend/src/views/user/ImageBridgeView.vue`：缩小外层留白，入口卡片扩展到同等工作区高度。
+  - `frontend/src/components/layout/AppHeader.vue`：修复长标题/说明挤出顶栏操作导致目标页面横向溢出的布局依赖。
+  - `docs/FRONTEND_THEME.md`：补充三个页面的工作区尺寸、内部滚动及顶栏自适应约定。
+  - `progress.md`：仅追加本轮记录。
+- 本轮改动保留在工作树；未创建镜像或推送。原有未提交改动保留。
+- 修改前备份、浏览器矩形测量、截图及测试日志：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-workspace-layout-20261102-dt9ljyhl/`。
+- 精确回滚本轮：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-workspace-layout-20261102-dt9ljyhl/workspace-layout.patch`，检查成功后执行相同命令去掉 `--check`；补丁以本轮开始时的文件备份为基准，不回退原有改动。
+
+## 2026-11-02 - Task: 构建并推送当前工作树多架构镜像 0.2.19-20261102-003310
+
+### What was done
+- 将当前工作树构建为 linux/amd64、linux/arm64 镜像并推送 `iotwq/china-api:0.2.19-20261102-003310`，包含近期前端审查修复及三个功能页面显示框扩展。
+- 两个架构运行验证后更新 `iotwq/china-api:latest`，远端两个标签均指向 `sha256:ffaeff56df1960bfcab12ba684e73b17db603ad143d4c416da55d76c2e1a5c05`。
+- 追加发布说明、拉取方式和恢复上次镜像的命令；未部署生产服务、执行数据库迁移或推送 Git。
+
+### Testing
+- Docker Buildx 多架构构建及推送通过；构建内 i18n 3 项检查、前端类型检查、Vite 构建、两个架构 Go 编译通过。
+- 两个架构在隔离容器中运行 `--version` 通过，版本为 0.2.19、构建标识 57a3bafd515f-dirty，构建时间 2026-11-01T16:33:10Z。
+- 固定版本和 latest 的远端原始索引 SHA-256、amd64/arm64 manifest 摘要均核对通过。
+- amd64 普通拉取两次遭遇仓库 EOF，改用 Buildx 按精确 manifest 导入并核对摘要后完成运行验证。latest 更新首次遇到授权服务 EOF，重试成功；远端最终复核通过。
+- 构建前后 4849 个工作树路径未发生内容、模式或存在状态变化；三个目标页面 CSS 产物名与上一轮浏览器验证构建一致。上一轮 102 项相关测试和 48 组布局检查记录保留，本轮未重复浏览器验证。
+- 发布文档及日志的限定范围 `git diff --check`、日志历史前缀校验和最终文件完整性检查通过；本轮仅新增发布文档并追加日志。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261102_003310.md`：记录镜像标签、摘要、验证范围、拉取和回滚方法。
+  - `progress.md`：仅在末尾追加本轮发布记录。
+- 日志和验证证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261102-82zhwjs9`。
+- 镜像回滚：执行 `docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:266675ffadc254981399cb03fb8f42fcefa1a8a9c06bb7eb6f3f022af204a044`；生产容器需另按部署流程更新，镜像回滚不回退数据库或配置。
+- 本轮记录精确回滚：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261102-82zhwjs9/release-records.patch`，检查成功后执行相同命令去掉 `--check`；该补丁仅撤销本轮发布文档和日志追加，不回退此前业务改动或远端镜像。
+
+## 2026-11-03 - Task: 顶栏余额在浅深色主题下固定使用青绿色
+
+### What was done
+- 将顶栏可用余额胶囊从全站中性主色改为独立青绿色：浅色模式使用浅绿底、深绿金额，深色模式使用半透明深绿底、亮绿金额，图标保持同色系，增加细描边。
+- 金额使用等宽数字；手机端用户菜单中的余额同步保持绿色。保留原有金额计算、冻结金额提醒、悬停明细和响应式显示规则。
+- 更新主题文档，说明余额使用固定语义色而不跟随全站中性主色。
+
+### Testing
+- `pnpm typecheck` 通过；`pnpm exec eslint src/components/layout/AppHeader.vue` 通过。
+- `pnpm exec vitest run src/components/layout/__tests__`：5 个文件、31 项测试全部通过。
+- `pnpm exec vite build --config vite.config.ts --outDir /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-balance-green-20261103-9zne6gh0/build --emptyOutDir` 通过；构建输出到临时目录，未覆盖已有后端内嵌产物。已有 Browserslist 数据与大分包提示不阻断构建。
+- Chromium 对生产构建检查 1440/768/375/320px、浅深两种主题，共 8 组通过：金额和图标为对应青绿色、余额完整可见、无整页横向溢出、无页面脚本异常；悬停余额明细仍能显示。核对桌面浅深色截图，确认圆角胶囊与细描边效果。
+- 浏览器使用本地模拟账号 `$73289.44`，未连接生产账号或上游。最初检查脚本在菜单退场动画尚未结束时判断可见性失败，等待既有动画完成后复查通过，未因此修改业务代码。
+- 本轮增量仅四处模板样式类；脚本与余额业务逻辑保持原样。限定文件差异检查和精确回滚补丁校验通过。
+
+### Notes
+- 改动文件：
+  - `frontend/src/components/layout/AppHeader.vue`：余额背景、图标、金额与手机端余额固定为青绿色，增加内描边与等宽数字。
+  - `docs/FRONTEND_THEME.md`：补充余额独立配色和浅深色验证约定。
+  - `progress.md`：仅在末尾追加本轮记录。
+- 修改前备份、测试与构建日志、浏览器检查和截图：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-balance-green-20261103-9zne6gh0`。
+- 精确回滚本轮：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-balance-green-20261103-9zne6gh0/balance-green.patch`，成功后执行相同命令去掉 `--check`；只回退本轮改动，保留此前工作树内容。
+- 本轮未构建或推送镜像、未部署生产服务。
+
+## 2026-11-03 - Task: 支持 Seedream 5.0 Pro(G) / Lite(G) 图片上游转发
+
+### What was done
+- 确认 `seedream-5.0-pro(G)` 已被现有括号标签规则覆盖；将 Seedream 5.0 Lite 加入同一 OpenAI API Key 图片兼容模型名单，使 `seedream-5.0-lite(G)` 可以直接请求或经模型映射转发。
+- 两个完整模型 ID 沿用 `gpt-image-2-D` 的 Images 链路，保留 `(G)`、分辨率、画面比例、图片数量、响应格式、长提示词、参考图及上传文件；保持 API Key 账号能力限制和原有响应处理。
+- 补充接入文档，列明上游参数范围、分组/账号/价格配置，以及本次只接入 Images 转发、不变更既有计费的边界。
+
+### Testing
+- 先补回归用例，修改前 `go test ./internal/service -run 'TestCompatibleImages(MidjourneySeedreamAdmission|SeedreamGParameters)$' -count=1` 可复现 Lite(G) 被拒绝及映射后能力仍为 native 的问题；Pro(G) 沿用原有成功路径。
+- 修复后 `go test ./internal/service -run 'TestCompatibleImages' -count=1` 通过，覆盖直接模型、账号映射、渠道映射、JSON 图片生成/编辑、multipart 文件透传和 OAuth/Setup Token 原生图片路径隔离。
+- 新增参数用例覆盖 Pro 的 1K/2K、Lite 的 2K/3K/4K，32000 字符提示词、10/14 张参考图、`n=10`、`size=auto`、`aspect_ratio=16:9`、url/b64_json 响应；确认不擅自添加 quality，请求十张而实际返回两张时记录两张。
+- `go test -tags=unit ./internal/service ./internal/handler ./internal/server/routes -run 'Test.*(Images|ImageBilling|ImageCount|ImageGeneration|ModelPlaza|ListGroups)' -count=1 -json` 通过：3 个包、280 个顶层测试（含子测试共 763 个通过事件），无失败。
+- `go build ./...` 通过；限定本轮文件的 `git diff --check`、Go 格式检查及精确回滚补丁检查通过。
+- 使用本地模拟上游验证请求与响应，未用真实供应商 Key 进行付费生成，不代表上游可用性或实际成图质量验证。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/openai_images.go`：仅增加 Lite 系列兼容图片模型识别。
+  - `backend/internal/service/openai_images_midjourney_seedream_test.go`：扩展两个完整模型 ID 的接入、映射、上传保留和原生路径隔离覆盖。
+  - `backend/internal/service/openai_images_seedream_g_test.go`：新增供应商参数透传、参考图、渠道映射和实际图片数量测试。
+  - `docs/OPENAI_MEDIA_COMPAT.md`：补充 G 渠道模型接入方式、参数表及计费边界。
+  - `progress.md`：仅追加本轮记录。
+- 本轮按用户要求沿用 D 系列转发能力，不改变价格或账务策略。本站既有“识别不到图片时兜底张数”与供应商文档“无有效图片不收费”不同；3K 可透传，但本站现有分组独立图片价格档位仍为 1K/2K/4K。文档已明确说明，不将供应商结算规则宣称为本站新增能力。
+- 本轮未新增 Chat/Gemini 协议互转、未修改鉴权或数据库结构，未构建推送镜像或部署。保留其他工作树修改。
+- 备份、测试日志与证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-seedream-g-20261103-_are0px7`。
+- 精确回滚本轮：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-seedream-g-20261103-_are0px7/seedream-g.patch`，检查成功后执行相同命令去掉 `--check`；补丁只回退本轮增量与新测试，不撤销此前工作树内容。
+
+## 2026-11-03 - Task: 支持三个 Nano Banana（as）型号的图片转发
+
+### What was done
+- 将 `nano-banana-2.1（as）`、`nano-banana-2（as）`、`nano-banana-pro（as）` 接入 OpenAI API Key 的标准 Images 兼容转发；完整保留模型连字符、版本号和中文括号标签，支持直接使用或渠道/账号模型映射。
+- 复用现有图片生成、参考图编辑、上传文件透传和 URL/Base64 响应处理，保持既有账号能力限制与计费配置。生产代码仅新增一行三个基础模型名的识别。
+- 说明接口区别：当前代码没有 `nano-banana2.1` 这个精确 ID；通用 Images 已有 `nano-banana2`，文档中的 `gemini-nano-banana-2.1` 使用 Gemini 原生接口。本轮依据此前 OpenAI 图片上游场景，按通用 Images 接入三个指定型号，不自动改写协议或新增该无连字符别名。
+
+### Testing
+- 先补回归用例；修改前 `go test ./internal/service -run 'TestCompatibleImages(MidjourneySeedreamAdmission|ScreenshotModelMapping|NanoBananaASChannelMapping)$' -count=1` 可复现三个型号被图片入口拒绝及映射后未得到 API Key 图片能力的问题。
+- 修改后 `go test -tags=unit ./internal/service ./internal/handler ./internal/server/routes -run 'Test.*(Images|NanoBanana|ImageBilling|ImageCount|ImageGeneration|ModelPlaza|ListGroups)' -count=1 -json` 通过：3 个包、290 个顶层测试（含子测试共 812 个通过事件），无失败。
+- 新增覆盖直接请求、账号映射、渠道映射、JSON 文生图、multipart 编辑上传、完整 `（as）` 标签保留、图片参数与 URL/Base64 响应，以及 OAuth/Setup Token 路径隔离；既有 Nano Banana 专用接口回归也通过。
+- `go build ./...` 通过；限定文件的 `git diff --check`、Go 格式检查、追加日志前缀校验和精确回滚补丁检查通过。
+- 使用本地模拟上游验证，不使用真实上游密钥进行付费生图；上游需实际提供对应标准 Images 接口，未验证供应商真实可用性和成图质量。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/openai_images.go`：补充三个 Nano Banana 基础名称的兼容图片识别，复用括号标签规则。
+  - `backend/internal/service/openai_images_midjourney_seedream_test.go`：新增三个型号的识别、透传、映射及原生路径隔离回归。
+  - `docs/OPENAI_MEDIA_COMPAT.md`：补充 as 渠道完整型号、接入配置及 Images/Gemini/专用接口边界。
+  - `progress.md`：仅追加本轮记录。
+- 不修改模型价格、鉴权、数据库结构或 Nano Banana 专用接口；保留上一轮 Seedream G 支持及其他既有工作树改动。未构建推送镜像或部署。
+- 修改前备份及验证证据：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-nano-banana-as-20261103-f57z9ehg`。
+- 精确回滚本轮：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-nano-banana-as-20261103-f57z9ehg/nano-banana-as.patch`，检查通过后执行相同命令去掉 `--check`；仅撤销本轮增量，不回退此前工作。
+
+## 2026-11-03 - Task: 更新 Seedream 公开接口文档并移除 Midjourney 文档入口
+
+### What was done
+- 按用户提供的 G 渠道接口说明更新 `seedream-5.0-pro-x`，新增 `seedream-5.0-lite-x`；用户页面及示例继续使用公开别名，分别展示 1K/2K、2K/3K/4K、32000 个 UTF-16 码元及 10/14 张参考图上限。
+- 补齐 resolution、aspect_ratio、size、n 和 response_format 的取值与默认值，提供 Pro X 文生图、Lite X 文生图、Lite X 参考图编辑及兼容 URL/Base64 响应的四个可复制示例。
+- 移除用户接口文档中的 Midjourney-V7 名称、参数说明和示例；保留既有后端 Midjourney 转发支持及 `seedream-5.0-pro` 的原有规格。
+- 验证时发现新增 Lite X 公开别名会在模型映射前被图片入口拒绝，因此同步增加该精确别名的兼容图片识别并验证两组映射。实际账号/渠道映射仍由现有配置决定，本轮不修改生产配置、价格或计费规则。
+
+### Testing
+- 修改前回归用例可复现文档不符合新规格及 Lite X 别名被拒绝；对应日志保留在本轮证据目录。
+- 前端 `pnpm typecheck`、限定两个前端文件的 ESLint 通过；`pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts src/components/layout/__tests__` 通过，共 6 个文件、32 项测试。
+- 前端 Vite 生产构建通过，产物输出至本轮临时证据目录的 build 子目录，未覆盖后端已有内嵌产物；既有 Browserslist 数据及大分包提示不阻断构建。
+- 后端 `go test -tags=unit ./internal/service ./internal/handler ./internal/server/routes -run 'Test.*(Images|ImageBilling|ImageCount|ImageGeneration|ModelPlaza|ListGroups)' -count=1 -json` 通过：3 个包、281 个顶层测试，含子测试共 815 个通过事件，无失败；覆盖公开别名准入、账号/渠道映射及原生图片路径隔离。
+- Chromium 检查 1440/768/375px 与浅深两种主题，共 6 组通过；四个示例复制内容与代码一致，无页面脚本异常和整页横向溢出。手机端表格保留容器内横向滚动，所有列及页面最后章节可达；已检查桌面浅色和手机深色截图。
+- 限定文件的 `git diff --check`、Go 格式检查通过；页面模板和 scoped CSS 与本轮开始前一致。日志历史前缀及本轮增量回滚补丁单独校验。
+- 使用本地模拟账号和模拟上游验证，未请求真实上游付费生成图片。
+
+### Notes
+- 改动文件：
+  - `frontend/src/views/user/ApiDocsView.vue`：更新 Pro X、增加 Lite X 的规格和示例，移除 Midjourney 文档内容。
+  - `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：核对公开名称、参数、示例及 Midjourney/上游名称不出现在用户文档中。
+  - `backend/internal/service/openai_images.go`：为新增公开名称 `seedream-5.0-lite-x` 增加一处兼容图片识别。
+  - `backend/internal/service/openai_images_midjourney_seedream_test.go`：补充 Lite X 准入、原生路径隔离及两个公开别名的账号映射测试。
+  - `backend/internal/service/openai_images_seedream_g_test.go`：已有渠道映射参数用例改用对应的公开 -x 别名验证。
+  - `docs/API_DOCS.md`：同步公开接口文档，并记录管理员所需的两组模型映射。
+  - `docs/OPENAI_MEDIA_COMPAT.md`：说明公开别名与上游 G 型号的配置关系。
+  - `progress.md`：仅在末尾追加本轮记录。
+- 管理员需要在实际使用的账号或渠道中配置 `seedream-5.0-pro-x` → `seedream-5.0-pro(G)`、`seedream-5.0-lite-x` → `seedream-5.0-lite(G)`；未配置时不会由代码自动改写为 G 型号。
+- 本轮未构建或推送容器镜像、未部署生产服务、未提交或推送 Git；保留此前工作树改动。
+- 修改前备份、测试和构建日志、浏览器验证及截图：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-seedream-public-docs-20261103-iv8imar9`。
+- 精确回滚本轮：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-seedream-public-docs-20261103-iv8imar9/seedream-public-docs.patch`，检查通过后执行相同命令去掉 `--check`；仅撤销本轮增量，保留此前工作树内容。
+
+## 2026-11-03 - Task: 构建并推送当前工作树多架构镜像 0.2.19-20261103-234623
+
+### What was done
+- 将当前工作树构建为 linux/amd64、linux/arm64 镜像并推送 `iotwq/china-api:0.2.19-20261103-234623`，包含绿色余额、Seedream G / Nano Banana（as）图片转发及 Seedream 公开接口文档更新。
+- 两个架构验证通过后更新 `iotwq/china-api:latest`；远端两个标签均指向 `sha256:922cd711acfb46250ddfc19e79c54354b00978465932e7b35760a8f6862834cf`。
+- 新增发布说明、拉取和回滚命令；未部署生产服务、执行数据库迁移或进行 Git 提交/推送。
+
+### Testing
+- Docker Buildx 多架构构建及推送通过；构建内前端 i18n 3 项检查、类型检查、Vite 构建和两个架构 Go 内嵌前端编译均通过。
+- 从远端重新读取固定版本与 latest 的原始索引，SHA-256 及 amd64/arm64 manifest 摘要核对一致。
+- 两个架构均在无网络、只读、非 root 的隔离容器中运行 `--version` 通过：版本 0.2.19，构建标识 57a3bafd515f-dirty，构建时间 2026-11-03T15:46:23Z。
+- amd64 常规拉取两次遇到 Docker Hub EOF，改用 Buildx 按远端精确 manifest 导入；导入摘要与已发布镜像一致并通过运行检查。latest 最终远端读取首次 EOF，重试验证通过。
+- 构建前后 4850 个已跟踪及非忽略工作树路径内容、模式与存在状态未变化；本轮仅新增发布文档并追加日志。上一轮 32 项前端测试、281 个后端顶层测试和 6 组浏览器检查结果保留，本轮不重复业务测试。
+- 发布文档与日志限定范围的差异检查、历史日志前缀及精确回滚补丁另行校验；构建中的既有 Browserslist 和大分包提示不阻断发布。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261103_234623.md`：记录镜像标签、摘要、包含内容、验证范围及拉取/回滚方式。
+  - `progress.md`：仅在末尾追加本轮发布记录。
+- 证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261103-efvmagls`。
+- 镜像回滚：执行 `docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:ffaeff56df1960bfcab12ba684e73b17db603ad143d4c416da55d76c2e1a5c05`；生产容器须按部署流程另行更新，镜像回滚不回退数据库或账号配置。
+- 本轮记录精确回滚：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261103-efvmagls/release-records.patch`，检查通过后执行相同命令去掉 `--check`；仅撤销本轮发布文档和日志追加，不回退此前业务代码或远端镜像。
+
+## 2026-11-04 - Task: 调整 Seedream 接口文档标签并删除两条提示
+
+### What was done
+- 将用户接口文档 Seedream 区块顶部标签由 OpenAI API URL + Key 改为 Seedream，保留 OpenAI 兼容 Seedream 主标题。
+- 删除用户指定的账号类型/模型转发说明和 GPT 专属参数限制两句话，同步维护文档说明与既有页面测试预期。
+
+### Testing
+- `pnpm exec vitest run src/views/user/__tests__/ApiDocsView.spec.ts` 通过：1 个文件、1 项既有页面渲染测试，继续核对八个模型区块、模型列表、参数与示例。
+- `pnpm exec eslint src/views/user/ApiDocsView.vue src/views/user/__tests__/ApiDocsView.spec.ts` 通过。
+- 与本轮开始前备份逐字比较，确认页面源文件仅变更一个标签并删除指定两句话，其他文案、模板、样式和示例均保持原样。
+- 限定文件差异检查、日志历史前缀校验及本轮增量回滚补丁检查通过。测试输出中既有 localStorage 实验性提示与 Browserslist 数据提示不影响结果。
+
+### Notes
+- 改动文件：
+  - `frontend/src/views/user/ApiDocsView.vue`：修改 Seedream 标签并移除指定两条说明。
+  - `frontend/src/views/user/__tests__/ApiDocsView.spec.ts`：将已删除提示对应的既有断言改为不再展示。
+  - `docs/API_DOCS.md`：同步 Seedream 展示口径，移除对应参数限制说明。
+  - `progress.md`：仅在末尾追加本轮记录。
+- 本轮仅调整文案，不涉及后端转发、模型映射或计费；未制作推送新镜像、未部署生产服务，保留其他既有工作树改动。
+- 修改前备份及验证日志：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-seedream-docs-copy-20261104-pct77q60`。
+- 精确回滚本轮：在仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-seedream-docs-copy-20261104-pct77q60/seedream-docs-copy.patch`，检查通过后执行相同命令去掉 `--check`；仅撤销本轮增量，不回退此前修改。
+
+## 2026-11-04 - Task: 前端性能优化 1 — 登录会话复用群聊未读状态和实时连接
+
+### What was done
+- 将侧栏群聊未读状态及实时订阅提升到登录会话层；切换页面、侧栏重新挂载不再重复恢复未读和新建连接。
+- 合并初次读取与连接建立时的并发刷新；真正断线重连仍更新未读，退出或切换账号清理状态并丢弃旧账号异步结果。
+- 保留群聊/私聊已读语义与既有共享连接协议，补充侧栏重挂载、账号隔离、重连和消息竞态回归验证。
+
+### Testing
+- 修改前回归复现：侧栏重挂载导致额外请求，原实现 1 项失败、5 项通过。
+- 修改后相关 8 个 Vitest 文件、63 项测试全部通过，覆盖侧栏、登录会话 store、共享实时连接及群聊行为。
+- `pnpm typecheck`、6 个改动前端文件限定 ESLint 检查通过。
+- 历史日志前缀与阶段增量回滚补丁校验通过；生产构建及跨阶段浏览器指标在完成全部优化后统一复核。
+
+### Notes
+- 改动文件：
+  - `frontend/src/App.vue`：按登录用户生命周期启动/停止共享未读会话。
+  - `frontend/src/components/layout/AppSidebar.vue`：只读取共享未读状态，移除侧栏挂载时的消息请求与订阅。
+  - `frontend/src/stores/communityChatNotifications.ts`：新增会话级未读管理和失效响应隔离。
+  - `frontend/src/stores/__tests__/communityChatNotifications.spec.ts`：新增会话复用、重连、退出、账号切换及竞态测试。
+  - `frontend/src/components/layout/__tests__/AppSidebar.unread.spec.ts`：验证侧栏重挂载不重复请求且保留未读。
+  - `frontend/src/components/layout/__tests__/AppSidebar.spec.ts`：更新侧栏共享状态结构预期。
+  - `docs/COMMUNITY_CHAT.md`：说明订阅和未读状态的会话生命周期。
+  - `progress.md`：追加本阶段记录。
+- 证据及备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage1`。
+- 精确回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage1/changes.patch`，检查通过后去掉 `--check` 执行；后续阶段涉及相同文件时应先按阶段倒序回滚。
+
+## 2026-11-04 - Task: 前端性能优化 2 — 密钥列表和仪表盘分离主次加载
+
+### What was done
+- 密钥列表返回即展示并允许操作，不再等待批量用量统计；未知用量显示 `—`，新请求和离开页面取消旧读取，防止旧金额覆盖新页面。
+- 仪表盘统计独立展示，不再被用户资料刷新阻塞；余额继续随共享用户状态更新。
+
+### Testing
+- 修改前新增回归用例复现 4 项失败，涉及列表阻塞、未知金额、离开取消及仪表盘阻塞；修改后 2 个文件共 33 项测试全部通过。
+- 延迟 Promise 用例验证统计未返回时列表可用，旧请求结果不覆盖新结果，资料刷新失败不影响仪表盘统计。
+- `pnpm typecheck`、4 个改动前端文件的限定 ESLint 检查通过。
+- 历史日志前缀和增量回滚补丁校验通过；浏览器延迟场景在全部阶段完成后统一复测。
+
+### Notes
+- 改动文件：
+  - `frontend/src/views/user/KeysView.vue`：提前展示列表，未知用量占位，离开页面取消读取。
+  - `frontend/src/views/user/DashboardView.vue`：统计展示不再等待资料刷新。
+  - `frontend/src/views/user/__tests__/KeysView.spec.ts`：增加慢统计、旧结果隔离、失败占位和离开取消测试。
+  - `frontend/src/views/user/__tests__/DashboardView.spec.ts`：增加慢资料刷新及失败场景测试。
+  - `docs/FRONTEND_PERFORMANCE.md`：记录会话复用与主次加载规则。
+  - `progress.md`：追加本阶段记录。
+- 证据及备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage2`。
+- 精确回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage2/changes.patch`，通过后去掉 `--check` 执行；涉及后续阶段时先倒序回滚。
+
+## 2026-11-04 - Task: 前端性能优化 3 — 渠道状态批量返回多窗口可用率
+
+### What was done
+- V1 用户渠道列表一次返回主模型的 7/15/30 天可用率；窗口切换不再逐组请求详情，自动和手动刷新均只刷新列表，详情弹窗按需查询。
+- 后端复用一次最新状态查询，三个时间窗口分别批量聚合；总查询次数固定，不随分组数量增长，未改数据库结构、探测或计费。
+- 窗口查询失败显示未知，无历史仍保持既有 0 的口径；新前端配旧后端时新增窗口显示未知，需前后端同版本发布。
+
+### Testing
+- 修改前窗口切换回归复现 5 项失败；修改后前端 10 个相关文件共 48 项测试通过。
+- 20 个分组测试确认切换 15/30 天无额外列表和详情请求；定时及手动刷新后数值更新，失败窗口显示未知。
+- `go test ./internal/service ./internal/handler -run 'Test(ListUserView|BuildStatusSummary|ChannelMonitor)' -count=1` 通过，覆盖批量三窗口、主模型取值、空列表、失败/无历史和 JSON 字段输出。
+- `pnpm typecheck`、4 个前端改动文件限定 ESLint 检查通过；限定 Go 文件 gofmt、历史日志前缀和增量回滚补丁校验通过。
+
+### Notes
+- 改动文件：
+  - `backend/internal/service/channel_monitor_aggregator.go`：批量装配三个窗口并复用最新状态查询。
+  - `backend/internal/service/channel_monitor_types.go`：用户概览补充可空的 15/30 天可用率。
+  - `backend/internal/service/channel_monitor_aggregator_test.go`：验证固定批量调用次数及窗口结果。
+  - `backend/internal/handler/channel_monitor_user_handler.go`：列表下发新增窗口字段。
+  - `backend/internal/handler/channel_monitor_user_availability_test.go`：验证新增 JSON 数值/空值。
+  - `frontend/src/api/channelMonitor.ts`：补充多窗口响应类型。
+  - `frontend/src/views/user/ChannelStatusV1View.vue`：删除逐组详情预取和刷新。
+  - `frontend/src/components/user/monitor/MonitorCardGrid.vue`：直接读取列表对应窗口值。
+  - `frontend/src/views/user/__tests__/ChannelStatusV1View.details.spec.ts`：验证切换和刷新无请求扇出。
+  - `docs/CHANNEL_MONITOR.md`：记录新增列表字段、空值和发布兼容性。
+  - `docs/FRONTEND_PERFORMANCE.md`：补充渠道状态加载规则。
+  - `progress.md`：追加本阶段记录。
+- 证据及备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage3`。
+- 精确回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage3/changes.patch`，通过后去掉 `--check` 执行；涉及后续阶段时先倒序回滚。
+
+## 2026-11-04 - Task: 前端性能优化 4 — 使用记录筛选合并与统计取消
+
+### What was done
+- 筛选后明细立即读取，150ms 内连续筛选只发起最后一组统计、模型分布和趋势/分组查询。
+- 将三类统计从仅忽略过期响应改为实际发送取消信号；旧结果不覆盖新筛选，离开页面取消请求和定时器，手动刷新立即执行。
+- 保持原有 API 参数签名兼容、分页/排序和导出逻辑。
+
+### Testing
+- 修改前新增回归 4 项失败；修改后使用记录和 API 测试共 20 项通过。
+- 验证连续三次筛选仍立即读取明细，而三类统计各仅新增一次；验证取消信号传递、迟到结果隔离、手动刷新不重复、页面离开取消及旧 API 签名兼容。
+- `pnpm typecheck` 通过；限定 ESLint 首次发现新增测试多余分号，修正后通过。
+- 历史日志前缀和本阶段精确回滚补丁校验通过。
+
+### Notes
+- 改动文件：
+  - `frontend/src/views/user/UsageView.vue`：统计查询取消、短时间合并及卸载清理。
+  - `frontend/src/api/usage.ts`：三类统计 API 透传可选 AbortSignal。
+  - `frontend/src/views/user/__tests__/UsageView.spec.ts`：新增筛选合并、取消及迟到结果验证，保留导出等既有验证。
+  - `frontend/src/api/__tests__/usage.cancellation.spec.ts`：验证底层信号传递和旧参数兼容。
+  - `docs/FRONTEND_PERFORMANCE.md`：说明响应时机、取消行为及其服务端限制。
+  - `progress.md`：追加本阶段记录。
+- 证据及备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage4`。
+- 精确回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage4/changes.patch`，通过后去掉 `--check` 执行；涉及后续阶段时先倒序回滚。
+
+## 2026-11-04 - Task: 前端性能优化 5 — 首屏语言资源和渠道版本按需加载及整体复核
+
+### What was done
+- 普通用户首屏只读取当前语言的用户/共用文案，账号管理、系统设置、运维等专用翻译在进入管理页面前加载；管理员语言切换补齐完整文案。
+- 抽出用户页面复用的账号用量窗口及支付文案为单一来源，完整中英文全部键值与修改前逐字一致；保留共用分组、统计和仪表盘文案。
+- 渠道状态按设置异步加载 V1 或 V2，未启用的实现不参与该页首次下载。
+- 完成五阶段生产构建、浏览器对比、限定范围检查及增量回滚材料。
+
+### Testing
+- 本阶段语言/路由/模式/管理设置专项 18 个文件、182 项测试通过；联合回归 39 个文件、293 项测试通过。
+- `pnpm typecheck`、本轮全部 34 个前端改动路径限定 ESLint 通过；`pnpm exec vite build --outDir <证据目录>/stage5/build --manifest` 生产构建通过，构建产物未覆盖工作树内前端产物。
+- 完整中英文文案抽取前后 JSON 逐字一致；用户/公共页面及其共享组件的静态和动态翻译前缀覆盖检查通过。
+- 本地生产构建 + 模拟 API 浏览器复测：四次接口文档/生图切换，额外 HTTP 请求由每次 4 变为 0，新增群聊连接由每次 1 变为 0；20 分组 7→15 天切换详情请求由 20 变为 0。
+- 主接口 100ms、次接口 900ms 延迟场景：300ms 时密钥列表由不可见变为可见；仪表盘卡片由 0 变为 14。以上均为模拟接口验证，不代表生产绝对耗时。
+- 中文初始语言资源（含共享分包）443,696 → 241,266 字节，减少 45.6%；gzip 估算 149,814 → 82,109 字节，减少 45.2%。
+- 浏览器普通用户中英切换未下载管理专用包；管理员直达插件页面及中英切换完整显示；V1/V2 各自只下载当前实现，三场景无运行时异常。
+- 初次专项测试暴露异步组件 Mock 缺少 ESM 标记、测试环境 runtime-only i18n 不编译原始文案；调整测试模拟和原始消息断言后通过，并用生产构建浏览器验证实际翻译显示。浏览器模式对比初次遇到模拟服务 HTML 缓存导致旧设置，禁用测试缓存后验证通过。
+- 本轮 42 个变更路径均在阶段清单内；此前已删除的文件和其他既有工作树改动保持原样。历史日志前缀和分阶段/整体反向补丁检查通过。
+
+### Notes
+- 改动文件：
+  - `frontend/src/i18n/index.ts`：用户/管理语言包分别加载、并发复用、失败可重试及管理语言切换。
+  - `frontend/src/i18n/locales/en/user.ts`：新增英文用户与共用文案入口。
+  - `frontend/src/i18n/locales/zh/user.ts`：新增中文用户与共用文案入口。
+  - `frontend/src/i18n/locales/en/adminMessages.ts`：新增英文管理专用加载入口。
+  - `frontend/src/i18n/locales/zh/adminMessages.ts`：新增中文管理专用加载入口。
+  - `frontend/src/i18n/locales/en/admin/shared.ts`：保存共享的英文账号用量窗口和支付文案。
+  - `frontend/src/i18n/locales/zh/admin/shared.ts`：保存共享的中文账号用量窗口和支付文案。
+  - `frontend/src/i18n/locales/en/admin/accounts.ts`：改为引用共享用量文案，内容不变。
+  - `frontend/src/i18n/locales/zh/admin/accounts.ts`：改为引用共享用量文案，内容不变。
+  - `frontend/src/i18n/locales/en/admin/settings.ts`：改为引用共享支付文案，内容不变。
+  - `frontend/src/i18n/locales/zh/admin/settings.ts`：改为引用共享支付文案，内容不变。
+  - `frontend/src/router/index.ts`：权限检查通过后、管理页面渲染前等待专用翻译加载。
+  - `frontend/src/router/__tests__/feature-access.spec.ts`：验证仅管理页面等待对应翻译，保留访问控制测试。
+  - `frontend/src/i18n/__tests__/lazyLocales.spec.ts`：验证用户页面依赖覆盖、并发复用和用户/管理语言切换。
+  - `frontend/src/views/user/ChannelStatusView.vue`：按当前模式异步加载对应页面。
+  - `frontend/src/views/user/__tests__/ChannelStatusView.mode.spec.ts`：验证实际展示和未启用版本不加载。
+  - `docs/FRONTEND_PERFORMANCE.md`：记录加载规则、量化结果、验证环境和发布兼容要求。
+  - `progress.md`：仅追加本阶段及全阶段复核记录。
+- 全部证据及备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj`。本轮未生成/推送容器镜像、未部署生产或提交 Git，未执行数据库迁移。
+- 第五阶段回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/stage5/changes.patch`，通过后去掉 `--check` 执行。
+- 五阶段整体回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-opt-20261104-fixx3pmj/all-changes.patch`，通过后去掉 `--check` 执行；只撤销本轮五项优化，保留此前工作树修改。
+- 发布时前后端需同版本；新前端接旧后端时渠道状态 15/30 天显示未知。真实数据库的汇总耗时未在生产测量，部署后需按实际数据量观察。
+
+## 2026-11-04 - Task: 构建并推送前端性能优化双架构镜像
+
+### What was done
+- 使用当前完整工作树构建并推送 `iotwq/china-api:0.2.19-20261104-015742`，包含五项前端性能优化及 Seedream 文档文案调整，保留此前全部代码改动。
+- 固定版本双架构验证通过后更新 `iotwq/china-api:latest`；两个远端标签指向同一索引 `sha256:27ca8cc09edcddd3d4897e1b0c0de350561dbda6d43781263b1b44b7c24cc8ae`。
+- 保存发布摘要、验证证据及上一版 latest 回滚指令；本轮未提交/推送 Git、未部署生产、未执行数据库迁移。
+
+### Testing
+- Docker Buildx `linux/amd64,linux/arm64` 构建和推送通过；构建内前端 i18n 3 项检查、类型检查、Vite 构建及双架构 Go 编译通过。
+- 两个平台按远端精确 manifest 摘要直接拉取成功，架构检查通过；在无网络、只读、非 root 容器内运行 `--version` 均成功，版本 `0.2.19`、构建标识 `57a3bafd515f-dirty` 和时间 `2026-11-03T17:57:42Z` 与发布参数一致。
+- 更新 latest 后独立读取两个远端标签，索引及平台摘要全部一致；未做生产数据库或付费上游联调。
+- 构建前后 4862 个已跟踪和非忽略路径的内容、模式及存在状态一致；发布记录写入后的变更仅限本文日志与新发布文档，日志历史前缀和本轮增量反向补丁检查通过。
+- 前序五项优化的 39 个前端测试文件、293 项联合回归，以及后端渠道专项、类型检查、限定 ESLint 和浏览器复测已通过，本轮未重复执行。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261104_015742.md`：记录镜像标签、摘要、内容范围、验证、拉取及回滚方式。
+  - `progress.md`：仅追加本轮构建推送记录。
+- 证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261104-49h0g7ae`。
+- 远端标签回滚：执行 `docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:922cd711acfb46250ddfc19e79c54354b00978465932e7b35760a8f6862834cf`，恢复上一版镜像；不会自动重启生产或回退数据库。
+- 仅撤销本轮文档和日志：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261104-49h0g7ae/release-records.patch`，检查通过后去掉 `--check` 执行；保留此前工作树改动。
+
+## 2026-11-05 - Task: 登录后页面低风险性能优化（PDF 库、二维码分包、Markdown 与引导库按需加载、图标、仪表盘出错提示）
+
+### What was done
+- 聊天页打开时不再下载 PDF 解析库，只有附加 PDF 文件时才下载。原因是 pdf.js 的 worker 地址被并进了 PDF 库的分包，聊天页引用这个地址时连带整个库一起下载。
+- 修复上一轮分包改动的副作用：Rollup 共用的 CommonJS 兼容代码被并进了二维码库，导致密钥、用量、聊天等页面多下载二维码库。现在兼容代码单独成包（约 0.4 KB）。
+- 登录后每页都会加载的外壳代码不再包含 Markdown 渲染库。公告铃铛（打开列表时）、公告弹窗（有公告要显示时）、管理员合规确认弹窗（弹出时）改为按需加载渲染器，统一走新增的 Markdown 工具。
+- 新手引导库改为真正启动引导时才下载，已看过引导的用户不再加载。
+- 默认网站图标从 145 KB 的 256 像素图片换成 16.6 KB 的 128 像素图片，实际显示尺寸约 36 到 40 像素，清晰度不受影响。
+- 用户仪表盘统计接口失败时，显示出错提示和刷新按钮，不再整页空白；点刷新后可恢复。
+- 模型广场介绍和自定义页面改为显式传入 Markdown 解析选项。原先它们依赖公告组件在加载时修改的全局默认值，按需加载后需要自己声明，渲染效果与改动前一致。
+
+### Testing
+- 静态分包分析（压缩后，各页面在共用启动代码和语言包之外额外下载的量）：登录后共用外壳 58.7 KB 降到 41.1 KB；聊天页 244.0 KB 降到 97.3 KB；后台用量 202.4 KB 降到 175.8 KB；系统设置 189.6 KB 降到 172.0 KB；用户用量 176.3 KB 降到 158.8 KB；用户仪表盘 138.4 KB 降到 120.9 KB；后台仪表盘 137.6 KB 降到 120.0 KB；密钥页 133.7 KB 降到 107.1 KB。首页和登录页本轮不变。
+- 构建产物检查：PDF 库和引导库已没有任何文件静态引用；二维码库只被支付和个人资料相关页面静态引用；共用兼容代码不在入口文件里。
+- 生产构建预览配合模拟后端实测：
+  - 用户仪表盘、后台仪表盘、密钥、用量、后台用量、聊天 6 个页面均无脚本报错，都不下载 PDF 库、二维码库和引导库；只有聊天页因渲染聊天消息下载 Markdown 渲染库。
+  - 有公告时，弹窗出现后才下载 Markdown 渲染库，加粗正常显示；铃铛打开列表后才下载，详情页的加粗和换行正常。
+  - 清除引导记录后，后台仪表盘自动启动引导，下载引导库和样式，深色弹窗样式正确；标记已看过后不再下载。
+  - 模拟统计接口失败，仪表盘显示“仪表盘数据加载失败”和刷新按钮；恢复接口后点刷新，统计数据重新显示。
+  - 聊天页附加一页 PDF，此时才下载 PDF 库和 worker，附件显示“1 页”。
+  - 要求合规确认时，管理员合规弹窗正常渲染协议标题和段落，并显示确认输入框。
+  - 个人资料页和充值页（用到二维码库）加载无报错。
+  - 侧边栏图标加载为 128×128，显示 36 像素。
+- vue-tsc -b 通过；eslint 对本轮 13 个文件通过；vitest 全量 405 个文件、3332 项通过，其中新增仪表盘出错并重试的用例。
+- 未验证：没有实际生成二维码图片（2FA 和支付二维码流程需要更多模拟接口），只确认了二维码库所在页面加载无报错。
+
+### Notes
+- 改动文件：
+  - frontend/vite.config.ts：pdf.js worker 地址不并进 PDF 库分包；CommonJS 兼容代码单独成包；marked 与 DOMPurify 分成两个包。
+  - frontend/src/utils/markdown.ts：新增，按需加载 marked，按次传入解析选项。
+  - frontend/src/components/common/AnnouncementBell.vue、AnnouncementPopup.vue、frontend/src/components/admin/AdminComplianceDialog.vue：改用按需加载的 Markdown 渲染。
+  - frontend/src/composables/useOnboardingTour.ts：引导库和样式改为启动引导时动态导入。
+  - frontend/src/components/modelPlaza/ModelPlazaContent.vue、frontend/src/views/user/CustomPageView.vue：Markdown 解析显式传入选项。
+  - frontend/src/views/user/DashboardView.vue：新增统计加载失败时的出错提示和刷新按钮。
+  - frontend/src/i18n/locales/zh/dashboard.ts、en/dashboard.ts：新增出错提示文案。
+  - frontend/src/views/user/__tests__/DashboardView.spec.ts：新增出错并重试的用例，补充 vue-i18n 模拟。
+  - frontend/src/components/common/__tests__/AnnouncementPopup.spec.ts：渲染断言前等待 Markdown 渲染器加载。
+  - frontend/public/dragon-logo.png：换成 128 像素压缩版本。
+  - docs/FRONTEND_BUNDLE_PERFORMANCE.md：补充第二轮改动、前后数据和实测结果。
+  - .gitignore：为 docs/FRONTEND_BUNDLE_PERFORMANCE.md 增加白名单（该文档上一轮新增，之前被 docs/* 规则忽略）。
+  - progress.md：仅追加本轮记录。
+- 他人改动注意：DashboardView.vue、ModelPlazaContent.vue、zh/en dashboard.ts 在本轮开始前已有他人未提交的改动；DashboardView.spec.ts 是他人新建的未跟踪文件，本轮只追加了一个用例。提交时这些文件需要只挑本人的改动。
+- 公开的模型广场页对未登录访客也会按单行换行渲染介绍文字，这一点与改动前不同（改动前只有登录用户如此）。
+- 本轮改动尚未提交。
+- 回滚点：AnnouncementBell.vue、AnnouncementPopup.vue、AdminComplianceDialog.vue、useOnboardingTour.ts、CustomPageView.vue、AnnouncementPopup.spec.ts、dragon-logo.png 的未提交差异全部来自本轮，可用 git checkout HEAD -- <文件> 还原；utils/markdown.ts 为新增文件，删除即可。vite.config.ts 同时含上一轮分包改动，只回退本轮新增的三条规则。DashboardView.vue、ModelPlazaContent.vue、两个 dashboard.ts 和 DashboardView.spec.ts 只回退本轮片段，不要整文件还原。
+
+## 2026-11-05 - Task: 系统设置页按标签渲染、后台仪表盘出错提示，并核实生图权限检查的重试成本
+
+### What was done
+- 系统设置页打开时只渲染当前标签，其余标签第一次点开时才渲染，之后保持渲染状态，切走再切回不丢未保存的输入。支付服务商列表改为按需加载，拖拽库只在打开支付标签时才下载。
+- 后台仪表盘统计加载失败时，显示“加载仪表盘数据失败”和刷新按钮，不再只弹提示、页面空白；原有的错误提示保留。
+- 核实了上一轮提到的“生图权限检查失败后每次切换菜单都重新翻页拉密钥列表”：实测并非如此，每次切换只多发一个失败请求，不会翻页；而且已有测试明确要求失败后由下一个调用方重试，以便接口恢复后菜单能自动出现。因此不做改动，并在文档里更正了之前的说法。
+
+### Testing
+- 生产构建预览配合模拟后端实测，系统设置页：打开时页面元素从 1838 个降到 145 个，输入框从 154 个降到 10 个；缓存后进入设置页的耗时从约 100 毫秒降到约 25 毫秒（后台标签页测得，只用于前后对比）；不点开支付标签时不再下载拖拽库。点开支付标签后才下载服务商列表和拖拽库；切回通用标签时支付面板仍在页面中，再切回来是同一个面板。只打开过通用标签就保存，请求里仍包含全部 278 个设置字段。
+- 后台仪表盘：模拟统计接口失败时显示出错提示和刷新按钮；恢复接口后点刷新，统计数据重新显示。
+- 生图权限检查：模拟检查失败后在后台切换 6 次菜单，共发出 6 个检查请求，每个都在第一页就失败，没有翻页。
+- 构建产物检查：拖拽库只被分组管理页和支付服务商列表静态引用，系统设置页不再引用；系统设置页额外静态下载量（入口之外）约 156 KB。
+- vue-tsc -b 通过；eslint 对本轮 4 个文件通过；系统设置页单测 53 项通过、后台仪表盘单测 3 项通过（新增出错并重试用例）；vitest 全量 405 个文件、3333 项通过。
+- 测试调整说明：系统设置页有 13 个单测原本直接查找其他标签里的输入框而不先点开标签，按标签渲染后找不到元素。已给这 13 个测试补上“先打开对应标签”的步骤，并新增 openFeaturesTab 辅助函数，断言内容未改。
+
+### Notes
+- 改动文件：
+  - frontend/src/views/admin/SettingsView.vue：11 个标签面板改为首次打开时渲染；支付服务商列表改为 defineAsyncComponent 按需加载。
+  - frontend/src/views/admin/DashboardView.vue：新增统计加载失败时的出错提示和刷新按钮。
+  - frontend/src/views/admin/__tests__/SettingsView.spec.ts：新增 openFeaturesTab，13 个测试先打开对应标签再查找元素。
+  - frontend/src/views/admin/__tests__/DashboardView.spec.ts：新增出错并重试的用例。
+  - docs/FRONTEND_BUNDLE_PERFORMANCE.md：新增第三轮改动、实测数据，并更正生图权限检查的说法。
+  - progress.md：仅追加本轮记录。
+- 他人改动注意：SettingsView.vue 和 SettingsView.spec.ts 在本轮开始前已有他人未提交的改动；后台 DashboardView.vue 含上一轮“Token / 实际消费”切换按钮的本人改动。提交时这些文件需要只挑本轮片段。
+- 本轮改动尚未提交（按用户要求不提交）。
+- 回滚点：SettingsView.vue 只回退 11 处 v-if="visitedTabs.has(...)"、visitedTabs 定义、selectSettingsTab 中的 add 调用和 PaymentProviderList 的 defineAsyncComponent，恢复原来的静态 import；SettingsView.spec.ts 只删除 openFeaturesTab 和 13 处新增的打开标签调用。DashboardView.vue 只回退 statsError、EmptyState 引入和模板中的出错块。两个文件都不要整文件还原。
+
+## 2026-11-06 - Task: 修复深色模式首次打开闪白
+### What was done
+- 深色模式用户打开或刷新页面时，不再先闪一下浅色背景：入口页在首次绘制前就按“已保存的主题，没有则跟随系统”设置深色模式，规则与原有启动逻辑一致。
+- 新增脚本使用后端现有的内容安全策略随机令牌（nonce）机制放行，没有放宽安全策略，也没有改后端代码。原有启动时设置主题的逻辑保留为兜底。
+- 在主题文档里说明了这一机制，以及后端不替换令牌的几种情况下的表现。
+
+### Testing
+- vue-tsc -b 通过；生产构建通过，构建出的入口页保留了新脚本和 nonce 占位符。
+- 用本地模拟服务器复现后端默认安全策略（每次请求生成随机令牌并替换占位符），在应用挂载前读取页面状态：
+  - 已保存深色：挂载前已是深色，背景 rgb(10, 10, 11)，无安全策略报错。
+  - 已保存浅色：挂载前为浅色 rgb(250, 250, 250)，无报错。
+  - 未保存主题：系统为深色时挂载前即为深色，系统为浅色时为浅色，无报错。
+  - 对照组（去掉新脚本即修改前）：已保存深色或跟随深色系统时，挂载前均为浅色 rgb(250, 250, 250)，复现了原问题。
+  - 令牌未替换（模拟后端兜底路径）：新脚本被安全策略拦截并记录一条报错，挂载后仍由原逻辑切到深色，表现与修改前相同。
+  - 正常打开登录页深色模式截图显示正确，当前页面无控制台报错。
+- 后端入口页测试：临时把新构建的入口页放入后端内嵌目录，运行 go test -tags embed ./internal/web/ 通过（含“占位符全部替换为随机令牌”的用例），随后已按字节还原原文件。
+- 本轮只改了入口 HTML 和 main.ts 的一段注释，未重跑 vitest 全量。
+
+### Notes
+- 改动文件：
+  - frontend/index.html：head 顶部新增带 nonce 占位符的首屏主题脚本。
+  - frontend/src/main.ts：在 initThemeClass 上方新增注释，说明它是兜底且须与入口页脚本保持一致。
+  - docs/FRONTEND_THEME.md：新增 Theme on first paint 一节。
+  - progress.md：仅追加本轮记录。
+- 已知限制：安装向导页、公开设置读取失败时的兜底页、旧版内嵌模式（ServeEmbeddedFrontend）不会替换占位符，新脚本在这些页面被拦截，控制台多一条安全策略报错，页面仍会像修改前一样闪一下浅色。要消除需改后端这几处返回逻辑，属于安全策略路径，需先确认。
+- 验证用的模拟服务器 .claude/csp-sim.mjs 在被 git 忽略的 .claude/ 目录下，不进仓库。
+- 本轮改动尚未提交（按用户要求不提交）。
+- 回滚点：index.html 删除新增的 script 块；main.ts 删除新增的两行注释；FRONTEND_THEME.md 删除 Theme on first paint 一节。index.html 和 main.ts 本轮开始前与 HEAD 一致，也可用 git checkout -- frontend/index.html frontend/src/main.ts 整文件还原；FRONTEND_THEME.md 本轮开始前已有未提交内容，只删本节，不要整文件还原。
+
+## 2026-11-06 - Task: 接口文档按模型分类用标签栏切换
+### What was done
+- 接口文档页不再把所有模型从上到下排开，改为两级标签栏：先选分类（图片生成、视频生成、音乐生成，分类旁显示可调用模型数量），再选该分类下的模型组，一次只显示一个模型组。
+- 按用户选择，原“Grok 图片视频模型”拆成“Grok 图片模型”和“Grok 视频模型”，分别放在图片和视频分类下；参数、示例、说明按图片和视频拆开，文字内容不变，只把“图片传 1k 或 2k；视频传 480p 或 720p”拆成两组各自的一句。
+- 宽度 640px 及以上时标签栏固定在文档区顶部，滚到下方切换模型时内容回到标签栏下方；手机宽度下标签栏随页面滚动，三个分类等宽显示且不显示数量，模型标签自动换行。
+- 在接口文档说明中新增“页面导航”一节。
+
+### Testing
+- 接口文档页单测 2 项通过：新增标签切换用例（默认只显示 gpt-image2；图片分类点 Grok 只显示 Grok 图片模型；切到视频分类后标签变为 SD2.0、Wan3.0、MiniMax-H3、Grok 且默认显示 SD2.0；视频分类点 Grok 只显示 Grok 视频模型；音乐分类只显示音乐模型；分类数量为 11、13、3）。原有内容用例改为 9 个模型组，并分别检查 Grok 图片组只含图片接口、4 个示例，Grok 视频组只含视频接口、4 个示例。
+- vue-tsc -b 通过；eslint 对本轮 2 个文件通过。
+- 开发服务器配合模拟后端在浏览器实测：
+  - 1440px 浅色、深色：标签栏显示正常；滚到 1500px 后标签栏固定在顶部，切换模型后内容从标签栏下方 24px 开始，与未滚动时一致；在顶部切换不会跳动。
+  - 发现并修复：标签栏固定后，文档区 8px 内边距处会透出下方内容，已用负偏移让标签栏背景盖住这条缝，复测该位置只命中标签栏。
+  - 发现并修复：375px 宽度下“音乐生成”和模型标签“Grok”被截在可视区外，改为分类等宽、模型标签换行后，375px 和 320px 下全部可见、无横向滚动、无文字被截断。
+  - 320px 下固定标签栏高 174px，约占可视高度 556px 的三分之一，因此改为 640px 以下不固定；复测手机宽度下标签栏随页面滚走，切换模型正常。
+  - 768px 平板：标签栏固定、缝隙被覆盖、切换后间距 24px、无横向滚动。
+  - 控制台只有模拟环境下社区聊天 WebSocket 连接失败的既有报错，与本次改动无关。
+- 未跑 vitest 全量：本轮只改了接口文档页及其单测，其他代码没有引用这个页面的内部结构。
+
+### Notes
+- 改动文件：
+  - frontend/src/views/user/ApiDocsView.vue：新增分类和模型标签栏、切换逻辑与样式；每个模型组增加 category 和 tabLabel；Grok 组拆成图片、视频两组。
+  - frontend/src/views/user/__tests__/ApiDocsView.spec.ts：新增标签切换用例；原用例改为 9 个模型组并拆分 Grok 检查。
+  - docs/API_DOCS.md：新增“页面导航”一节。
+  - progress.md：仅追加本轮记录。
+- 他人改动注意：ApiDocsView.vue、ApiDocsView.spec.ts、API_DOCS.md 在本轮开始前都已有他人未提交的改动（Seedream、Suno、Nano Banana 2.1、Grok Image 2.0 等内容），提交时需要只挑本轮片段。
+- 开发环境现象（未改）：开发服务器的 /api 代理前缀会把直接打开或刷新 /api-docs 的请求转给后端，页面显示一段 JSON；站内点击进入正常。生产环境后端只把 /api/ 开头的路径当接口，不受影响。
+- 本轮改动尚未提交（按用户要求不提交）。
+- 回滚点：ApiDocsView.vue 只回退以下片段，不要整文件还原：模板中的 nav 块、sectionsStartEl 占位 div、section 上的 v-show、根节点的 ref="pageEl"；脚本中的 computed/ref 导入、ModelCategory 类型、ModelDoc 的 tabLabel 和 category 字段、每个模型组的这两个字段、modelDocs 之后的分类与切换逻辑；样式中 .api-docs-nav 到 .api-docs-model-tab[aria-pressed='true'] 的新增规则；把 grok-image、grok-video 两组合并回原来的 grok-image-video 一组。ApiDocsView.spec.ts 删除新增的标签切换用例，把 9 组改回 8 组并恢复原 Grok 检查。API_DOCS.md 删除“页面导航”一节。
+
+## 2026-11-06 - Task: 接口文档 OpenAI gpt-image2 新增 2.6 两个模型
+### What was done
+- 接口文档 OpenAI gpt-image2 下新增 gpt-image-2.6-sunburst 和 gpt-image-2.6-flare，规格、画幅、说明与 2.5 两个模型相同。
+- 页面描述、model 参数说明、quality 参数说明（2.6 与 2.5 一样额外支持 xhigh、max）和说明中的模型数量（三个改为五个）同步更新；图片生成分类旁的模型数量从 11 变为 13。调用示例不变，只需替换 model。
+- 接口文档说明同步更新，并记录了后端对 2.6 尚未显式处理的几处。
+
+### Testing
+- 接口文档页单测 2 项通过：gpt-image2 可用模型表为 5 行且顺序为 gpt-image-2、2.5-sunburst、2.5-flare、2.6-sunburst、2.6-flare，每行规格为“1K / 2K / 4K；最多 16 张参考图”；quality 说明包含 2.6 两个模型额外支持 xhigh、max；图片生成分类数量为 13。
+- vue-tsc -b 通过；eslint 对本轮 2 个文件通过。
+- 开发服务器配合模拟后端在浏览器打开接口文档页：gpt-image2 表格显示 5 行，2.6 两行内容与 2.5 一致，页面描述包含 2.6 两个模型名。
+- 未验证 2.6 的真实调用：本轮只改文档页，没有改后端，也没有真实上游可测。
+
+### Notes
+- 改动文件：
+  - frontend/src/views/user/ApiDocsView.vue：gpt-image2 组新增 2.6 两行，更新描述、model 和 quality 参数说明及模型数量说明。
+  - frontend/src/views/user/__tests__/ApiDocsView.spec.ts：模型表改为 5 行并检查顺序，更新 quality 说明和分类数量断言，新增 2.6 模型名检查。
+  - docs/API_DOCS.md：gpt-image2 一节加入 2.6 两个模型，并记录后端尚未显式处理 2.6 的几处。
+  - progress.md：仅追加本轮记录。
+- 后端风险（未改，改动属于网关转发和计费路径，需先确认）：usesCodexDirectImages 只把 2.5 送到直调图片端点，2.6 走 Responses 图片工具链路；2.5 的兜底价格不覆盖 2.6，缺少远程价格时 2.6 按 gpt-image-2 价格兜底；默认模型列表 constants.go 和前端 useModelWhitelist.ts 没有 2.6。
+- 他人改动注意：三个文件在本轮之前都已有他人和本人上一轮未提交的改动，提交时需要只挑本轮片段。
+- 本轮改动尚未提交（按用户要求不提交）。
+- 回滚点：ApiDocsView.vue 删除 2.6 两行，把描述、model、quality 说明中的 2.6 模型名去掉，“五个”改回“三个”；ApiDocsView.spec.ts 把 5 行改回 3 行并删除顺序断言，quality 断言和分类数量改回 2.5 版本与 11，删除两个 2.6 模型名；API_DOCS.md 把 gpt-image2 一节改回三个模型并删除后端风险一条，示例下方的替换说明去掉 2.6。
+
+
+## 2026-11-06 - Task: 审核近期前端改动并修复按需加载回归
+
+### What was done
+- 以 11 月 4 日已验证镜像的源码哈希为边界，核对之后的前端改动，保留全部既有功能、样式及其他工作树变更。
+- 修复引导库下载期间离开页面后，旧页面仍启动引导并在新页面显示遮罩的问题；已启动引导的跨页延续保持原样。
+- 修复 Markdown 分包尚未加载或下载失败时，公告和管理员确认弹窗正文空白的问题；先显示安全转义的原文，加载成功后自动恢复 Markdown 排版，未改确认、已读或鉴权规则。
+- 核对设置标签页、仪表盘错误重试、主题初始化、接口文档分类导航和第三方分包。更正文档表述：支付标签延迟加载的是组件代码，服务商数据仍在设置页挂载时请求一次，本轮未改此行为。
+
+### Testing
+- 修改前全量前端回归 405 个文件、3334 项测试及类型检查通过；补充的两个专项分别复现旧页面引导晚启动、Markdown 正文空白，各出现 1 项预期失败，修复后通过。
+- 修改后全量 Vitest 407 个文件、3338 项测试通过；`pnpm typecheck`、22 个本次审阅或新增 TS/Vue 文件的限定 ESLint 通过。
+- 修改前后使用显式 `vite.config.ts` 构建生产产物，均通过；输出到证据目录，没有覆盖后端内嵌产物。既有大分包和 Browserslist 提示不阻断构建。
+- Chromium + 本地模拟后端对照：延迟引导分包后切到首页，修改前有错误遮罩、修改后无；延迟 Markdown 时修改前公告正文为空、修改后原文可读，随后加粗排版正常；模拟 Markdown 分包返回 503，管理员文档仍显示 2056 字符，未出现未处理异常。
+- 接口文档在 320/768/1440 像素及浅色/深色组合下分类切换、模型切换和复制通过，无整页横向溢出，每次只显示一个模型组；设置支付组件首次进入时下载，二次进入复用；打包后的二维码库成功生成 PNG data URL。
+- 浏览器检查最初把“组件按需加载”误作“API 数据按需请求”，对应断言失败；核对源码确认数据请求本来就在挂载时执行，修正验证口径后组件延迟加载和复用检查通过，未据此改动设置业务逻辑。最初引导测试的并发异步模块模拟不可靠，改为单次延迟下载、卸载后再放行的确定性复现，并由真实浏览器对照确认。
+- 本轮增量仅 6 个文件，历史日志前缀保留，精确增量反向补丁检查通过；未验证生产接口或真实付费上游调用。
+
+### Notes
+- 改动文件：
+  - `frontend/src/composables/useOnboardingTour.ts`：页面卸载后取消尚在等待下载的引导启动。
+  - `frontend/src/composables/__tests__/useOnboardingTour.spec.ts`：新增晚启动取消和已启动引导跨页保持测试。
+  - `frontend/src/utils/markdown.ts`：解析器未就绪时显示安全转义的可读原文。
+  - `frontend/src/utils/__tests__/markdown.spec.ts`：新增延迟加载时正文保留、转义、恢复排版及空正文测试。
+  - `docs/FRONTEND_BUNDLE_PERFORMANCE.md`：记录两处回归修复、验证结果并澄清支付组件与数据加载的区别。
+  - `progress.md`：仅追加本轮审核和修复记录。
+- 证据和修改前备份：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-review-20261106-idozjlrv`。
+- 精确回滚：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-frontend-review-20261106-idozjlrv/review-fixes.patch`，检查通过后去掉 `--check` 执行；仅撤销本轮 6 个文件的增量，不回退其他模型或此前修改。
+- 本轮未提交或推送 Git、未构建或推送容器镜像、未部署生产服务、未执行数据库迁移。
+
+
+## 2026-11-06 - Task: 构建并推送近期前端调整及回归修复镜像
+
+### What was done
+- 使用当前完整工作树构建并推送 `iotwq/china-api:0.2.19-20261106-020743`，支持 `linux/amd64` 与 `linux/arm64`，包含近期前端调整及引导晚启动、Markdown 正文空白两处修复。
+- 固定版本双架构验证完成后更新 `iotwq/china-api:latest`；两个标签的最终远端摘要均为 `sha256:6a6812d8268b64c0d21ccd4c9149680583f24ce8aa5ddc902a6a5950096673ce`。
+- 保存发布详情与上一版摘要回滚指令；本轮未修改业务代码、提交/推送 Git、部署生产或执行数据库迁移。
+
+### Testing
+- 构建前源码与刚完成的前端审查结束状态一致；前序 407 个测试文件、3338 项测试及类型检查、限定 ESLint、生产构建和浏览器复测均已通过，本轮不重复这些业务验证。
+- Docker Buildx 双架构构建及推送通过；构建内 i18n 3 项检查、类型检查、Vite 构建和双架构 Go 编译通过。
+- 按远端精确平台 manifest 拉取两种架构，并在无网络、只读、非 root 隔离容器中运行 `--version` 成功；版本 `0.2.19`、构建标识 `57a3bafd515f-dirty` 和时间 `2026-11-05T18:07:43Z` 均匹配。
+- latest 更新后独立读取两个标签，索引和平台摘要一致。固定版本最终读取前两次遇到 Docker Hub EOF，第三次成功，未重复推送或重建。
+- 构建前后 4866 个路径的内容、模式及存在状态一致；本轮最终增量仅为发布文档和日志，历史日志前缀和精确增量反向补丁检查通过。
+- 未验证生产数据库或真实付费上游调用；既有 Browserslist 和大分包提示未阻断构建。
+
+### Notes
+- 改动文件：
+  - `docs/IMAGE_RELEASE_20261106_020743.md`：记录镜像版本、摘要、包含内容、验证、拉取及回滚方式。
+  - `progress.md`：仅追加本轮镜像构建与推送记录。
+- 证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261106-kul65ds9`。
+- 远端 latest 回滚：执行 `docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha256:27ca8cc09edcddd3d4897e1b0c0de350561dbda6d43781263b1b44b7c24cc8ae`；不会自动重启生产服务或回退数据库。
+- 仅撤销本轮发布文档和日志：仓库根目录执行 `git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-publish-20261106-kul65ds9/release-records.patch`，检查通过后去掉 `--check` 执行；保留此前所有工作树改动。
+
+
+## 2026-11-07 - Task: 合并 Wei-Shaw/sub2api 最新 0.2.20 并验证本站兼容
+
+### What was done
+- 按用户明确确认合入 0.2.20 全部增量，包括管理 MCP、邮箱黑名单、鉴权/并发保护和 249 MCP OAuth 迁移代码；上游从 `a3298b46ebe239fb0720b068a1eb3383955bdac2` 推进至 `6b4b37db43443b5e88e424fe3c69602cc3810dfb`，共 107 个提交、458 个路径。
+- 创建备份分支与完整原文件归档，保存原工作区后完成本地合并 `569c20342a7516e1703b93bfa2bd47c01227120f`，恢复既有定制并处理 15 处历史合并冲突及 11 处工作区恢复冲突。两项原 intent-to-add 已恢复，原有 8 项删除继续保持删除。
+- 完成图片异步结算与余额冻结交接、OAuth 图片尺寸诊断、Terra/Sol 豁免分离、认证快照 v28、本站媒体请求读取接口、Gemini 图片计数、BPS 追踪和前端懒加载文案兼容，补充针对性回归。
+- 同步配置、部署边界、GPT Image 2.6 后端状态和完整逐文件来源说明。MCP 默认关闭，未配置生产公开地址或更改用户状态。
+- 未将原有定制和后续修复整体提交；后续构建须使用完整工作区。没有推送 Git、制作/推送镜像、部署、运行生产迁移或真实付费上游请求。
+
+### Testing
+- 前端 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm lint:check` 通过；全量 Vitest **416 个文件 / 3416 项测试通过**。补充 MCP 懒加载语言断言后对应 5 项测试复测通过。
+- 使用显式 `vite.config.ts` 构建生产资源成功，输出到证据目录 `frontend-dist`，未覆盖原有后端 embed 目录；保留已有大 chunk、Browserslist 和测试环境 localStorage 提示。
+- 最终后端全包 `GOMAXPROCS=4 go test -mod=readonly -p 4 -tags=unit ./... -count=1 -timeout=15m -json` 退出 0：61 个测试包、28073 个通过事件（含子测试）；52 个无测试文件的包和 41 项环境/可选测试按原条件跳过，不把跳过记为通过。管理密钥数据库用例随后显式提供隔离 DSN 验证。
+- `go vet -mod=readonly ./...` 通过。handler/admin、handler、repository、service、middleware、routes 六包对 MCP、快照、图片 worker、请求资源保护、缓存和 BPS 等定向 race 通过（636 个通过事件，`-parallel 1`）；尺寸路由、冻结生命周期、Sol/Terra 与认证字段修复另有最终定向 race 复测。
+- `httputil`、`apicompat`、`basispoints`、`openai_ws_v2` 四包完整 race 通过（1379 个通过事件）。
+- 隔离 PostgreSQL 18.1 / Redis 8.4 的 MCP 授权码并发兑换、刷新重放、撤销、邮箱黑名单、原子计费及图片任务生命周期测试通过（115 个通过事件）；迁移幂等/并发、本站按张计费字段、Grok 目录和视频结算恢复兼容测试通过（20 个通过事件）。未连接生产数据库。
+- 独立 PostgreSQL 的管理密钥生命周期、授权范围和陈旧写入保护通过（43 个通过事件）；进一步对 repository/service/admin handler 的管理密钥、凭据/模型映射写入、Codex 导入、代理选择、事务边界与旧密钥轮换执行带隔离 DSN 的 race 检查，3 包、274 个通过事件，0 跳过。测试容器已清理。
+- 使用本轮生产资源、严格 nonce CSP 和本地模拟后端完成 10 项浏览器检查：MCP 用户/管理员、中英文、浅深色、375/768/1440 宽度、跳转本站接口文档、个人授权默认值，以及关闭 MCP 后隐藏入口；无未处理 JS 异常或整页横向溢出，没有提交真实授权。
+- Wire 重新生成后复查 SHA-256 一致。完整后端源码与本轮前端产物在证据目录执行 embed 生产编译成功，`--version` 为 `Sub2API 0.2.20 (commit: 569c20342-dirty, built: unknown)`；构建未设置时间戳，也不是容器镜像。3794 个编译源码文件与最终工作区哈希一致。
+- 保留失败证据：初轮后端暴露旧请求读取 helper 被删除、Gemini 调用参数不兼容；下一轮暴露尺寸路由夹具、OAuth 尺寸诊断和 Terra/Sol 开关合并错误。均按实际业务语义修复并完成最终全量与定向 race。浏览器首轮使用了错误的授权页地址，改为实际 `/oauth/mcp/authorize` 后复测，没有为测试改业务行为。
+- 全工作区 `git diff --check` 仍报告合并前已存在的 `docs/CHANNEL_MONITOR.md:100` 文件尾空行；该文件哈希未变，不为同步任务清理无关内容。本轮增量补丁单独检查，无新增空白错误；无未合并索引或遗留冲突标记，进度日志原前缀保留。
+- 没有请求真实付费上游，不能由模拟和本地测试推断线上账号授权、额度或模型生成效果。未推送 Git、未制作/推送镜像、未部署、未运行生产迁移。
+
+- 原始证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-upstream-sync-20261107-nna6a1ek`；成功、失败及复测日志均保留，详见 `docs/upstream-sync-20261107-files.md`。
+
+### Notes
+- 下表逐项列出本轮 473 个文件路径及用途，其中 458 项为上游增量，其余为必要兼容/测试及记录；原有工作区定制没有整体纳入合并提交。
+
+| 文件 | 本轮说明 |
+| --- | --- |
+| `.github/workflows/backend-ci.yml` | 同步上游：d851a3847 fix(frontend): upgrade vue-i18n to v11 and patch decode-uri-component。 |
+| `.github/workflows/release.yml` | 同步上游：d851a3847 fix(frontend): upgrade vue-i18n to v11 and patch decode-uri-component。 |
+| `.github/workflows/security-scan.yml` | 同步上游：d851a3847 fix(frontend): upgrade vue-i18n to v11 and patch decode-uri-component。 |
+| `.gitignore` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `README.md` | 同步上游：e6c19082f chore: update sponsors。 |
+| `README_CN.md` | 同步上游：e6c19082f chore: update sponsors。 |
+| `README_JA.md` | 同步上游：e6c19082f chore: update sponsors。 |
+| `assets/partners/logos/aigocode-dark.png` | 同步上游：876b96d20 chore: update sponsors。 |
+| `assets/partners/logos/aigocode.png` | 同步上游：876b96d20 chore: update sponsors。 |
+| `assets/partners/logos/apimart.jpg` | 同步上游：e353c8322 chore: update sponsors。 |
+| `assets/partners/logos/marucode.jpg` | 同步上游：25608d216 chore: update sponsors。 |
+| `assets/partners/logos/massivetokens.jpg` | 同步上游：e6c19082f chore: update sponsors。 |
+| `backend/cmd/server/VERSION` | 同步上游：6b4b37db4 chore: sync VERSION to 0.2.20 [skip ci]。 |
+| `backend/cmd/server/wire.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/cmd/server/wire_gen.go` | 按合并后依赖重新生成装配，接入 MCP 和受限后台任务，保留本站公开媒体清理生命周期。 |
+| `backend/cmd/server/wire_gen_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/go.mod` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/go.sum` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/config/config.go` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `backend/internal/config/config_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/config/mcp_config_test.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/config/openai_transport_error_cooldown_test.go` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `backend/internal/handler/admin/account_handler.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/admin_service_stub_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/handler/admin/audit_log_handler.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/handler/admin/custom_admin_key_accounts.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_accounts_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_commit_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_group_models.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_idempotency_scope_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_openai.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_permissions_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_proxies.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_statistics.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_statistics_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_users.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_key_users_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/custom_admin_keys.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/email_blacklist_handler_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/handler/admin/idempotency_helper.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/openai_oauth_handler.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/openai_referral_handler.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/scoped_admin_content_response.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/scoped_admin_subscription_response.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/scoped_admin_subscription_response_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/scoped_admin_usage_response.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/setting_handler_email_blacklist.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/handler/admin/setting_handler_update.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/handler/admin/user_handler.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/handler/admin/user_handler_email_blacklist.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/handler/dto/settings.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/handler/gateway_handler.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/gateway_handler_chat_completions.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/gateway_handler_responses.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/gateway_systemone.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/gemini_cached_contents_handler.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/gemini_v1beta_handler.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/grok_audio.go` | 同步上游：22693fb4f fix(grok): classify Grok Voice body read failures。 |
+| `backend/internal/handler/grok_audio_body_test.go` | 同步上游：22693fb4f fix(grok): classify Grok Voice body read failures。 |
+| `backend/internal/handler/grok_media.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/handler.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/handler/image_task_handler.go` | 同步上游：0853d1603 fix(images): give async image tasks their own body memory reservation。 |
+| `backend/internal/handler/image_task_handler_test.go` | 同步上游：0853d1603 fix(images): give async image tasks their own body memory reservation。 |
+| `backend/internal/handler/mcp_oauth_handler.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/handler/mcp_oauth_handler_test.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/handler/openai_alpha_search.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/openai_audio.go` | 本站音频入口接入上游统一请求读取错误分类和资源预算失败处理。 |
+| `backend/internal/handler/openai_automation_bootstrap_test.go` | 同步上游：4ca1a2097 perf(openai): skip full-body decodes for Codex bootstrap and compaction。 |
+| `backend/internal/handler/openai_body_limit_passthrough_rule_test.go` | 同步上游：fa6f06510 fix(openai): let error passthrough rules override the built-in body-limit 413。 |
+| `backend/internal/handler/openai_chat_completions.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/openai_cyber_allowlist_test.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/handler/openai_embeddings.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/openai_gateway_count_tokens.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/openai_gateway_cyber_test.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/handler/openai_gateway_handler.go` | 同步上游：4ca1a2097 perf(openai): skip full-body decodes for Codex bootstrap and compaction。 |
+| `backend/internal/handler/openai_images.go` | 合并尺寸路由和异步结算，转移余额冻结所有权给计费任务，并对齐本站 OAuth 回退的尺寸错误判断。 |
+| `backend/internal/handler/openai_images_hold_worker_test.go` | 新增请求结束后异步结算持有冻结、持久待结算保留冻结及持久化失败释放冻结的回归。 |
+| `backend/internal/handler/openai_images_size_routing_test.go` | 补齐计费夹具，兼容本站同账号重试并验证尺寸分流只使用允许的账号。 |
+| `backend/internal/handler/openai_nano_banana.go` | 本站 Nano Banana 入口接入上游统一请求读取错误分类和资源预算失败处理。 |
+| `backend/internal/handler/openai_nano_banana_billing_test.go` | 为上游测试桩增加可选响应体，支持冻结结算回归使用真实有效图片。 |
+| `backend/internal/handler/openai_request_body_memory_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/handler/openai_videos.go` | 本站视频入口接入上游统一请求读取错误分类和资源预算失败处理。 |
+| `backend/internal/handler/ops_error_logger.go` | 同步上游：a699c2bae fix(openai): 透传放行空 instructions，响应回显按客户端原值还原。 |
+| `backend/internal/handler/ops_error_logger_test.go` | 同步上游：a699c2bae fix(openai): 透传放行空 instructions，响应回显按客户端原值还原。 |
+| `backend/internal/handler/request_body_limit.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/request_body_limit_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/request_body_read_log.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/handler/request_body_read_log_test.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/handler/setting_handler.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/handler/usage_record_async_boundary_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/usage_record_context_reuse_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/handler/wire.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/managementmcp/auth.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/managementmcp/catalog.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/managementmcp/catalog_test.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/managementmcp/server.go` | 同步上游：fb22c9212 fix(backend): bump MCP go-sdk to v1.4.1 for GO-2026-4770/4773。 |
+| `backend/internal/managementmcp/server_test.go` | 同步上游：fb22c9212 fix(backend): bump MCP go-sdk to v1.4.1 for GO-2026-4770/4773。 |
+| `backend/internal/middleware/rate_limiter.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/middleware/rate_limiter_test.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/pkg/adminaccess/catalog.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/pkg/adminaccess/catalog_permissions_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/pkg/adminaccess/catalog_statistics_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/pkg/adminaccess/full_access_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/pkg/adminaccess/policy.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/pkg/antigravity/attribution_test.go` | 同步上游：01a1a78db fix(antigravity): neutralize stale system identities on forwarding。 |
+| `backend/internal/pkg/antigravity/gemini_types.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/pkg/antigravity/quota_summary.go` | 同步上游：bf4e16b90 feat(antigravity): show each quota group's real 5-hour and weekly window。 |
+| `backend/internal/pkg/antigravity/quota_summary_test.go` | 同步上游：bf4e16b90 feat(antigravity): show each quota group's real 5-hour and weekly window。 |
+| `backend/internal/pkg/antigravity/request_transformer.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/pkg/antigravity/request_transformer_test.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/pkg/antigravity/stream_response_shape_test.go` | 同步上游：c35418032 fix(antigravity): preserve direct Gemini streaming responses。 |
+| `backend/internal/pkg/antigravity/stream_transformer.go` | 同步上游：c35418032 fix(antigravity): preserve direct Gemini streaming responses。 |
+| `backend/internal/pkg/antigravity/tool_result_images_test.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/pkg/apicompat/anthropic_to_responses.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/pkg/apicompat/anthropic_to_responses_response.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/apicompat/chatcompletions_anthropic_bridge.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/apicompat/chatcompletions_responses_bridge.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/apicompat/chatcompletions_to_responses.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/pkg/apicompat/responses_message_serialization_test.go` | 同步上游：2d6b64a18 fix(responses): preserve message content fields in completed responses。 |
+| `backend/internal/pkg/apicompat/responses_reasoning.go` | 同步上游：30ec2ecc9 fix(apicompat): preserve buffered reasoning content。 |
+| `backend/internal/pkg/apicompat/responses_reasoning_content_test.go` | 同步上游：30ec2ecc9 fix(apicompat): preserve buffered reasoning content。 |
+| `backend/internal/pkg/apicompat/responses_stream_event_wire.go` | 同步上游：2d6b64a18 fix(responses): preserve message content fields in completed responses。 |
+| `backend/internal/pkg/apicompat/responses_to_anthropic.go` | 同步上游：30ec2ecc9 fix(apicompat): preserve buffered reasoning content。 |
+| `backend/internal/pkg/apicompat/responses_to_chatcompletions.go` | 同步上游：30ec2ecc9 fix(apicompat): preserve buffered reasoning content。 |
+| `backend/internal/pkg/apicompat/stream_accumulation_memory_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/apicompat/stream_string_buffer.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/apicompat/types.go` | 同步上游：2d6b64a18 fix(responses): preserve message content fields in completed responses。 |
+| `backend/internal/pkg/gemini/function_response.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/pkg/gemini/function_response_test.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/pkg/googleapi/status.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/pkg/googleapi/status_test.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/pkg/httputil/body.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/httputil/body_budget.go` | 同步上游：0853d1603 fix(images): give async image tasks their own body memory reservation。 |
+| `backend/internal/pkg/httputil/body_budget_test.go` | 同步上游：0853d1603 fix(images): give async image tasks their own body memory reservation。 |
+| `backend/internal/pkg/httputil/body_read_error.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/pkg/httputil/body_read_error_test.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/pkg/httputil/read_timeout.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/httputil/read_timeout_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/httputil/upstream_drain.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/httputil/upstream_drain_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/httputil/write_timeout.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/httputil/write_timeout_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/pkg/openai/codex_gpt61_terra.json` | 同步上游：bea67f412 fix(openai): use the official Codex descriptor for GPT-6.1 Terra。 |
+| `backend/internal/pkg/openai/constants.go` | 吸收 GPT Image 2.6 默认模型，保留本站媒体型号及默认顺序，消除合并重复项。 |
+| `backend/internal/pkg/openai/constants_test.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/repository/account_repo.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/api_key_repo.go` | 同步上游：9bb073d0d perf(openai): read the group privacy gate from the auth snapshot。 |
+| `backend/internal/repository/api_key_repo_profit_projection_integration_test.go` | 同步上游：1c83bb825 test(repository): assert the auth projection carries require_privacy_set。 |
+| `backend/internal/repository/custom_admin_key_group_capacity.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_key_group_models.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_key_permissions_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_key_scope.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_key_scope_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_keys.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_keys_postgres_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/custom_admin_keys_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/repository/fixtures_integration_test.go` | 同步上游：1c83bb825 test(repository): assert the auth projection carries require_privacy_set。 |
+| `backend/internal/repository/gateway_cache.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/repository/gateway_cache_cyber_test.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/repository/http_upstream.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/repository/http_upstream_drain_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/repository/mcp_oauth.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/repository/mcp_oauth_integration_test.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/repository/mcp_oauth_test.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/repository/scheduler_cache.go` | 合并上游调度缓存更新，保留本站 BPS 账号元数据及生图能力缓存。 |
+| `backend/internal/repository/scheduler_cache_unit_test.go` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `backend/internal/repository/user_repo.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/repository/user_repo_email_blacklist.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/repository/user_repo_email_blacklist_integration_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/repository/wire.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/server/http.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/server/middleware/admin_auth.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/middleware/api_key_auth.go` | 同步上游：f10a45c03 fix(auth): stop reporting client disconnects and malformed keys as 500。 |
+| `backend/internal/server/middleware/api_key_auth_google.go` | 同步上游：f10a45c03 fix(auth): stop reporting client disconnects and malformed keys as 500。 |
+| `backend/internal/server/middleware/api_key_auth_test.go` | 同步上游：f10a45c03 fix(auth): stop reporting client disconnects and malformed keys as 500。 |
+| `backend/internal/server/middleware/audit_log.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/middleware/audit_log_test.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/server/middleware/cors.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/server/middleware/cors_test.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/server/middleware/custom_admin_key_rate_limit_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/middleware/custom_admin_keys_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/middleware/group_model_allowlist.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/server/middleware/panel_rate_limit.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/server/middleware/request_body_limit.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/server/middleware/request_body_memory.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/server/middleware/request_body_memory_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/server/middleware/request_body_read_failure.go` | 同步上游：3425ba366 fix(gateway): bound stalled request body reads and classify read failures。 |
+| `backend/internal/server/middleware/step_up.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/server/middleware/step_up_test.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/server/request_body_read_timeout_test.go` | 同步上游：fdfadb244 Merge upstream main; classify WithBodyReadTimeout failures。 |
+| `backend/internal/server/router.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/server/routes/admin.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/server/routes/custom_admin_key_access_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/routes/custom_admin_key_full_access_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/routes/custom_admin_key_statistics_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/server/routes/gateway.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/server/routes/mcp.go` | 同步上游：fb22c9212 fix(backend): bump MCP go-sdk to v1.4.1 for GO-2026-4770/4773。 |
+| `backend/internal/server/routes/mcp_oauth_sdk_test.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/server/routes/mcp_oauth_test.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/server/routes/mcp_rate_limit_test.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/server/routes/mcp_test.go` | 同步上游：fb22c9212 fix(backend): bump MCP go-sdk to v1.4.1 for GO-2026-4770/4773。 |
+| `backend/internal/server/routes/user.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/service/account_quota_service_account_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/account_test_service.go` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `backend/internal/service/account_test_service_antigravity_test.go` | 同步上游：0ee6b6c5d fix(antigravity): connection test sends the admin's prompt and lets the model answer。 |
+| `backend/internal/service/account_test_service_openai_image_test.go` | 同步上游：890120120 fix(openai): 修复 GPT Image 账号生图测试参数。 |
+| `backend/internal/service/account_usage_service.go` | 同步上游：a8d90a72e fix(anthropic): preserve setup-token weekly usage without 5h limits。 |
+| `backend/internal/service/account_usage_service_setup_token_weekly_test.go` | 同步上游：a8d90a72e fix(anthropic): preserve setup-token weekly usage without 5h limits。 |
+| `backend/internal/service/admin_service.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/admin_user_email_blacklist.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/admin_user_email_blacklist_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/anthropic_messages_endpoint_test.go` | 同步上游：210608151 fix(anthropic): omit beta query for Cloudflare REST messages。 |
+| `backend/internal/service/anthropic_messages_url.go` | 同步上游：210608151 fix(anthropic): omit beta query for Cloudflare REST messages。 |
+| `backend/internal/service/anthropic_messages_url_test.go` | 同步上游：210608151 fix(anthropic): omit beta query for Cloudflare REST messages。 |
+| `backend/internal/service/antigravity_gateway_compat.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/service/antigravity_gateway_compat_stream.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/antigravity_gateway_compat_test.go` | 同步上游：835803a70 fix(antigravity): preserve task-bearing identity preambles。 |
+| `backend/internal/service/antigravity_gateway_gemini.go` | 同步上游：0b535b5c0 fix(antigravity): Gemini 原生请求的 responseJsonSchema 改写为 responseSchema。 |
+| `backend/internal/service/antigravity_gateway_retry.go` | 同步上游：2ce1849bd fix(antigravity): scope INTERNAL 500 penalties to image models; make account tiers configurable。 |
+| `backend/internal/service/antigravity_gateway_service.go` | 同步上游：0ee6b6c5d fix(antigravity): connection test sends the admin's prompt and lets the model answer。 |
+| `backend/internal/service/antigravity_gateway_streaming.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/antigravity_gateway_upstream.go` | 同步上游：d446c4a6b fix(gemini): bound upstream SSE lines and antigravity non-stream reads。 |
+| `backend/internal/service/antigravity_gemini_response_schema_test.go` | 同步上游：0b535b5c0 fix(antigravity): Gemini 原生请求的 responseJsonSchema 改写为 responseSchema。 |
+| `backend/internal/service/antigravity_internal500_penalty.go` | 同步上游：2ce1849bd fix(antigravity): scope INTERNAL 500 penalties to image models; make account tiers configurable。 |
+| `backend/internal/service/antigravity_internal500_scope_test.go` | 同步上游：2ce1849bd fix(antigravity): scope INTERNAL 500 penalties to image models; make account tiers configurable。 |
+| `backend/internal/service/antigravity_quota_fetcher.go` | 同步上游：bf4e16b90 feat(antigravity): show each quota group's real 5-hour and weekly window。 |
+| `backend/internal/service/antigravity_quota_groups_test.go` | 同步上游：bf4e16b90 feat(antigravity): show each quota group's real 5-hour and weekly window。 |
+| `backend/internal/service/antigravity_tool_result_images_test.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/service/api_key_auth_cache.go` | 同步上游：9bb073d0d perf(openai): read the group privacy gate from the auth snapshot。 |
+| `backend/internal/service/api_key_auth_cache_impl.go` | 认证快照升至 v28，合并上游隐私和 RPM 状态字段并保留本站 Sol 订阅优化字段。 |
+| `backend/internal/service/api_key_auth_cache_merge_test.go` | 新增合并后分组字段缓存往返验证，并拒绝旧 v25/v26/v27 快照。 |
+| `backend/internal/service/api_key_service.go` | 同步上游：f10a45c03 fix(auth): stop reporting client disconnects and malformed keys as 500。 |
+| `backend/internal/service/api_key_service_cache_test.go` | 同步上游：f10a45c03 fix(auth): stop reporting client disconnects and malformed keys as 500。 |
+| `backend/internal/service/audit_log.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/service/auth_email_oauth_auto.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/auth_email_oauth_blacklist_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/auth_registration_email_blacklist_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/auth_service.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/balance_notify_check_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/balance_notify_service.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/bedrock_stream.go` | 同步上游：a0b058a9e fix(bedrock): validate EventStream frame lengths before allocating。 |
+| `backend/internal/service/bedrock_stream_test.go` | 同步上游：a0b058a9e fix(bedrock): validate EventStream frame lengths before allocating。 |
+| `backend/internal/service/billing_cache_service.go` | 同步上游：76221c9cb perf(billing): stop querying the RPM override on every request。 |
+| `backend/internal/service/billing_cache_service_rpm_test.go` | 同步上游：76221c9cb perf(billing): stop querying the RPM override on every request。 |
+| `backend/internal/service/billing_notification_worker.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/billing_notification_worker_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/billing_service.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/custom_admin_key_accounts.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/custom_admin_key_full_access_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/custom_admin_key_openai_options.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/custom_admin_key_permissions_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/custom_admin_key_statistics.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/custom_admin_key_statistics_test.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/custom_admin_keys.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/digest_session_store.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/digest_session_store_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/domain_constants.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/gateway_anthropic_passthrough.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_cache_control_paths_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/service/gateway_claude_oauth_body.go` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `backend/internal/service/gateway_forward_as_chat_completions.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_forward_as_responses.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_forward_compat_stream.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_request.go` | 同步上游：f654c23eb perf(gateway): decide thinking-block filtering without decoding the body。 |
+| `backend/internal/service/gateway_request_reuse_test.go` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `backend/internal/service/gateway_request_scalar_memory_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_service_benchmark_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/service/gateway_thinking_filter_precheck_test.go` | 同步上游：f654c23eb perf(gateway): decide thinking-block filtering without decoding the body。 |
+| `backend/internal/service/gateway_upstream_request.go` | 同步上游：210608151 fix(anthropic): omit beta query for Cloudflare REST messages。 |
+| `backend/internal/service/gateway_upstream_response.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_usage_billing.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gateway_usage_quota_worker_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/gemini_chat_completions_compat_service.go` | 合并受限 SSE 读取及配置传递，保留本站实际图片张数和部分失败用量。 |
+| `backend/internal/service/gemini_compat_thinking_test.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/service/gemini_messages_compat_service.go` | 合并受限 SSE 读取，保持本站消息兼容及图片结果处理。 |
+| `backend/internal/service/gemini_messages_compat_service_test.go` | 同步上游：aae31c743 fix(gemini): preserve tool media in native function responses。 |
+| `backend/internal/service/gemini_native_response_signal_test.go` | 适配 Gemini SSE 收集器新增配置参数并保留图片信号回归。 |
+| `backend/internal/service/gemini_sse_line_limit_test.go` | 同步上游：d446c4a6b fix(gemini): bound upstream SSE lines and antigravity non-stream reads。 |
+| `backend/internal/service/gemini_text_delta_test.go` | 同步上游：00660a227 perf(gemini): stop copying the emitted prefix on every stream delta。 |
+| `backend/internal/service/grok_quota_service.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/grok_sse_transport_config_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/group_capacity_service.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/mcp_oauth_service.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/service/mcp_oauth_service_test.go` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/internal/service/openai_account_scheduler.go` | 同步上游：9bb073d0d perf(openai): read the group privacy gate from the auth snapshot。 |
+| `backend/internal/service/openai_apikey_responses_probe.go` | 同步上游：c476edbf4 fix(openai): skip responses probe when routing mode is forced。 |
+| `backend/internal/service/openai_apikey_responses_probe_test.go` | 同步上游：c476edbf4 fix(openai): skip responses probe when routing mode is forced。 |
+| `backend/internal/service/openai_codex_model_metadata.go` | 同步上游：bea67f412 fix(openai): use the official Codex descriptor for GPT-6.1 Terra。 |
+| `backend/internal/service/openai_codex_models_service.go` | 同步上游：bea67f412 fix(openai): use the official Codex descriptor for GPT-6.1 Terra。 |
+| `backend/internal/service/openai_compact_body_signal.go` | 同步上游：4ca1a2097 perf(openai): skip full-body decodes for Codex bootstrap and compaction。 |
+| `backend/internal/service/openai_compact_body_signal_test.go` | 同步上游：4ca1a2097 perf(openai): skip full-body decodes for Codex bootstrap and compaction。 |
+| `backend/internal/service/openai_compat_prompt_cache_key.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/service/openai_cyber_session_block.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/service/openai_cyber_session_block_test.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/service/openai_cyber_transcript.go` | 同步上游：7e3b6c72f fix(openai): 按已屏蔽前缀长度精确匹配 cyber transcript，修复长会话误拦 (#8519)。 |
+| `backend/internal/service/openai_first_output_timeout_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_anthropic_native_pump.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_buffered_reasoning_content_test.go` | 同步上游：30ec2ecc9 fix(apicompat): preserve buffered reasoning content。 |
+| `backend/internal/service/openai_gateway_cc_pipeline.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_chat_completions.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_chat_completions_anthropic_native.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_chat_completions_raw.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/service/openai_gateway_chat_completions_test.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/service/openai_gateway_cn_fixes_test.go` | 同步上游：17772947b fix(kimi): use short cooldown for concurrency-limit 403。 |
+| `backend/internal/service/openai_gateway_forward.go` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `backend/internal/service/openai_gateway_grok.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_grok_model_input.go` | 同步上游：522f1fb99 fix(grok): normalize delegated message input for Responses。 |
+| `backend/internal/service/openai_gateway_grok_model_input_test.go` | 同步上游：522f1fb99 fix(grok): normalize delegated message input for Responses。 |
+| `backend/internal/service/openai_gateway_grok_sse_filter.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_grok_sse_filter_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_grok_test.go` | 同步上游：522f1fb99 fix(grok): normalize delegated message input for Responses。 |
+| `backend/internal/service/openai_gateway_grok_tool_protocol.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_grok_tool_protocol_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_messages.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_messages_anthropic_native.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_messages_chat_fallback.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/service/openai_gateway_passthrough.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_request_body.go` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `backend/internal/service/openai_gateway_response_handling.go` | 合入受限流读取和断连处理，同时保留本站 BPS 追踪和用量保护。 |
+| `backend/internal/service/openai_gateway_responses_anthropic_native.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_responses_chat_fallback.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/service/openai_gateway_scheduling.go` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `backend/internal/service/openai_gateway_service.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_gateway_service_hotpath_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/service/openai_gateway_usage.go` | 合入 Terra 长上下文豁免，避免误受本站 Sol 专属开关控制，保留现有媒体计费。 |
+| `backend/internal/service/openai_gpt61_terra_test.go` | 同步上游：e73f4c5e5 fix(openai): validate GPT-6.1 Terra effort and compat cache keys。 |
+| `backend/internal/service/openai_image_dimensions.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_image_size_routing.go` | 同步上游：6b565e45a fix(openai): 生图尺寸溢出选号后按首轮前的绑定处理会话粘性。 |
+| `backend/internal/service/openai_image_size_routing_test.go` | 同步上游：6b565e45a fix(openai): 生图尺寸溢出选号后按首轮前的绑定处理会话粘性。 |
+| `backend/internal/service/openai_images.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images26_test.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images_direct.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images_direct_payload_test.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images_direct_test.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images_model_test.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images_responses.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/openai_images_stream_limit_error_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_messages_continuation.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_messages_digest_session.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_passthrough_normalization_test.go` | 同步上游：a699c2bae fix(openai): 透传放行空 instructions，响应回显按客户端原值还原。 |
+| `backend/internal/service/openai_privacy_gate_ctx_test.go` | 同步上游：9bb073d0d perf(openai): read the group privacy gate from the auth snapshot。 |
+| `backend/internal/service/openai_quota_service.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/openai_referral_service.go` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `backend/internal/service/openai_request_patches_benchmark_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/service/openai_request_patches_test.go` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `backend/internal/service/openai_responses_instructions_echo.go` | 同步上游：a699c2bae fix(openai): 透传放行空 instructions，响应回显按客户端原值还原。 |
+| `backend/internal/service/openai_responses_instructions_echo_test.go` | 同步上游：a699c2bae fix(openai): 透传放行空 instructions，响应回显按客户端原值还原。 |
+| `backend/internal/service/openai_responses_orphan_precheck.go` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `backend/internal/service/openai_responses_orphan_precheck_benchmark_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/service/openai_responses_orphan_precheck_test.go` | 同步上游：6c140b897 perf(gateway): reduce JSON copies and repeated request parsing。 |
+| `backend/internal/service/openai_sse_data.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_subscription_long_context_test.go` | 覆盖 Sol 开关关闭仍不影响 Terra OAuth 长上下文豁免的边界。 |
+| `backend/internal/service/openai_upstream_transport_error.go` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `backend/internal/service/openai_upstream_transport_error_handle_test.go` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `backend/internal/service/openai_ws_http_bridge.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/openai_ws_http_bridge_test.go` | 同步上游：40d9c0964 fix(openai): apply Codex fingerprint convergence in the WebSocket HTTP bridge。 |
+| `backend/internal/service/openai_ws_v2/passthrough_relay.go` | 同步上游：e16e69a7c fix(openai-ws): record first token time for every passthrough turn。 |
+| `backend/internal/service/openai_ws_v2/passthrough_relay_test.go` | 同步上游：e16e69a7c fix(openai-ws): record first token time for every passthrough turn。 |
+| `backend/internal/service/pricing_service.go` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `backend/internal/service/ratelimit_cn_concurrency_403_test.go` | 同步上游：17772947b fix(kimi): use short cooldown for concurrency-limit 403。 |
+| `backend/internal/service/ratelimit_cn_providers.go` | 同步上游：17772947b fix(kimi): use short cooldown for concurrency-limit 403。 |
+| `backend/internal/service/ratelimit_service.go` | 同步上游：a8d90a72e fix(anthropic): preserve setup-token weekly usage without 5h limits。 |
+| `backend/internal/service/ratelimit_service_cn_quota_403_test.go` | 同步上游：17772947b fix(kimi): use short cooldown for concurrency-limit 403。 |
+| `backend/internal/service/ratelimit_weekly_usage_test.go` | 同步上游：a8d90a72e fix(anthropic): preserve setup-token weekly usage without 5h limits。 |
+| `backend/internal/service/registration_email_blacklist.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/registration_email_blacklist_test.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/session_memory_cache.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/session_memory_cache_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/setting_public.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/service/setting_service.go` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `backend/internal/service/setting_service_public_test.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/service/settings_view.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/service/sse_large_image_compat_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/sse_transport_limits.go` | 同步上游：d446c4a6b fix(gemini): bound upstream SSE lines and antigravity non-stream reads。 |
+| `backend/internal/service/sse_transport_limits_test.go` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `backend/internal/service/user.go` | 同步上游：76221c9cb perf(billing): stop querying the RPM override on every request。 |
+| `backend/internal/service/wire.go` | 同步上游：ee71c7f37 fix(backend): harden management MCP per review。 |
+| `backend/internal/web/embed_on.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/internal/web/embed_test.go` | 同步上游：f17918ea1 feat(backend): add OAuth-authenticated management MCP。 |
+| `backend/migrations/249_mcp_oauth.sql` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `backend/resources/model-pricing/model_prices_and_context_window.json` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `deploy/.env.example` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `deploy/EDGE_SECURITY.md` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `deploy/config.example.yaml` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `deploy/docker-compose.dev.yml` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `deploy/docker-compose.local.yml` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `deploy/docker-compose.standalone.yml` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `deploy/docker-compose.yml` | 同步上游：489cfd5f4 feat(openai): allow disabling transport error cooldown。 |
+| `docs/API_DOCS.md` | 更新 GPT Image 2.6 已补齐后端链路和定价的说明，保留真实上游未验证边界。 |
+| `docs/UPSTREAM_SYNC.md` | 追加 0.2.20 同步结果、主要兼容修复、验证与迁移边界。 |
+| `docs/admin-api-keys.md` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `docs/agent-resource-safety.md` | 同步上游：457602c8f fix(backend): bound gateway resources and background work。 |
+| `docs/mcp.md` | 同步上游：575dd9bc2 fix(backend): make MCP client registration stateless。 |
+| `docs/moego-json-batching.md` | 同步上游：957a83f32 fix(gateway): settle patch budget per attempt and keep map fallback reachable。 |
+| `docs/upstream-sync-20261107-files.md` | 新增同步来源、行为配置、测试证据、逐文件清单和可执行恢复说明。 |
+| `frontend/package.json` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/pnpm-lock.yaml` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/src/api/__tests__/admin.emailBlacklist.spec.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/api/__tests__/client.spec.ts` | 同步上游：e47abd8f9 fix(usage): 用户导出 CSV 每页取 1000 条，遇面板限流 429 按 Retry-After 等待后重试。 |
+| `frontend/src/api/admin/adminAccessKeys.ts` | 同步上游：194d69e63 完善管理员密钥权限并新增需确认的全权兼容模式。 |
+| `frontend/src/api/admin/settings.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/api/admin/users.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/api/client.ts` | 同步上游：e47abd8f9 fix(usage): 用户导出 CSV 每页取 1000 条，遇面板限流 429 按 Retry-After 等待后重试。 |
+| `frontend/src/api/mcp.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/components/account/AccountUsageCell.vue` | 同步上游：455751402 fix(antigravity): label Pro plans' separate Argon quota as its own row。 |
+| `frontend/src/components/account/BulkEditAccountModal.vue` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/account/CreateAccountModal.vue` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/account/EditAccountModal.vue` | 同时保留本站 Suno 等账号选项和上游图片尺寸档位控件。 |
+| `frontend/src/components/account/OpenAIImageSizeTiersField.vue` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/account/__tests__/AccountUsageCell.spec.ts` | 同步上游：455751402 fix(antigravity): label Pro plans' separate Argon quota as its own row。 |
+| `frontend/src/components/account/__tests__/BulkEditAccountModal.spec.ts` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/account/__tests__/CreateAccountModal.spec.ts` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/account/__tests__/EditAccountModal.spec.ts` | 合并上游尺寸档位用例与本站账号选项保存断言。 |
+| `frontend/src/components/account/__tests__/OpenAIImageSizeTiersField.spec.ts` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/account/openaiImageSizeTiers.ts` | 同步上游：e452e41e4 feat(openai): 生图账号按 1K/2K/4K 尺寸档位分流。 |
+| `frontend/src/components/admin/settings/AdminAccessKeysSettings.vue` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/src/components/admin/settings/RegistrationEmailBlacklistEditor.vue` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/components/admin/settings/__tests__/AdminAccessKeysSettings.i18n.spec.ts` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/src/components/admin/settings/__tests__/AdminAccessKeysSettings.spec.ts` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/src/components/admin/settings/__tests__/RegistrationEmailBlacklistEditor.spec.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/components/icons/Icon.vue` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/components/keys/UseKeyModal.vue` | 合入 Codex 原生工具导出更新，保留本站 GPT-6.1 Sol 默认顺序和配置。 |
+| `frontend/src/components/keys/__tests__/UseKeyModal.spec.ts` | 同步上游：1e0f56d76 fix(frontend): default Codex exports to GPT-6.1 Sol。 |
+| `frontend/src/components/layout/AppSidebar.vue` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/components/layout/__tests__/AppSidebar.spec.ts` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/components/payment/__tests__/SubscriptionPlanCard.spec.ts` | 同步上游：d851a3847 fix(frontend): upgrade vue-i18n to v11 and patch decode-uri-component。 |
+| `frontend/src/composables/__tests__/useModelWhitelist.spec.ts` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `frontend/src/composables/useAdminAccessKeyPermissions.ts` | 同步上游：b0db521ce 修复权限国际化编码的 ES2020 类型兼容错误。 |
+| `frontend/src/composables/useModelWhitelist.ts` | 同步上游：7f2876def fix(openai): 打通 GPT Image 2.6 原生图片链路。 |
+| `frontend/src/i18n/__tests__/lazyLocales.spec.ts` | 新增实际用户懒加载语言包包含 MCP 页面与授权文案的断言。 |
+| `frontend/src/i18n/locales/en/admin/accounts.ts` | 合并上游账号文案，继续复用本站共享语言模块及既有账号选项。 |
+| `frontend/src/i18n/locales/en/admin/settings.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/i18n/locales/en/admin/shared.ts` | 保留共享语言模块拆分并补入 Antigravity 配额窗口英文文案。 |
+| `frontend/src/i18n/locales/en/adminAccessKeys.ts` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/src/i18n/locales/en/common.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/i18n/locales/en/dashboard.ts` | 同步上游：e47abd8f9 fix(usage): 用户导出 CSV 每页取 1000 条，遇面板限流 429 按 Retry-After 等待后重试。 |
+| `frontend/src/i18n/locales/en/index.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/i18n/locales/en/mcp.ts` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/i18n/locales/en/user.ts` | 将英文 MCP 文案补入本站实际使用的用户懒加载入口。 |
+| `frontend/src/i18n/locales/zh/admin/accounts.ts` | 合并上游账号文案，继续复用本站共享语言模块及既有账号选项。 |
+| `frontend/src/i18n/locales/zh/admin/settings.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/i18n/locales/zh/admin/shared.ts` | 保留共享语言模块拆分并补入 Antigravity 配额窗口中文文案。 |
+| `frontend/src/i18n/locales/zh/adminAccessKeys.ts` | 同步上游：ff0429651 补齐管理员密钥中英文权限展示并修复依赖安全扫描。 |
+| `frontend/src/i18n/locales/zh/common.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/i18n/locales/zh/dashboard.ts` | 同步上游：e47abd8f9 fix(usage): 用户导出 CSV 每页取 1000 条，遇面板限流 429 按 Retry-After 等待后重试。 |
+| `frontend/src/i18n/locales/zh/index.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/i18n/locales/zh/mcp.ts` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/i18n/locales/zh/user.ts` | 将中文 MCP 文案补入本站实际使用的用户懒加载入口。 |
+| `frontend/src/router/__tests__/mcp-route.spec.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/router/index.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/stores/app.ts` | 合并 MCP 开关与本站缓存率等公共设置，保留前端按需加载行为。 |
+| `frontend/src/types/index.ts` | 合并上游 MCP/账号字段与本站缓存率、模型广场和媒体类型。 |
+| `frontend/src/utils/__tests__/ccswitchImport.spec.ts` | 同步上游：1e0f56d76 fix(frontend): default Codex exports to GPT-6.1 Sol。 |
+| `frontend/src/utils/__tests__/featureFlags.spec.ts` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/utils/__tests__/registrationEmailBlacklist.spec.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/utils/ccswitchImport.ts` | 同步上游：e97a48d84 fix: GPT-5.5已不提供服务，默认导出模型改为GPT5.6-SOL。 |
+| `frontend/src/utils/codexAuthConfig.ts` | 同步上游：0d2459d98 fix(frontend): preserve Codex image configuration in key exports。 |
+| `frontend/src/utils/featureFlags.ts` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/utils/registrationEmailBlacklist.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/views/admin/AuditLogView.vue` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/views/admin/SettingsView.vue` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/views/admin/__tests__/SettingsView.spec.ts` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/views/auth/EmailVerifyView.vue` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/views/auth/MCPOAuthAuthorizeView.vue` | 同步上游：b3eb7194c fix(frontend): truncate long MCP client IDs。 |
+| `frontend/src/views/auth/RegisterView.vue` | 同步上游：721dfb282 feat(auth): 注册邮箱精确黑名单，保存时可批量禁用命中的已注册用户。 |
+| `frontend/src/views/auth/__tests__/MCPLoginRedirect.spec.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/views/auth/__tests__/MCPOAuthAuthorizeView.spec.ts` | 同步上游：8a34f1ecf fix(frontend): use the MCP logo and hide MCP when disabled。 |
+| `frontend/src/views/user/MCPView.vue` | 同步上游：b3eb7194c fix(frontend): truncate long MCP client IDs。 |
+| `frontend/src/views/user/UsageView.vue` | 同步上游：e47abd8f9 fix(usage): 用户导出 CSV 每页取 1000 条，遇面板限流 429 按 Retry-After 等待后重试。 |
+| `frontend/src/views/user/__tests__/MCPView.spec.ts` | 同步上游：cf3300633 feat(frontend): add MCP OAuth consent and connections。 |
+| `frontend/src/views/user/__tests__/UsageView.spec.ts` | 同步上游：e47abd8f9 fix(usage): 用户导出 CSV 每页取 1000 条，遇面板限流 429 按 Retry-After 等待后重试。 |
+| `frontend/vite.config.ts` | 适配 vue-i18n v11 移除旧 JIT 定义，保留本站按需分包配置。 |
+| `progress.md` | 仅在末尾追加本轮合并与验证记录，保留全部既有历史。 |
+
+- 回滚点：`codex/pre-upstream-sync-20261107-145353` / `57a3bafd515f75a7bece6797deb7c83b0f249a79`；完整原工作区 stash `8099e3e253f7f3be8632ca6e6f2d5debf3dd1c81` 和 `before.tgz` 均保留。
+- 可执行恢复（在新目录，不覆盖当前工作区）：
+
+```sh
+restore_dir=$(mktemp -d /tmp/sub2api-pre-sync-20261107.XXXXXX)
+git worktree add --detach "$restore_dir" codex/pre-upstream-sync-20261107-145353
+git -C "$restore_dir" stash apply --index 8099e3e253f7f3be8632ca6e6f2d5debf3dd1c81
+tar -xzf /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-upstream-sync-20261107-nna6a1ek/before.tgz -C "$restore_dir"
+git -C "$restore_dir" add -N -f -- docs/IMAGE_RELEASE_20261029_005248.md docs/upstream-sync-20261028-files.md
+```
+
+- 精确增量反向检查：`git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-upstream-sync-20261107-nna6a1ek/task.patch`；不据此回退 Git 历史或数据库。后续部署前需备份数据库，保留本轮日志；临时证据如需长期保存请另行归档。

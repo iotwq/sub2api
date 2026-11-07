@@ -130,6 +130,13 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
 		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
 	}
+	// Suno exposes only the OpenAI Chat Completions contract. API-key accounts
+	// must stay on the native CC path even when adaptive protocol detection has
+	// not yet recorded a Responses capability result.
+	requestedModel := gjson.GetBytes(body, "model").String()
+	if account.IsOpenAIApiKey() && (IsSunoMusicModel(requestedModel) || IsSunoMusicModel(defaultMappedModel) || IsSunoMusicModel(routingModel)) {
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 	switch s.resolveUpstreamProtocolFor(ctx, account, inbound, routingModel) {
 	case APIProtocolAnthropic:
 		if convertResponsesShape {

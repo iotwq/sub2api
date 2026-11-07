@@ -49,7 +49,7 @@ func TestGeminiGroupRequestsDoNotReadAntigravityBucket(t *testing.T) {
 		{
 			name:  "gemini native",
 			route: "/v1beta/models/*modelAction",
-			path:  "/v1beta/models/gemini-2.5-flash:generateContent",
+			path:  "/v1beta/models/gemini-3.8-flash:generateContent",
 			body:  `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`,
 			call:  func(h *GatewayHandler) func(*gin.Context) { return h.GeminiV1BetaModels },
 		},
@@ -57,7 +57,7 @@ func TestGeminiGroupRequestsDoNotReadAntigravityBucket(t *testing.T) {
 			name:  "messages on gemini group",
 			route: "/v1/messages",
 			path:  "/v1/messages",
-			body:  `{"model":"gemini-2.5-flash","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
+			body:  `{"model":"gemini-3.8-flash","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
 			call:  func(h *GatewayHandler) func(*gin.Context) { return h.Messages },
 		},
 	}

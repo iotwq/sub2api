@@ -31,6 +31,13 @@
       class="rounded-2xl border border-red-200 bg-red-50 px-5 py-8 text-center text-sm text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300"
     >
       {{ t('modelPlaza.loadFailed') }}
+      <button
+        type="button"
+        class="mt-3 inline-flex rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 dark:border-red-400/40 dark:text-red-200 dark:hover:bg-red-500/20"
+        @click="emit('retry')"
+      >
+        {{ t('modelPlaza.retry') }}
+      </button>
     </div>
     <template v-else>
       <!-- 筛选区:平台 → 分组 → 倍率 -->
@@ -50,7 +57,7 @@
 
       <!-- 分组分节的模型清单(默认按生效倍率升序) -->
       <div v-if="filteredGroups.length > 0" class="space-y-5">
-        <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" />
+        <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" :recharge-ratio="rechargeRatio" />
       </div>
       <div
         v-else
@@ -70,6 +77,7 @@ import DOMPurify from 'dompurify'
 import Icon from '@/components/icons/Icon.vue'
 import PlazaFilterBar from './PlazaFilterBar.vue'
 import PlazaGroupSection from './PlazaGroupSection.vue'
+import { plazaGroupDisplayRate } from '@/utils/modelPlaza'
 import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
 import { useAuthStore } from '@/stores/auth'
 
@@ -80,6 +88,7 @@ const props = defineProps<{
   /** 后台内嵌形态(AppLayout 内):隐藏页头。 */
   embedded?: boolean
 }>()
+const emit = defineEmits<{ retry: [] }>()
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -95,12 +104,15 @@ const searchActive = computed(() => searchQuery.value.trim() !== '')
 const descriptionHtml = computed(() => {
   const md = props.response?.description?.trim()
   if (!md) return ''
-  return DOMPurify.sanitize(marked.parse(md) as string)
+  // 显式传入解析选项，不依赖其他组件修改 marked 的全局默认值
+  return DOMPurify.sanitize(marked.parse(md, { breaks: true, gfm: true }) as string)
 })
 
 /** 生效倍率 = 用户专属倍率 ?? 分组默认倍率。 */
+const rechargeRatio = computed(() => props.response?.recharge_ratio || 1)
+
 function effectiveRate(g: ModelPlazaGroup): number {
-  return g.user_rate_multiplier ?? g.rate_multiplier
+  return plazaGroupDisplayRate(g, rechargeRatio.value)
 }
 
 const platforms = computed(() =>

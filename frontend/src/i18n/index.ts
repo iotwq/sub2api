@@ -9,8 +9,13 @@ const DEFAULT_LOCALE: LocaleCode = 'en'
 export const LOCALE_CHANGED_EVENT = 'chinaapi:locale-changed'
 
 const localeLoaders: Record<LocaleCode, () => Promise<{ default: LocaleMessages }>> = {
-  en: () => import('./locales/en'),
-  zh: () => import('./locales/zh')
+  en: () => import('./locales/en/user'),
+  zh: () => import('./locales/zh/user')
+}
+
+const adminLocaleLoaders: Record<LocaleCode, () => Promise<{ default: LocaleMessages }>> = {
+  en: () => import('./locales/en/adminMessages'),
+  zh: () => import('./locales/zh/adminMessages')
 }
 
 function isLocaleCode(value: string): value is LocaleCode {
@@ -41,17 +46,36 @@ export const i18n = createI18n({
   warnHtmlMessage: false
 })
 
-const loadedLocales = new Set<LocaleCode>()
+const localeRequests = new Map<LocaleCode, Promise<void>>()
+const adminLocaleRequests = new Map<LocaleCode, Promise<void>>()
+let adminMessagesRequired = false
 
 export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
-  if (loadedLocales.has(locale)) {
-    return
+  if (!localeRequests.has(locale)) {
+    const request = localeLoaders[locale]().then(module => {
+      i18n.global.setLocaleMessage(locale, module.default)
+    }).catch(error => {
+      localeRequests.delete(locale)
+      throw error
+    })
+    localeRequests.set(locale, request)
   }
+  await localeRequests.get(locale)
+}
 
-  const loader = localeLoaders[locale]
-  const module = await loader()
-  i18n.global.setLocaleMessage(locale, module.default)
-  loadedLocales.add(locale)
+export async function loadAdminLocaleMessages(locale: LocaleCode = getLocale()): Promise<void> {
+  adminMessagesRequired = true
+  await loadLocaleMessages(locale)
+  if (!adminLocaleRequests.has(locale)) {
+    const request = adminLocaleLoaders[locale]().then(module => {
+      i18n.global.mergeLocaleMessage(locale, module.default)
+    }).catch(error => {
+      adminLocaleRequests.delete(locale)
+      throw error
+    })
+    adminLocaleRequests.set(locale, request)
+  }
+  await adminLocaleRequests.get(locale)
 }
 
 export async function initI18n(): Promise<void> {
@@ -66,6 +90,7 @@ export async function setLocale(locale: string): Promise<void> {
   }
 
   await loadLocaleMessages(locale)
+  if (adminMessagesRequired) await loadAdminLocaleMessages(locale)
   i18n.global.locale.value = locale
   localStorage.setItem(LOCALE_KEY, locale)
   document.documentElement.setAttribute('lang', locale)

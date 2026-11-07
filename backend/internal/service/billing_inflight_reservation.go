@@ -541,6 +541,25 @@ func validCost(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v
 // estimateOne 估算单个候选计费模型（未乘倍率的 token 部分与按次部分分开返回，便于套用不同倍率）。
 func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, model string, req InflightEstimateRequest, textRate, imageRate float64) float64 {
 	cfg := inflightReservationCfg(d.cfg)
+	if IsSunoMusicModel(req.Model) || IsSunoMusicModel(model) {
+		unitPrice := SunoMusicPricePerRequest
+		if d.resolver != nil {
+			in := PricingInput{Model: model}
+			if apiKey != nil {
+				in.GroupID = apiKey.GroupID
+				in.Group = apiKey.Group
+			}
+			if resolved := d.resolver.Resolve(ctx, in); resolved != nil &&
+				(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) {
+				unitPrice = maxPerRequestPrice(resolved)
+			}
+		}
+		cost := unitPrice * textRate
+		if validCost(cost) {
+			return cost
+		}
+		return 0
+	}
 	units := req.Units
 	if units <= 0 {
 		units = 1

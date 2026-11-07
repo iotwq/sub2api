@@ -407,7 +407,11 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 				for _, model := range got.Data {
 					require.Equal(t, "model", model.Object, model.ID)
 					require.Positive(t, model.Created, model.ID)
-					require.Equal(t, "openai", model.OwnedBy, model.ID)
+					if service.IsSunoMusicModel(model.ID) {
+						require.Equal(t, "suno", model.OwnedBy, model.ID)
+					} else {
+						require.Equal(t, "openai", model.OwnedBy, model.ID)
+					}
 					require.Empty(t, model.CreatedAt, model.ID)
 				}
 				if tt.config.Enabled {

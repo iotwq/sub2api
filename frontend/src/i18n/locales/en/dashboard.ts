@@ -2,6 +2,8 @@ export default {
   dashboard: {
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",
+    loadFailed: 'Failed to load dashboard data',
+    loadFailedHint: 'Check your connection and try again.',
     balance: 'Balance',
     apiKeys: 'API Keys',
     todayRequests: 'Today Requests',
@@ -398,6 +400,8 @@ export default {
     latency: 'Latency',
     latencyFirstToken: 'First',
     latencyDuration: 'Total',
+    latencyCacheRate: 'Cache rate',
+    latencyCacheRateHint: 'Cache rate = cache read {read} ÷ (input {input} + cache read {read} + cache write {write}). Same definition as channel monitor and the usage trend.',
     outputTps: 'Output TPS',
     outputTpsHint: 'Output tokens divided by total duration, including first-token wait, in tok/s. Output tokens may include reasoning tokens.',
     time: 'Time',
@@ -510,6 +514,7 @@ export default {
   monitorCommon: {
     intelligence: {
       title: 'Intelligence check',
+      timelineTitle: 'IQ check - Candy question',
       enable: 'Enable intelligence check',
       hint: 'Applies to this monitor’s group and models. Each cycle runs an ordinary probe, then a separate candy question if the probe succeeds. Intelligence results and timing do not affect channel status, latest latency, or slow-response checks. This adds requests and reasoning usage; an interval of at least 5 minutes is recommended.',
       scope: 'This result only indicates whether the candy question was answered correctly, not model identity or overall ability.',
@@ -529,6 +534,7 @@ export default {
     status: {
       operational: 'Operational',
       degraded: 'Degraded',
+      highLatency: 'High latency',
       failed: 'Failed',
       error: 'Error',
       unknown: '-'
@@ -685,6 +691,7 @@ export default {
     loading: 'Loading...',
     empty: 'No groups to display',
     loadFailed: 'Failed to load model plaza',
+    retry: 'Retry',
     noSearchResult: 'No matching models',
     anonymousHint: 'Sign in to see your exclusive groups and personal rates',
     filters: {
@@ -703,7 +710,7 @@ export default {
       noModels: 'No models configured for this group',
       noPricing: 'Pricing not configured',
       peakNote: 'Peak hours {window}: billing rate ×{multiplier}',
-      longContextDisabledNote: 'Long-context tier pricing is disabled for this group: requests above the threshold are billed at the base tier; official tiers are for reference only'
+      longContextDisabledNote: 'Long-context tier pricing is disabled for this group: requests above the threshold are billed at the base tier; both price sections show the base tier'
     },
     table: {
       model: 'Model',
@@ -727,12 +734,14 @@ export default {
       timePricingWeekdays: 'Weekdays',
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
       paidPrice: 'Your Price (Discounted)',
-      officialPrice: 'Official Price',
-      rate: 'Rate',
+      modelPrice: 'Model Price',
+      rate: 'Effective Rate',
       unitPerMillion: '$ / 1M tokens',
       perUnitRequest: '/ request',
       perUnitImage: '/ image',
+      perUnitSecond: '/ second',
       perRequest: 'Per request',
+      perSecond: 'Per second',
       perImage: 'Per image'
     },
     nav: {

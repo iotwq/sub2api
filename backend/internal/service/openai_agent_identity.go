@@ -380,6 +380,9 @@ func (s *OpenAIGatewayService) buildOpenAIAuthenticationHeaders(ctx context.Cont
 		}
 		credAccount = resolved
 	}
+	if credAccount.IsExcelOAuth() {
+		return nil, errExcelOAuthRouteUnavailable
+	}
 	headers := make(http.Header)
 	if credAccount != nil && credAccount.IsOpenAIAgentIdentity() {
 		agentHeaders, err := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s, &s.agentIdentityTaskMu, credAccount)

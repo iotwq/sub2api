@@ -184,6 +184,7 @@
           :server-side-sort="true"
           :show-account-billing="false"
           :show-upstream-endpoint="false"
+          cache-rate-audience="user"
           default-sort-key="created_at"
           default-sort-order="desc"
           @sort="handleSort"
@@ -238,6 +239,7 @@ import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatReasoningEffort } from '@/utils/format'
+import { formatUsageCacheRate, showUsageCacheRate } from '@/utils/usageCacheRate'
 import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import type {
@@ -327,9 +329,10 @@ const applyErrorFilters = () => {
 }
 
 let abortController: AbortController | null = null
-let chartReqSeq = 0
-let statsReqSeq = 0
-let modelStatsReqSeq = 0
+let chartController: AbortController | null = null
+let statsController: AbortController | null = null
+let modelStatsController: AbortController | null = null
+let statisticsTimer: ReturnType<typeof setTimeout> | null = null
 
 const formatLocalDate = (date: Date): string =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -466,48 +469,54 @@ const loadLogs = async () => {
 }
 
 const loadStats = async () => {
-  const seq = ++statsReqSeq
+  statsController?.abort()
+  const controller = new AbortController()
+  statsController = controller
   endpointStatsLoading.value = true
   try {
-    const stats = await usageAPI.getStats(normalizedFilters.value)
-    if (seq !== statsReqSeq) return
+    const stats = await usageAPI.getStats(normalizedFilters.value, undefined, { signal: controller.signal })
+    if (controller.signal.aborted) return
     usageStats.value = stats
     inboundEndpointStats.value = stats.endpoints || []
     upstreamEndpointStats.value = []
     endpointPathStats.value = []
   } catch (error) {
-    if (seq !== statsReqSeq) return
+    if (controller.signal.aborted) return
     console.error('Failed to load usage stats:', error)
     inboundEndpointStats.value = []
     upstreamEndpointStats.value = []
     endpointPathStats.value = []
   } finally {
-    if (seq === statsReqSeq) endpointStatsLoading.value = false
+    if (statsController === controller) endpointStatsLoading.value = false
   }
 }
 
 const loadModelStats = async () => {
-  const seq = ++modelStatsReqSeq
+  modelStatsController?.abort()
+  const controller = new AbortController()
+  modelStatsController = controller
   modelStatsLoading.value = true
   try {
     const response = await usageAPI.getDashboardModels({
       ...normalizedFilters.value,
       model_source: 'requested',
-    })
-    if (seq !== modelStatsReqSeq) return
+    }, { signal: controller.signal })
+    if (controller.signal.aborted) return
     requestedModelStats.value = response.models || []
     refreshModelOptions(response.models || [])
   } catch (error) {
-    if (seq !== modelStatsReqSeq) return
+    if (controller.signal.aborted) return
     console.error('Failed to load model stats:', error)
     requestedModelStats.value = []
   } finally {
-    if (seq === modelStatsReqSeq) modelStatsLoading.value = false
+    if (modelStatsController === controller) modelStatsLoading.value = false
   }
 }
 
 const loadChartData = async () => {
-  const seq = ++chartReqSeq
+  chartController?.abort()
+  const controller = new AbortController()
+  chartController = controller
   chartsLoading.value = true
   try {
     const snapshot = await usageAPI.getDashboardSnapshotV2({
@@ -516,17 +525,17 @@ const loadChartData = async () => {
       include_trend: true,
       include_model_stats: false,
       include_group_stats: true,
-    })
-    if (seq !== chartReqSeq) return
+    }, { signal: controller.signal })
+    if (controller.signal.aborted) return
     trendData.value = snapshot.trend || []
     groupStats.value = snapshot.groups || []
   } catch (error) {
-    if (seq !== chartReqSeq) return
+    if (controller.signal.aborted) return
     console.error('Failed to load chart data:', error)
     trendData.value = []
     groupStats.value = []
   } finally {
-    if (seq === chartReqSeq) chartsLoading.value = false
+    if (chartController === controller) chartsLoading.value = false
   }
 }
 
@@ -543,13 +552,22 @@ const refreshModelOptions = (models: ModelStat[]) => {
 const applyFilters = () => {
   pagination.page = 1
   void loadLogs()
-  void loadStats()
-  void loadModelStats()
-  void loadChartData()
+  statsController?.abort()
+  modelStatsController?.abort()
+  chartController?.abort()
+  if (statisticsTimer !== null) clearTimeout(statisticsTimer)
+  statisticsTimer = setTimeout(() => {
+    statisticsTimer = null
+    void loadStats()
+    void loadModelStats()
+    void loadChartData()
+  }, 150)
   resetErrorRows()
 }
 
 const refreshData = () => {
+  if (statisticsTimer !== null) clearTimeout(statisticsTimer)
+  statisticsTimer = null
   void loadLogs()
   void loadStats()
   void loadModelStats()
@@ -672,6 +690,7 @@ const exportToCSV = async () => {
       appStore.showWarning(t('usage.noDataToExport'))
       return
     }
+    const includeCacheRate = showUsageCacheRate(appStore.cachedPublicSettings, 'user')
     const headers = [
       'Time',
       'API Key Name',
@@ -685,6 +704,7 @@ const exportToCSV = async () => {
       'Output Tokens',
       'Cache Read Tokens',
       'Cache Creation Tokens',
+      ...(includeCacheRate ? ['Cache Rate'] : []),
       'Rate Multiplier',
       'Billed Cost',
       'Original Cost',
@@ -704,6 +724,7 @@ const exportToCSV = async () => {
       log.output_tokens,
       log.cache_read_tokens,
       log.cache_creation_tokens,
+      ...(includeCacheRate ? [formatUsageCacheRate(log) ?? ''] : []),
       log.rate_multiplier,
       log.actual_cost.toFixed(8),
       log.total_cost.toFixed(8),
@@ -928,6 +949,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   abortController?.abort()
+  statsController?.abort()
+  modelStatsController?.abort()
+  chartController?.abort()
+  if (statisticsTimer !== null) clearTimeout(statisticsTimer)
   document.removeEventListener('click', handleColumnClickOutside)
 })
 

@@ -253,8 +253,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
-import { useCommunityChatRealtime } from '@/composables/useCommunityChatRealtime'
-import { communityChatAPI, type CommunityChatEvent } from '@/api'
+import { useCommunityChatNotificationsStore } from '@/stores/communityChatNotifications'
 
 interface NavItem {
   path: string
@@ -307,16 +306,7 @@ const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
-const communityChatGroupUnread = ref(false)
-const communityChatDirectUnread = ref(false)
-const latestCommunityChatMessageId = ref(0)
-
-const communityChatRealtime = useCommunityChatRealtime({
-  onEvent: handleCommunityChatBadgeEvent,
-  onConnected: () => {
-    void refreshCommunityChatUnread()
-  },
-})
+const communityChatNotifications = useCommunityChatNotificationsStore()
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
 
@@ -1017,75 +1007,7 @@ function handleMenuItemClick(itemPath: string) {
 
 function shouldShowCommunityChatUnread(path: string): boolean {
   return path === '/community-chat'
-    && (communityChatGroupUnread.value || communityChatDirectUnread.value)
-}
-
-async function refreshCommunityChatUnread(): Promise<void> {
-  const userId = authStore.user?.id ?? 0
-  if (userId <= 0) return
-
-  communityChatGroupUnread.value = false
-  communityChatDirectUnread.value = false
-
-  try {
-    const result = await communityChatAPI.listMessages(1, 1)
-    applyCommunityChatNotification(result.items[result.items.length - 1])
-  } catch (error) {
-    console.error('Failed to restore community chat notification:', error)
-  }
-
-  try {
-    const summary = await communityChatAPI.getDirectUnread()
-    communityChatDirectUnread.value = summary.total > 0
-  } catch (error) {
-    console.error('Failed to restore community direct chat notification:', error)
-  }
-}
-
-function handleCommunityChatBadgeEvent(event: CommunityChatEvent): void {
-  if (event.type === 'message_created') {
-    applyCommunityChatNotification(event.message)
-  } else if (event.type === 'direct_message_created' || event.type === 'direct_message_deleted') {
-    void refreshCommunityDirectUnread()
-  }
-}
-
-function applyCommunityChatNotification(message?: { id: number; user_id: number }): void {
-  if (!message) return
-  latestCommunityChatMessageId.value = Math.max(latestCommunityChatMessageId.value, message.id)
-  applyCommunityChatUnreadState('group', message)
-}
-
-async function refreshCommunityDirectUnread(): Promise<void> {
-  try {
-    const summary = await communityChatAPI.getDirectUnread()
-    communityChatDirectUnread.value = summary.total > 0
-  } catch (error) {
-    console.error('Failed to refresh community direct chat notification:', error)
-  }
-}
-
-function applyCommunityChatUnreadState(scope: 'group' | 'direct', message: { id: number; user_id: number }): void {
-  const userId = authStore.user?.id ?? 0
-  if (userId <= 0) return
-  const lastSeenId = communityChatAPI.getCommunityChatLastSeenMessageId(userId, scope)
-  if (message.user_id !== userId && message.id > lastSeenId) {
-    if (scope === 'group') {
-      communityChatGroupUnread.value = true
-    } else {
-      communityChatDirectUnread.value = true
-    }
-  }
-}
-
-function handleCommunityChatSeen(event: Event): void {
-  const detail = (event as CustomEvent<{ userId: number; scope: 'group' | 'direct' }>).detail
-  if (!detail || detail.userId !== authStore.user?.id) return
-  if (detail.scope === 'group') {
-    communityChatGroupUnread.value = false
-  } else {
-    void refreshCommunityDirectUnread()
-  }
+    && (communityChatNotifications.groupUnread || communityChatNotifications.directUnread)
 }
 
 function isActive(path: string): boolean {
@@ -1149,7 +1071,6 @@ watch(
 )
 
 onMounted(() => {
-  window.addEventListener('community-chat:seen', handleCommunityChatSeen)
   void refreshBatchImageAccess()
   if (isAdmin.value) {
     adminSettingsStore.fetch()
@@ -1165,31 +1086,11 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('community-chat:seen', handleCommunityChatSeen)
   if (sidebarNavRef.value) {
     appStore.sidebarScrollTop = sidebarNavRef.value.scrollTop
   }
 })
 
-watch(
-  () => authStore.isAuthenticated,
-  (authenticated) => {
-    if (authenticated) {
-      void refreshCommunityChatUnread()
-      communityChatRealtime.start()
-    } else {
-      communityChatRealtime.stop()
-      communityChatGroupUnread.value = false
-      communityChatDirectUnread.value = false
-      latestCommunityChatMessageId.value = 0
-    }
-  },
-  { immediate: true }
-)
-
-onBeforeUnmount(() => {
-  communityChatRealtime.stop()
-})
 </script>
 
 <style scoped>

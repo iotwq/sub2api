@@ -9,20 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func (r schedulerTestOpenAIAccountRepo) ListModelAvailabilityCandidates(_ context.Context, _ *int64, platforms []string, _ bool) ([]Account, error) {
-	allowed := make(map[string]struct{}, len(platforms))
-	for _, platform := range platforms {
-		allowed[platform] = struct{}{}
-	}
-	result := make([]Account, 0, len(r.accounts))
-	for _, account := range r.accounts {
-		if _, ok := allowed[account.Platform]; ok {
-			result = append(result, account)
-		}
-	}
-	return result, nil
-}
-
 func TestOpenAIGatewayServiceDiagnoseModelAvailability_PassthroughAllowsAnyModel(t *testing.T) {
 	repo := schedulerTestOpenAIAccountRepo{
 		accounts: []Account{

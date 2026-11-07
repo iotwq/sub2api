@@ -1402,3 +1402,68 @@ docker buildx imagetools create --tag iotwq/china-api:latest iotwq/china-api@sha
 - 新增迁移 `242_drop_platform_check_constraints.sql`：移除 user_platform_quotas 和 composite_model_routes 的数据库平台白名单 CHECK，平台校验转由应用层、repository 和 Ent 共用注册清单执行。监控 provider CHECK 保留。部署前备份数据库，应用启动会自动执行未应用迁移；代码回滚不恢复数据库约束，新平台数据存在时不可直接加回旧白名单约束。
 - 本轮仅完成本地代码合并和提交，不推送 GitHub、不构建或推送 Docker 镜像、不部署、不修改生产数据库或执行真实付费上游请求。原无关桌面 bundle 保持未跟踪。
 - 回滚点：`codex/pre-upstream-sync-20261009-v0.2.15` / `7775571f4bf513081ff651843b4553112f545554`。可在独立目录恢复：`git worktree add --detach /tmp/sub2api-pre-sync-20261009 codex/pre-upstream-sync-20261009-v0.2.15`；撤销本轮合并可对合并提交执行 `git revert -m 1 <merge-commit>`，不能把源码回滚当作数据库回滚。本轮未执行回滚。
+
+## 2026-10-23 同步原项目 0.2.18
+
+- 按用户要求合并 Wei-Shaw/sub2api 的 `upstream/main` 至 `5c185c5c5d4f5e409e2139806e0964ae944e03e8`，版本为 `0.2.18`；相对 `b0a02a330` 新增 45 个提交、114 个上游文件。合并提交为 `f8f0b1b3b271d1fe564d2378f8d1d591fb99ed16`。逐文件来源与兼容修复见 [合并清单](upstream-sync-20261023-files.md)。
+- 同步 Codex overload/空流与 metadata 事件后的安全重试、CLI 身份规范、Anthropic/Gemini 客户端断开后的用量处理、Gemini 生图权限门禁、Vertex 额度、调度快照缓存、限流快照写时复制、图片下载安全与 Grok Fast 定价；构建工具链为 Go 1.27.3，DOMPurify 为 3.4.17。
+- 解决九个冲突文件并修复合并后的两个编译依赖；保留本站 Basispoints、OAuth/TLS/并发保护、退款和余额冻结。进一步修复 Gemini 实际多图数量被固定值/后续观察值覆盖的问题；Chat/Responses 有可计费用量时不再 failover，避免重复生成或丢失前次费用。零用量、零图片的流式失败不返回可计费部分结果。
+- 所有原有工作区改动已恢复；相对 stash 快照的跟踪文件差异仅落在本轮明确范围，8 个原有未跟踪文件内容哈希一致。312 信号采集与界面删除继续保留，旧私有字段仅过滤不再采集。合并后兼容修复与部分回归测试保留在工作区，后续构建须包含完整工作区，不能仅使用合并提交快照。
+- 前端冻结依赖安装、类型检查、393 文件/3118 项测试、语言完整性与生产构建通过；产物输出到 `/tmp/upstream-frontend-20261023-9Yi0rN/dist`，未覆盖现有 embed dist。
+- 后端全包 unit 已执行。首次核心包测试暴露 Gemini 合并错误和新测试定价/缓存 fixture 差异，修复后 service、handler、repository 通过；最终全包运行仅 `internal/server` 的旧契约预期漏掉已有 GPT-6.1 Sol 开关字段，补齐预期后该包完整复测通过，其余所有包均通过。没有跳过用例，也没有改变生产定价来适配测试；不将初次失败命令记为成功。
+- 调度缓存、限流写时复制、账号快照、Basispoints、OAuth 并发保护及 Gemini 中断/图片的定向 race 通过。隔离 PostgreSQL 18.1 / Redis 8.4 的迁移幂等/并发、246 生图开关范围、两份 246 登记、原子计费/退款/去重、账号日周额度 SQL 变体与默认分组验证通过。首次数据库测试发现旧 241 约束断言未适配已有 242 删除迁移，仅修正测试预期后复测通过。
+- Wire diff 无差异，后端 embed 生产编译与 `--version` 检查通过。该编译验证使用现有 embed 资源，最新前端单独构建已验证；本轮没有制作发布镜像或端到端部署。
+- 新增上游迁移 `246_enable_gemini_image_generation_groups.sql` 会将存量 Gemini/Antigravity 分组的 `allow_image_generation=false` 更新为 true，以保持此前未受此开关限制的行为；OpenAI/composite 不在更新范围。部署后需要禁用生图的分组可重新关闭。本站已有 `246_gpt61_sol_subscription_optimization.sql` 保持原名及默认关闭值；迁移以完整文件名登记，两者不会冲突。代码回退不恢复数据库开关，部署前保留数据库备份。
+- 证据：`/tmp/sub2api-tests-20261023-11274.log`（初次失败）；`/tmp/sub2api-sync-20261023-unit-final.log`（全包、server 修复前）；`/tmp/sub2api-sync-20261023-server-final.log`（server 完整复测）；`/tmp/sub2api-sync-20261023-integration.log`（旧约束断言失败）；`/tmp/sub2api-sync-20261023-integration-final.log`、`/tmp/sub2api-sync-20261023-race.log`、`/tmp/sub2api-sync-20261023-wire.log`、`/tmp/sub2api-sync-20261023-build.log`；前端证据目录 `/tmp/upstream-frontend-20261023-9Yi0rN`。
+- 本轮未推送 GitHub、未构建/推送镜像、未部署、未修改生产数据或调用真实付费上游。原有无关桌面 JS bundle 保持未跟踪。
+- 回滚点：`backup/pre-upstream-sync-20261023` 指向 `a517830f72f96a9c34799e53e3fd185bf18c3e0e`，完整原工作区保存在 stash `20c083d7b0a759b98c67e168974abbf87cad9da8`。以下命令在新临时目录恢复原工作区，不覆盖当前 checkout；本轮未执行回滚：
+
+```sh
+restore_dir=$(mktemp -d /tmp/sub2api-pre-sync-20261023.XXXXXX)
+git worktree add --detach "$restore_dir" backup/pre-upstream-sync-20261023
+git -C "$restore_dir" stash apply --index 20c083d7b0a759b98c67e168974abbf87cad9da8
+```
+
+
+## 2026-10-25：按确认继续移植 Basispoints 独立能力
+
+- 来源：`https://github.com/ranxi2001/sub2api`，`production` 固定提交 `9fcfe25d600a331abcc28a1788e597e5542d4cd3`（v2.17.2）。对比本站前次移植基线 `7dd10bfe4b635f226f0ddfa52cc65797697272d8`（v2.9.4）；未整分支 merge。
+- 协议：`58c5e2401`（真实工具示例）、`bf71b049f`（历史 ID）、`afb7e8ec1`（动态目录）、`3bc1f9a55`（加密任务完整性）、`9d5bb002b`（紧凑目录）、`c17b9b505`/`b84a7635f`（安全诊断）、`8c000a3c7`（续轮纠错/失败归因）、`98f7a7980`/`f79b27f48`（create_thread 上下文）按独立协议包移植并保留本站差异。
+- 独立接入：`385a364fc`（无进展超时）、`98fb0e534`/`5eb86b425`（Redis 状态）、`9f0142f1d`/`722c2a7b3`（模型权限与推理档位）、`46b4bc50c`（浏览器 Excel OAuth）、`4222db08a`（Excel 主凭据隔离）、`59b1f1ad7`（模型权限冷却）适配本站账号、配置和模型查询入口。
+- 本站适配：非流式超时保留部分用量；已接受 BPS 响应不走通用 Codex 重试；本地转换失败记录真实上游 HTTP 状态；Excel 独立账号沿用现有刷新锁/缓存，不引入第二份 grant 表。已有账号测试的响应模型证据沿用本站实现。
+- 未引入：`5756934a1` 等依赖双 grant 存储的凭据运维、`6084c9ab0`/`b04dff8dd` 的独立 grant 刷新基础设施、`2ed031dab`/`5ea90175a` 多宿主图片 owner 路由，以及托管登录、代理池、质量运维/自动切换体系。保留本站忽略图片开关；不复制上游删除该开关的改动。
+- 使用与配置见 [OPENAI_OAUTH_BASISPOINTS.md](OPENAI_OAUTH_BASISPOINTS.md#2026-10-25继续同步独立-bps-功能至-v2172)。没有修改数据库结构、生产账号、部署状态或其他功能。不能由协议测试推出“普通推理降智已解决”。
+- 完整验证命令、修改文件清单与增量回滚方式记录在 `progress.md` 本轮条目。工作前副本、固定上游源码、测试日志和 `task.patch` 位于 `/tmp/sub2api-bps-sync-20261025.ggeah1q8`，反向补丁保留此前未提交工作。
+
+
+## 2026-10-25 — 单请求缓存率与展示开关
+
+- 来源：`ranxi2001/sub2api` 的 `4dc4a0f08`、`c8e35e518`，核对基线为 production `9fcfe25d600a331abcc28a1788e597e5542d4cd3`（v2.17.2）。
+- 选择性移植缓存率公式、使用记录与 Token 提示展示、管理员 Excel / 用户 CSV 导出，以及总开关和用户展示开关。默认管理员可见、用户不可见；总开关关闭后两端均隐藏。
+- 复用现有设置存储，补齐管理接口、公共设置与 HTML 配置注入；更新请求省略新字段时保留旧值。无需数据库结构迁移。
+- 适配本站既有耗时/TPS、媒体计费与模型审计页面，仅变更本功能必要部分；未移植上游请求采集、观察员角色、长上下文展示开关或设置搜索。
+- 验证：后端设置和 API 契约定向测试通过；前端 6 文件 / 134 项测试通过；相关 ESLint 和生产构建通过。未部署或请求真实模型。
+- 使用说明：`docs/USAGE_CACHE_RATE.md`。独立备份、日志和反向补丁见 `progress.md` 本轮记录。
+
+
+## 2026-10-28 同步原项目 0.2.19
+
+- 按用户要求同步 Wei-Shaw/sub2api 的 main 至 `a3298b46ebe239fb0720b068a1eb3383955bdac2`（0.2.19），相对 `5c185c5c5` 新增 76 个提交、261 个上游路径；本地合并提交 `4491998af6177e37b9b5d5041ee296e3dcb56bd6`。详细来源见 [合并清单](upstream-sync-20261028-files.md)。
+- 最后补入 5 个 OAuth 非流式修复提交（PR #7979），客户端请求 JSON 时正确聚合 SSE，保留未完成/取消状态与用量；本站 Basispoints 中断处理保留。
+- 用户已确认合入管理员 API 密钥权限及两项迁移；包含 Grok 目录诊断/并发快照、按张计费开关、GPT-6.1 Terra、Gemini 模型声明/目录/重试和 fileData 计费，以及 DeepSeek、Claude 指纹、上传限制与 Go 安全依赖修复。
+- 保留本站 Basispoints/Excel OAuth、Codex 身份配置、模型广场渠道价格优先/充值比例/媒体倍率/映射、Grok 图片视频与 Suno、计费错误传播和订阅优化开关；未恢复已删除信号或 svggrok 别名。补齐 Terra none 在本地 Chat 转换器中的透传。
+- 前端 400 文件 / 3299 测试、lint、类型检查与构建通过；后端最终全量 unit、关键路径 race、协议包 race、Wire diff 和带本轮前端的 embed 编译通过。隔离 PostgreSQL / Redis 验证了迁移、管理员密钥权限、Grok/BPS 状态保留、原子计费/退款/去重及图片视频结算。前期失败和修复细节见 progress.md，未调用真实付费上游。
+- `247_scoped_admin_api_keys.sql` 新建受限管理员密钥表；`248_group_image_count_billing.sql` 新增默认 false 的分组按张计费开关。后续部署会自动应用迁移，应先备份数据库；代码回退不会撤销数据库结构。新开关不自动启用。
+- 原有 266 项未提交改动已保管并恢复，53 个原有未跟踪文件哈希一致、8 项删除保留；改动范围外无内容/权限变化。兼容修正和既有定制保留在工作区，后续镜像需从完整工作区构建。未推送 Git、未制作/推送镜像、未部署。
+- 恢复点：分支 `codex/pre-upstream-sync-20261028-212354`，stash `955af774301674df7874d00a3e929a688ce2234a`，完整原文件归档 `/tmp/sub2api-sync-20261028-xemq5ef3/before.tgz`；可执行恢复命令见合并清单，测试证据同目录。
+
+
+## 2026-11-07 同步原项目 0.2.20
+
+- 将 Wei-Shaw/sub2api main 从 `a3298b46e` 同步至 `6b4b37db43443b5e88e424fe3c69602cc3810dfb`（0.2.20），107 个上游提交、458 个路径；本地合并提交 `569c20342a7516e1703b93bfa2bd47c01227120f`。来源、配置、逐文件说明、证据和恢复命令见 [本次合并清单](upstream-sync-20261107-files.md)。
+- 按用户确认合入管理 MCP、注册邮箱黑名单、管理密钥权限完善、图片尺寸分流、GPT Image 2.6 原生链路、Terra 订阅计费、请求体/流/后台任务资源保护、协议兼容与依赖安全更新。MCP 默认关闭，须显式设置 `MCP_PUBLIC_URL`；现有账号不配置图片档位时继续不限档位。
+- 保留本站 BPS/Excel、媒体转发与冻结结算、模型广场/监控、Sol 专属优化及前端 UI/按需分包。解决异步图片结算提前释放冻结、OAuth 尺寸错误诊断、Terra 被 Sol 开关误控、认证快照字段合并和懒加载入口遗漏 MCP 文案等兼容问题；快照版本升至 v28。
+- 验证通过：前端 416 文件 / 3416 项测试、补充语言回归、typecheck、lint 和生产构建；后端完整 unit（61 包，28073 个通过事件含子测试）、vet、六包定向 race 和四协议包完整 race；隔离 PostgreSQL/Redis 的 MCP、黑名单、管理密钥、计费、迁移幂等与兼容验证；10 项本地浏览器检查。
+- Wire 重生成无差异，使用完整最终后端和本轮前端产物执行 embed 生产编译与 `--version` 成功，标识 `0.2.20 / 569c20342-dirty`。原工作区定制和合并后兼容修复未整体提交，后续发布须使用完整工作区。
+- 新增 `249_mcp_oauth.sql`，将来部署时启动自动建 MCP 授权/授权码/凭证表；本次仅在测试库执行。代码回滚不能替代数据库回滚。未推送 Git、未构建/推送镜像、未部署或请求真实付费上游。
+- 备份分支 `codex/pre-upstream-sync-20261107-145353`，stash `8099e3e253f7f3be8632ca6e6f2d5debf3dd1c81` 保留；全量原文件归档与验证日志位于 `/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-upstream-sync-20261107-nna6a1ek`。原有两项 intent-to-add 已恢复，8 项删除保持删除。

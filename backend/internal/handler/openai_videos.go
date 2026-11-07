@@ -85,11 +85,11 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideo(c *gin.Context, endpoint servic
 		contentType := c.GetHeader("Content-Type")
 		body, err = pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 		if err != nil {
-			if maxErr, ok := extractMaxBytesError(err); ok {
-				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			if handleRequestBodyReadError(c, reqLog, err) {
 				return
 			}
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+			status, message := requestBodyReadFailure(reqLog, c.Request, err)
+			h.errorResponse(c, status, "invalid_request_error", message)
 			return
 		}
 		parsed, err = service.ParseOpenAIVideoOperationRequestWithContentType(endpoint, body, contentType)
@@ -644,22 +644,22 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideo(c *gin.Context, endpoint servic
 						zap.String("task_id", result.ResponseID),
 						zap.Error(err),
 					)
-					if recoveryTask == nil {
-						if completeErr := h.gatewayService.CompleteOpenAIVideoTaskCompensation(requestCtx, apiKey.GroupID, subject.UserID, result.ResponseID, "completed"); completeErr != nil {
+					if service.MediaBalanceHoldRetained(err) {
+						mediaHold = nil
+					} else if recoveryTask == nil {
+						// No durable settlement record owns this task. Stop the
+						// failure compensator from retrying a request that cannot be
+						// refunded from a usage row.
+						if completeErr := h.gatewayService.CompleteOpenAIVideoTaskCompensation(requestCtx, apiKey.GroupID, subject.UserID, result.ResponseID, "billing_failed"); completeErr != nil {
 							reqLog.Warn("openai.videos.disarm_task_compensation_failed",
 								zap.String("task_id", result.ResponseID),
 								zap.Error(completeErr),
 							)
 						}
 					}
-					if recoveryTask != nil {
-						mediaHold = nil
-					}
 				} else {
 					usageRecorded = true
-					if mediaHold != nil {
-						mediaHold = nil
-					}
+					mediaHold = nil
 				}
 			}
 			if recoveryTask != nil && !result.SubmissionUncertain && usageRecorded {

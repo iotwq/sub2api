@@ -261,6 +261,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
+		SettingKeyUsageShowCacheRate,
+		SettingKeyUsageShowCacheRateToUsers,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -399,6 +401,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
 
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
+		UsageShowCacheRate:         settings[SettingKeyUsageShowCacheRate] != "false",
+		UsageShowCacheRateToUsers:  settings[SettingKeyUsageShowCacheRateToUsers] == "true",
 	}, nil
 }
 
@@ -533,9 +537,10 @@ func (s *SettingService) GetAvailableChannelsRuntime(ctx context.Context) Availa
 // ModelPlazaRuntime is the lightweight view of the model-plaza feature consumed
 // by the public plaza handler.
 type ModelPlazaRuntime struct {
-	Enabled     bool
-	RequireAuth bool
-	Description string
+	RechargeRatio float64
+	Enabled       bool
+	RequireAuth   bool
+	Description   string
 }
 
 // GetModelPlazaRuntime reads the model-plaza feature switches directly from the
@@ -546,14 +551,16 @@ func (s *SettingService) GetModelPlazaRuntime(ctx context.Context) ModelPlazaRun
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyModelPlazaDescription,
+		SettingKeyModelPlazaRechargeRatio,
 	})
 	if err != nil {
 		return ModelPlazaRuntime{Enabled: false}
 	}
 	return ModelPlazaRuntime{
-		Enabled:     vals[SettingKeyModelPlazaEnabled] == "true",
-		RequireAuth: vals[SettingKeyModelPlazaRequireAuth] == "true",
-		Description: vals[SettingKeyModelPlazaDescription],
+		Enabled:       vals[SettingKeyModelPlazaEnabled] == "true",
+		RequireAuth:   vals[SettingKeyModelPlazaRequireAuth] == "true",
+		Description:   vals[SettingKeyModelPlazaDescription],
+		RechargeRatio: parseModelPlazaRechargeRatio(vals[SettingKeyModelPlazaRechargeRatio]),
 	}
 }
 
@@ -668,6 +675,8 @@ type PublicSettingsInjectionPayload struct {
 	AffiliateEnabled              bool `json:"affiliate_enabled"`
 	RiskControlEnabled            bool `json:"risk_control_enabled"`
 	AllowUserViewErrorRequests    bool `json:"allow_user_view_error_requests"`
+	UsageShowCacheRate            bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers     bool `json:"usage_show_cache_rate_to_users"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -755,6 +764,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
+		UsageShowCacheRate:                   settings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:            settings.UsageShowCacheRateToUsers,
 	}, nil
 }
 

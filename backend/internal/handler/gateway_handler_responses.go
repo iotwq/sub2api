@@ -316,7 +316,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 
 		// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
-		// 错误路径共用；failover 错误恒定 result=nil，不会重复计费。
+		// 错误路径共用；已观测到可计费用量时不再进行 failover。
 		submitForwardUsage := func(result *service.ForwardResult) {
 			userAgent := c.GetHeader("User-Agent")
 			clientIP := ip.GetClientIP(c)
@@ -359,8 +359,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				zap.Int64("account_id", account.ID),
 				zap.Error(err),
 			)
-		}
-		if err != nil {
+		} else if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent

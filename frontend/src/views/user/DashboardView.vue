@@ -10,21 +10,23 @@
           <div class="lg:col-span-1"><UserDashboardQuickActions /></div>
         </div>
       </template>
+      <EmptyState v-else-if="statsError" :title="t('dashboard.loadFailed')" :description="t('dashboard.loadFailedHint')" :action-text="t('common.refresh')" :action-icon="false" @action="refreshAll" />
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'; import { useAuthStore } from '@/stores/auth'; import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
-import AppLayout from '@/components/layout/AppLayout.vue'; import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import { ref, computed, onMounted } from 'vue'; import { useI18n } from 'vue-i18n'; import { useAuthStore } from '@/stores/auth'; import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
+import AppLayout from '@/components/layout/AppLayout.vue'; import LoadingSpinner from '@/components/common/LoadingSpinner.vue'; import EmptyState from '@/components/common/EmptyState.vue'
 import UserDashboardStats from '@/components/user/dashboard/UserDashboardStats.vue'; import UserDashboardCharts from '@/components/user/dashboard/UserDashboardCharts.vue'
 import UserDashboardRecentUsage from '@/components/user/dashboard/UserDashboardRecentUsage.vue'; import UserDashboardQuickActions from '@/components/user/dashboard/UserDashboardQuickActions.vue'
 import type { UsageLog, TrendDataPoint, ModelStat, PlatformQuotaItem } from '@/types'
 import { getMyPlatformQuotas } from '@/api/user'
 import { formatDateLocalInput } from '@/utils/format'
 
+const { t } = useI18n()
 const authStore = useAuthStore(); const user = computed(() => authStore.user)
-const stats = ref<UserStatsType | null>(null); const loading = ref(false); const loadingUsage = ref(false); const loadingCharts = ref(false)
+const stats = ref<UserStatsType | null>(null); const statsError = ref(false); const loading = ref(false); const loadingUsage = ref(false); const loadingCharts = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const modelStats = ref<ModelStat[]>([]); const recentUsage = ref<UsageLog[]>([])
 const platformQuotas = ref<PlatformQuotaItem[] | null>(null)
 
@@ -32,15 +34,16 @@ const startDate = ref(formatDateLocalInput(new Date(Date.now() - 6 * 86400000)))
 
 const loadStats = async () => {
   loading.value = true
+  statsError.value = false
   try {
-    const profileRefresh = authStore.refreshUser().catch((error) => {
+    void authStore.refreshUser().catch((error) => {
       console.error('Failed to refresh user for dashboard:', error)
     })
     const dashboardStats = await usageAPI.getDashboardStats()
-    await profileRefresh
     stats.value = dashboardStats
   } catch (error) {
     console.error('Failed to load dashboard stats:', error)
+    statsError.value = true
   } finally {
     loading.value = false
   }

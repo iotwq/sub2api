@@ -625,6 +625,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
+  await flushPromises();
+}
+
 describe("admin SettingsView email domain quota copy", () => {
   it("documents the email domain quota and empty-whitelist behavior in both locales", () => {
     expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("主流邮箱");
@@ -741,6 +751,58 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  it("loads and saves the model plaza recharge ratio", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, model_plaza_enabled: true, model_plaza_recharge_ratio: 6 });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+    const input = wrapper.get('#model-plaza-recharge-ratio');
+    expect((input.element as HTMLInputElement).value).toBe('6');
+    await input.setValue(2.5);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ model_plaza_recharge_ratio: 2.5 }));
+    wrapper.unmount();
+  });
+
+  it("defaults cache rate to admin-only and saves both visibility switches", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const enabled = wrapper.get('[data-testid="usage-show-cache-rate"]');
+    const users = wrapper.get('[data-testid="usage-show-cache-rate-to-users"]');
+    expect((enabled.element as HTMLInputElement).checked).toBe(true);
+    expect((users.element as HTMLInputElement).checked).toBe(false);
+    await users.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      usage_show_cache_rate: true,
+      usage_show_cache_rate_to_users: true,
+    }));
+    await enabled.setValue(false);
+    expect((users.element as HTMLInputElement).disabled).toBe(true);
+    expect((users.element as HTMLInputElement).checked).toBe(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      usage_show_cache_rate: false,
+      usage_show_cache_rate_to_users: false,
+    }));
+    expect(fetchPublicSettings).toHaveBeenCalledWith(true);
+    wrapper.unmount();
+  });
+
+  it("loads persisted cache-rate visibility instead of the defaults", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, usage_show_cache_rate: false, usage_show_cache_rate_to_users: false });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    expect((wrapper.get('[data-testid="usage-show-cache-rate"]').element as HTMLInputElement).checked).toBe(false);
+    expect((wrapper.get('[data-testid="usage-show-cache-rate-to-users"]').element as HTMLInputElement).disabled).toBe(true);
+    wrapper.unmount();
+  });
+
   it("loads and saves the open button visibility for each custom menu", async () => {
     const menuItems = [
       { id: "docs", label: "Docs", url: "https://example.com/docs", icon_svg: "", visibility: "user", sort_order: 0 },
@@ -815,6 +877,7 @@ describe("admin SettingsView payment visible method controls", () => {
       excel_bps_image_mode: 'native', excel_bps_image_max_images: 80, excel_bps_image_ttl_minutes: 90 });
     const wrapper = mountView();
     await flushPromises();
+    await openFeaturesTab(wrapper);
     expect((wrapper.get('#excel-bps-image-mode').element as HTMLSelectElement).value).toBe('native');
     expect(wrapper.find('#excel-bps-image-base-url').exists()).toBe(false);
     expect((wrapper.get('#excel-bps-image-max_images').element as HTMLInputElement).value).toBe('80');
@@ -836,6 +899,7 @@ describe("admin SettingsView payment visible method controls", () => {
   it("rejects inconsistent relay limits before saving", async () => {
     const wrapper = mountView();
     await flushPromises();
+    await openFeaturesTab(wrapper);
     await wrapper.get('#excel-bps-image-enabled').setValue(true);
     await wrapper.get('#excel-bps-image-base-url').setValue('https://images.example');
     for (const [image, total, storage, count, entries, ttl] of [[40,32,1024,20,512,30], [20,32,16,20,512,30], [20,32,1024,513,512,30], [20,32,1024,20,512,0]]) {
@@ -854,6 +918,7 @@ describe("admin SettingsView payment visible method controls", () => {
     getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, excel_bps_image_relay_enabled: true, excel_bps_image_base_url: 'https://saved.example' });
     const wrapper = mountView();
     await flushPromises();
+    await openFeaturesTab(wrapper);
     expect((wrapper.get('#excel-bps-image-base-url').element as HTMLInputElement).value).toBe('https://saved.example');
     await wrapper.get('#excel-bps-image-enabled').setValue(false);
     await wrapper.find('form').trigger('submit.prevent');
@@ -865,6 +930,7 @@ describe("admin SettingsView payment visible method controls", () => {
   it("rejects missing or unsafe Basispoints image origins before saving", async () => {
     const wrapper = mountView();
     await flushPromises();
+    await openFeaturesTab(wrapper);
     await wrapper.get('#excel-bps-image-enabled').setValue(true);
     for (const value of ['', 'http://images.example', 'https://images.example/v1', 'https://user:secret@images.example', 'https://images.example?token=secret', 'https://images.example#']) {
       await wrapper.get('#excel-bps-image-base-url').setValue(value);
@@ -879,6 +945,7 @@ describe("admin SettingsView payment visible method controls", () => {
   it("rejects invalid Basispoints image capacity before saving", async () => {
     const wrapper = mountView();
     await flushPromises();
+    await openFeaturesTab(wrapper);
     await wrapper.get('#excel-bps-image-enabled').setValue(true);
     await wrapper.get('#excel-bps-image-base-url').setValue('https://images.example');
     for (const [body, budget, requests] of [[0, 1024, 128], [129, 2048, 128], [64, 511, 128], [128, 512, 128], [64, 1024, 513]]) {
@@ -931,6 +998,7 @@ describe("admin SettingsView payment visible method controls", () => {
 
     const wrapper = mountView();
     await flushPromises();
+    await openSecurityTab(wrapper);
 
     expect(getPanelRateLimitSettings).toHaveBeenCalled();
     expect(wrapper.text()).toContain("admin.settings.panelRateLimit.title");
@@ -1534,6 +1602,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const wrapper = mountView();
 
     await flushPromises();
+    await openGatewayTab(wrapper);
 
     expect(wrapper.text()).toContain("OpenAI 实验调度策略");
     expect(wrapper.text()).toContain(
@@ -1696,6 +1765,7 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     const wrapper = mountView();
     await flushPromises();
+    await openGatewayTab(wrapper);
     const input = wrapper.get('[data-testid="openai-oauth-scheduling-rate-multiplier"]');
     expect(input.attributes("required")).toBeUndefined();
     await input.setValue("");
@@ -1726,6 +1796,7 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     const wrapper = mountView();
     await flushPromises();
+    await openGatewayTab(wrapper);
     const input = wrapper.get<HTMLInputElement>('[data-testid="openai-oauth-scheduling-rate-multiplier"]');
     expect(input.element.value).toBe("");
     await wrapper.find("form").trigger("submit.prevent");
@@ -1739,6 +1810,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const wrapper = mountView();
 
     await flushPromises();
+    await openGatewayTab(wrapper);
     expect(
       wrapper.find('[data-testid="openai-oauth-scheduling-rate-multiplier"]').exists(),
     ).toBe(false);

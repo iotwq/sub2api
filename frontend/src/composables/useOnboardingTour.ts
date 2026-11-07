@@ -1,6 +1,5 @@
 import { onMounted, onUnmounted, nextTick } from 'vue'
-import { driver, type Driver, type DriveStep } from 'driver.js'
-import 'driver.js/dist/driver.css'
+import type { Driver, DriveStep } from 'driver.js'
 import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
@@ -56,6 +55,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
   } | null = null
   let autoStartTimer: ReturnType<typeof setTimeout> | null = null
   let globalKeyboardHandler: ((e: KeyboardEvent) => void) | null = null
+  let unmounted = false
 
   const getStorageKey = () => {
     const baseKey = options.storageKey ?? 'onboarding_tour'
@@ -105,6 +105,10 @@ export function useOnboardingTour(options: OnboardingOptions) {
     if (currentStep?.element && typeof currentStep.element === 'string') {
       await ensureElement(currentStep.element, TIMING.ELEMENT_TIMEOUT_MS)
     }
+
+    // 引导库只在真正启动引导时才下载，已看过引导的用户不会加载
+    const [{ driver }] = await Promise.all([import('driver.js'), import('driver.js/dist/driver.css')])
+    if (unmounted) return
 
     if (driverInstance) {
       driverInstance.destroy()
@@ -549,6 +553,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
   })
 
   onUnmounted(() => {
+    unmounted = true
     if (autoStartTimer) {
       clearTimeout(autoStartTimer)
       autoStartTimer = null

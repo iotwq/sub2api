@@ -21,7 +21,7 @@ import (
 
 func TestGPT61TerraIdentityAndEffort(t *testing.T) {
 	require.Contains(t, openai.DefaultModelIDs(), "gpt-6.1-terra")
-	require.Equal(t, "gpt-5.6-sol", openai.DefaultModelIDs()[0])
+	require.Equal(t, "gpt-6.1-sol", openai.DefaultModelIDs()[0], "preserve the local default model ordering")
 	require.Equal(t, "gpt-5.4", openai.DefaultTestModel)
 	for _, effort := range []string{"none", "low", "medium", "high", "xhigh", "max"} {
 		model := "openai/GPT-6.1-Terra-" + effort
@@ -38,6 +38,7 @@ func TestGPT61TerraIdentityAndEffort(t *testing.T) {
 		require.Equal(t, effort, openAICompatAnthropicReasoningEffort(request, request.Model, effort))
 		converted, err := apicompat.AnthropicToResponses(request)
 		require.NoError(t, err)
+		require.NotNil(t, converted.Reasoning)
 		require.Equal(t, effort, converted.Reasoning.Effort)
 		chatConverted, err := apicompat.ChatCompletionsToResponses(&apicompat.ChatCompletionsRequest{
 			Model: "gpt-6.1-terra", ReasoningEffort: effort,
@@ -45,6 +46,7 @@ func TestGPT61TerraIdentityAndEffort(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "gpt-6.1-terra", chatConverted.Model)
+		require.NotNil(t, chatConverted.Reasoning)
 		require.Equal(t, effort, chatConverted.Reasoning.Effort)
 		require.Len(t, chatConverted.Tools, 1)
 		require.NoError(t, validateGPT61CompatRequest([]byte(`{"reasoning":{"effort":"`+effort+`"}}`), model))

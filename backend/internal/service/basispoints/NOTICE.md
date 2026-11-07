@@ -105,3 +105,19 @@ cover existing capacity fallback without introducing BPS priority semantics.
 New image generation, compaction policies, capacity ceilings, default-account
 configuration, account-plan restrictions, and managed operational services
 are not part of this bug-fix port.
+
+
+On 2026-10-25, standalone Basispoints updates were selectively ported from
+ranxi2001/sub2api production v2.17.2, commit
+9fcfe25d600a331abcc28a1788e597e5542d4cd3, relative to v2.9.4.
+The protocol port covers actual-tool examples, dynamic catalogs, compact schema
+prompts with strict local validation, local message-ID removal, encrypted
+assignment validation, create_thread handoff history, safe schema diagnostics,
+bounded continuation repair, bridge failure attribution, progress timeout and
+optional Redis-backed catalog/replay state. Existing local image omission stays.
+Service adapters add official manual Excel OAuth, permission/effort discovery,
+model-specific permission cooldown and credential route fencing. Local proxy,
+concurrency, refresh, usage and cancellation policies remain authoritative.
+Managed login workers, dual-grant database infrastructure, quality operations,
+Mihomo proxies and multi-host image owner routing are not imported.
+See docs/OPENAI_OAUTH_BASISPOINTS.md and docs/UPSTREAM_SYNC.md for scope and usage.

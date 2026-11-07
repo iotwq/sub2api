@@ -157,7 +157,7 @@ const TablePageLayoutStub = {
 
 const DataTableStub = {
   name: 'DataTable',
-  props: { columns: Array, data: Array, selectedKeys: Array, selectable: Boolean },
+  props: { columns: Array, data: Array, selectedKeys: Array, selectable: Boolean, loading: Boolean },
   emits: ['sort', 'update:selectedKeys'],
   template: `
     <div>
@@ -174,6 +174,7 @@ const DataTableStub = {
           <slot name="cell-id" :value="row.id" :row="row" />
         </div>
         <slot name="cell-name" :value="row.name" :row="row" />
+        <div data-test="usage"><slot name="cell-usage" :row="row" /></div>
         <slot name="cell-actions" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
@@ -308,6 +309,55 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('shows key rows before usage finishes and keeps pending costs unknown', async () => {
+    let resolveUsage!: (value: unknown) => void
+    getDashboardApiKeysUsage.mockReturnValueOnce(new Promise((resolve) => { resolveUsage = resolve }))
+    const wrapper = await mountView()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(wrapper.text()).toContain('test-key')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    resolveUsage({ stats: { 1: { today_actual_cost: 2, total_actual_cost: 3 } } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('$2.0000')
+    wrapper.unmount()
+  })
+
+  it('does not overwrite a newer page with a superseded usage response', async () => {
+    let resolveOld!: (value: unknown) => void
+    getDashboardApiKeysUsage.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+    const wrapper = await mountView()
+    const oldSignal = getDashboardApiKeysUsage.mock.calls[0][1].signal as AbortSignal
+    getDashboardApiKeysUsage.mockResolvedValueOnce({ stats: { 1: { today_actual_cost: 4, total_actual_cost: 5 } } })
+    await wrapper.get('[data-test="page-2"]').trigger('click')
+    await flushPromises()
+    expect(oldSignal.aborted).toBe(true)
+    resolveOld({ stats: { 1: { today_actual_cost: 99, total_actual_cost: 99 } } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('$4.0000')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$99.0000')
+    wrapper.unmount()
+  })
+
+  it('keeps costs unknown if usage fails while leaving keys usable', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    getDashboardApiKeysUsage.mockRejectedValueOnce(new Error('usage unavailable'))
+    const wrapper = await mountView()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+    log.mockRestore()
+  })
+
+  it('aborts pending usage on leaving the page', async () => {
+    getDashboardApiKeysUsage.mockReturnValueOnce(new Promise(() => {}))
+    const wrapper = await mountView()
+    const signal = getDashboardApiKeysUsage.mock.calls[0][1].signal as AbortSignal
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
   })
 
   it.each([

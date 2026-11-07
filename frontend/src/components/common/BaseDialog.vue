@@ -116,6 +116,27 @@ const handleEscape = (event: KeyboardEvent) => {
   }
 }
 
+const handleKeydown = (event: KeyboardEvent) => {
+  if (!props.show || [...openDialogs].pop() !== dialogId || event.key !== 'Tab' || !dialogRef.value) return
+  const focusable = [...dialogRef.value.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )]
+  if (focusable.length === 0) {
+    event.preventDefault()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const current = document.activeElement
+  if (event.shiftKey && current === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && current === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 const updateScrollLock = (isOpen: boolean) => {
   if (isOpen) openDialogs.add(dialogId)
   else openDialogs.delete(dialogId)
@@ -157,10 +178,12 @@ watch(
 
 onMounted(() => {
   document.addEventListener('keydown', handleEscape)
+  document.addEventListener('keydown', handleKeydown)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape)
+  document.removeEventListener('keydown', handleKeydown)
   // 确保组件卸载时移除滚动锁定
   updateScrollLock(false)
 })

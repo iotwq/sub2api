@@ -320,9 +320,9 @@
           <div class="card p-4">
             <div class="mb-4 flex items-center justify-between gap-3">
               <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.dashboard.recentUsage') }} (Top 12)</h3>
-              <div class="flex gap-1" role="group" :aria-label="t('admin.dashboard.recentUsage')">
+              <div class="inline-flex rounded-lg bg-gray-100 p-1 dark:bg-dark-800" role="group" :aria-label="t('admin.dashboard.recentUsage')">
                 <button v-for="metric in (['tokens', 'actual_cost'] as const)" :key="metric" type="button"
-                  class="rounded px-2 py-1 text-xs" :class="userTrendMetric === metric ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300'"
+                  class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors" :class="userTrendMetric === metric ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
                   :aria-pressed="userTrendMetric === metric" @click="setUserTrendMetric(metric)">
                   {{ t(metric === 'tokens' ? 'admin.dashboard.tokens' : 'admin.dashboard.actualSpending') }}
                 </button>
@@ -343,6 +343,15 @@
           </div>
         </div>
       </template>
+
+      <EmptyState
+        v-else-if="statsError"
+        :title="t('admin.dashboard.failedToLoad')"
+        :description="t('dashboard.loadFailedHint')"
+        :action-text="t('common.refresh')"
+        :action-icon="false"
+        @action="loadDashboardStats"
+      />
     </div>
   </AppLayout>
 </template>
@@ -364,6 +373,7 @@ import type {
 } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import Icon from '@/components/icons/Icon.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import Select from '@/components/common/Select.vue'
@@ -398,6 +408,7 @@ const appStore = useAppStore()
 const router = useRouter()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 const stats = ref<DashboardStats | null>(null)
+const statsError = ref(false)
 const loading = ref(false)
 const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
@@ -659,6 +670,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
   const currentSeq = ++chartLoadSeq
   if (includeStats && !stats.value) {
     loading.value = true
+    statsError.value = false
   }
   chartsLoading.value = true
   try {
@@ -680,6 +692,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     modelStats.value = response.models || []
   } catch (error) {
     if (currentSeq !== chartLoadSeq) return
+    if (includeStats) statsError.value = true
     appStore.showError(t('admin.dashboard.failedToLoad'))
     console.error('Error loading dashboard snapshot:', error)
   } finally {

@@ -39,7 +39,7 @@
         class="px-2.5 py-1 rounded-full text-xs font-semibold flex-shrink-0"
         :class="statusBadgeClass(item.primary_status)"
       >
-        {{ statusLabel(item.primary_status) }}
+        {{ statusLabel(item.primary_status, item.primary_latency_ms) }}
       </span>
     </div>
 

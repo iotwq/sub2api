@@ -22,6 +22,8 @@ function initIOSViewportZoomFix() {
   viewport.setAttribute('content', `${content}, maximum-scale=1.0`)
 }
 
+// index.html applies the same rule inline before first paint; this call keeps
+// the theme correct if that inline script is blocked. Keep the two in sync.
 function initThemeClass() {
   const savedTheme = localStorage.getItem('theme')
   const shouldUseDark =

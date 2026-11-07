@@ -222,7 +222,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
 }
 
-func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol(t *testing.T) {
+func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT61Sol(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -251,7 +251,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	require.Equal(t, "gpt-5.6-sol", resp.Data[0].ID)
+	require.Equal(t, "gpt-6.1-sol", resp.Data[0].ID)
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAISparkShadowReturnsMappingModels(t *testing.T) {
@@ -604,4 +604,13 @@ func TestAccountHandlerGetAvailableModels_TypeSafeOnlyReturnsJev(t *testing.T) {
 		require.Len(t, resp.Data, 1)
 		require.Equal(t, "jev-latest", resp.Data[0].ID)
 	}
+}
+
+func TestAccountHandlerGetAvailableModels_BasispointsDoesNotInventPermissions(t *testing.T) {
+	adminSvc := &availableModelsAdminService{account: service.Account{ID: 300, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{"openai_oauth_responses_endpoint": "basispoints"}}}
+	router := setupAvailableModelsRouter(adminSvc)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/300/models", nil))
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.NotContains(t, rec.Body.String(), "gpt-6")
 }

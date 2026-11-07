@@ -63,6 +63,7 @@ func TestImageSettlementQueuesAndReplaysExactCost(t *testing.T) {
 		MediaBalanceHold: &OpenAIMediaBalanceHold{ID: "image-hold", APIKeyID: key.ID, UserID: user.ID, Amount: 1},
 	})
 	require.ErrorContains(t, err, "temporary database failure")
+	require.True(t, MediaBalanceHoldRetained(err), "a persisted pending settlement must retain the media hold")
 	require.NotNil(t, repo.pending)
 	require.Zero(t, logs.calls)
 	require.Error(t, repo.lastError)

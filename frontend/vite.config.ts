@@ -118,6 +118,10 @@ export default defineConfig(({ mode, command }) => {
           manualChunks(id: string) {
             const moduleId = normalizeModuleId(id)
 
+            // Rollup 的 CommonJS 兼容辅助代码被很多库共用，单独成包，
+            // 避免它被并进某个功能库（之前并进了二维码库），让无关页面跟着下载。
+            if (moduleId.includes('commonjsHelpers')) return 'vendor-cjs-helpers'
+
             if (moduleId.includes('/node_modules/')) {
               // Vue 核心库
               if (
@@ -139,28 +143,16 @@ export default defineConfig(({ mode, command }) => {
                 return 'vendor-chart'
               }
 
-              // 大型或低频第三方库单独拆分，避免 lazy route 共用一个超大 vendor-misc。
-              if (moduleId.includes('/pdfjs-dist/')) return 'vendor-pdf'
-              // Keep DOCX parsing deps with their lazy importers; forcing them into vendor-misc
-              // can preload broken CommonJS output on unrelated routes such as dashboards.
-              if (
-                moduleId.includes('/mammoth/') ||
-                moduleId.includes('/jszip/') ||
-                moduleId.includes('/lie/') ||
-                moduleId.includes('/pako/') ||
-                moduleId.includes('/readable-stream/') ||
-                moduleId.includes('/setimmediate/') ||
-                moduleId.includes('/@xmldom/') ||
-                moduleId.includes('/sax/') ||
-                moduleId.includes('/underscore/') ||
-                moduleId.includes('/xmlbuilder/')
-              ) {
-                return
-              }
+              // 大型或低频第三方库单独拆分。
+              // pdf.js 的 worker 地址（?url）只是一个字符串，不并进库本体，
+              // 否则聊天页引用这个地址时会在打开页面就下载整个 PDF 库。
+              if (moduleId.includes('/pdfjs-dist/') && !moduleId.includes('?url')) return 'vendor-pdf'
               if (moduleId.includes('/xlsx/')) return 'vendor-xlsx'
               if (moduleId.includes('/@airwallex/components-sdk/')) return 'vendor-airwallex'
               if (moduleId.includes('/@stripe/stripe-js/')) return 'vendor-stripe'
-              if (moduleId.includes('/marked/') || moduleId.includes('/dompurify/')) return 'vendor-markdown'
+              // marked 与 DOMPurify 分开：侧边栏只需要 DOMPurify，marked 在渲染公告等 Markdown 时才按需加载。
+              if (moduleId.includes('/marked/')) return 'vendor-markdown'
+              if (moduleId.includes('/dompurify/')) return 'vendor-sanitize'
               if (moduleId.includes('/qrcode/')) return 'vendor-qrcode'
               if (moduleId.includes('/driver.js/')) return 'vendor-tour'
               if (moduleId.includes('/@tanstack/vue-virtual/')) return 'vendor-virtual'
@@ -168,8 +160,9 @@ export default defineConfig(({ mode, command }) => {
               if (moduleId.includes('/axios/')) return 'vendor-http'
               if (moduleId.includes('/emoji-picker-element/')) return 'vendor-emoji'
 
-              // 其他小型第三方库合并
-              return 'vendor-misc'
+              // 其余第三方库不再合并成一个公共包，交给 Rollup 按实际引用关系分包。
+              // 合并时 three、mammoth、highlight.js 会和图表、表格用到的小依赖打在一起，
+              // 导致所有带图表或表格的页面都要下载这些用不到的大库。
             }
 
             // 应用代码：按入口点自动分包，不手动干预。

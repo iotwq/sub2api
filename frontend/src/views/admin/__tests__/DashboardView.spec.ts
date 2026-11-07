@@ -171,4 +171,25 @@ describe('admin DashboardView', () => {
       granularity: 'hour'
     }))
   })
+
+  it('shows a retry action when dashboard statistics fail to load and recovers on retry', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    getSnapshotV2.mockRejectedValueOnce(new Error('snapshot unavailable'))
+    const wrapper = mount(DashboardView, {
+      global: { stubs: {
+        AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+        Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+        TokenUsageTrend: true, Line: true
+      } }
+    })
+    await flushPromises()
+    expect(wrapper.find('.empty-state').exists()).toBe(true)
+    expect(wrapper.text()).toContain('admin.dashboard.failedToLoad')
+    await wrapper.get('.empty-state button').trigger('click')
+    await flushPromises()
+    expect(getSnapshotV2).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.empty-state').exists()).toBe(false)
+    wrapper.unmount()
+    log.mockRestore()
+  })
 })

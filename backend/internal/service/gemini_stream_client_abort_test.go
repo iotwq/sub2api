@@ -93,7 +93,10 @@ func TestGeminiForwardNative_UpstreamReadErrorWithLiveClientStaysError(t *testin
 
 	result, err := svc.ForwardNative(context.Background(), c, geminiVertexAPIKeyTestAccount(""), "gemini-3-flash-preview", "streamGenerateContent", true, reqBody)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Equal(t, 10, result.Usage.InputTokens)
+	require.Equal(t, 5, result.Usage.OutputTokens)
+	require.False(t, result.ClientDisconnect)
 }
 
 func TestGeminiForwardNative_ClientDisconnectBillsOnlyDeliveredImages(t *testing.T) {
@@ -133,7 +136,10 @@ func TestGeminiCompatForward_ClientDisconnectAfterFinalChunkBillsCollectedUsage(
 		svc, c, _ := newGeminiAbortingStreamService(t, "/v1/messages", reqBody, geminiAbortTextChunk+geminiAbortFinalChunk, false)
 		result, err := svc.Forward(context.Background(), c, geminiVertexAPIKeyTestAccount(""), reqBody)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-		require.Nil(t, result)
+		require.NotNil(t, result)
+		require.Equal(t, 10, result.Usage.InputTokens)
+		require.Equal(t, 5, result.Usage.OutputTokens)
+		require.False(t, result.ClientDisconnect)
 	})
 }
 

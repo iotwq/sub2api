@@ -66,7 +66,7 @@ func newGeminiClientCancelFixture(t *testing.T) *geminiClientCancelFixture {
 	cfg := &config.Config{}
 	h.gatewayService = service.NewGatewayService(
 		nil, &fakeGroupRepo{group: group}, nil, nil, nil, nil, nil, nil, cfg,
-		service.NewSchedulerSnapshotService(&fakeSchedulerCache{accounts: []*service.Account{account}}, nil, nil, nil, nil),
+		service.NewSchedulerSnapshotService(schedulerCache, nil, nil, nil, nil),
 		nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)

@@ -45,7 +45,7 @@
         </div>
 
         <!-- Tab: Security — Admin API Key -->
-        <div v-show="activeTab === 'security'" class="space-y-6">
+        <div v-if="visitedTabs.has('security')" v-show="activeTab === 'security'" class="space-y-6">
           <AdminAccessKeysSettings />
           <!-- 已有全权密钥只提供轮换和删除入口。 -->
           <details v-if="adminApiKeyExists" class="card">
@@ -162,7 +162,7 @@
         <!-- /Tab: Security — Admin API Key -->
 
         <!-- Tab: Gateway -->
-        <div v-show="activeTab === 'gateway'" class="space-y-6">
+        <div v-if="visitedTabs.has('gateway')" v-show="activeTab === 'gateway'" class="space-y-6">
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -1382,7 +1382,7 @@
         <!-- /Tab: Gateway -->
 
         <!-- Tab: Security — Registration, Turnstile, LinuxDo -->
-        <div v-show="activeTab === 'security'" class="space-y-6">
+        <div v-if="visitedTabs.has('security')" v-show="activeTab === 'security'" class="space-y-6">
           <!-- Registration Settings -->
           <div class="card">
             <div
@@ -3786,7 +3786,7 @@
         <!-- /Tab: Security — Registration, Turnstile, LinuxDo, OIDC -->
 
         <!-- Tab: Users -->
-        <div v-show="activeTab === 'users'" class="space-y-6">
+        <div v-if="visitedTabs.has('users')" v-show="activeTab === 'users'" class="space-y-6">
           <!-- Default Settings -->
           <div class="card">
             <div
@@ -4402,7 +4402,7 @@
         <!-- /Tab: Users -->
 
         <!-- Tab: Gateway — Claude Code, Scheduling -->
-        <div v-show="activeTab === 'gateway'" class="space-y-6">
+        <div v-if="visitedTabs.has('gateway')" v-show="activeTab === 'gateway'" class="space-y-6">
           <!-- Claude Code Settings -->
           <div class="card">
             <div
@@ -6342,13 +6342,53 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.cache_rate.label') }}
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.cache_rate.description') }}
+                </p>
+              </div>
+              <label class="toggle">
+                <input
+                  v-model="form.usage_show_cache_rate"
+                  data-testid="usage-show-cache-rate"
+                  type="checkbox"
+                  @change="form.usage_show_cache_rate_to_users = form.usage_show_cache_rate && form.usage_show_cache_rate_to_users"
+                />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="flex items-center justify-between" :class="form.usage_show_cache_rate ? '' : 'opacity-60'">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.cache_rate_to_users.label') }}
+                </label>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.cache_rate_to_users.description') }}
+                </p>
+              </div>
+              <label class="toggle">
+                <input
+                  v-model="form.usage_show_cache_rate_to_users"
+                  data-testid="usage-show-cache-rate-to-users"
+                  type="checkbox"
+                  :disabled="!form.usage_show_cache_rate"
+                />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
           </div>
         </div>
         </div>
         <!-- /Tab: Gateway — Claude Code, Scheduling -->
 
         <!-- Tab: General -->
-        <div v-show="activeTab === 'general'" class="space-y-6">
+        <div v-if="visitedTabs.has('general')" v-show="activeTab === 'general'" class="space-y-6">
           <!-- Site Settings -->
           <div class="card">
             <div
@@ -6940,7 +6980,7 @@
 	        <!-- /Tab: General -->
 
 	        <!-- Tab: Login Agreement -->
-	        <div v-show="activeTab === 'agreement'" class="space-y-6">
+	        <div v-if="visitedTabs.has('agreement')" v-show="activeTab === 'agreement'" class="space-y-6">
 	          <div class="card">
 	            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
 	              <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -7142,7 +7182,7 @@
         <!-- /Tab: Login Agreement -->
 
 	        <!-- Tab: Features (功能开关) -->
-        <div v-show="activeTab === 'features'" class="space-y-6">
+        <div v-if="visitedTabs.has('features')" v-show="activeTab === 'features'" class="space-y-6">
         <div class="card" data-testid="excel-bps-image-settings">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -7436,6 +7476,24 @@
                 </p>
               </div>
               <Toggle v-model="form.model_plaza_require_auth" />
+            </div>
+
+            <div v-if="form.model_plaza_enabled">
+              <label for="model-plaza-recharge-ratio" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.features.modelPlaza.rechargeRatio') }}
+              </label>
+              <p class="mb-2 mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.features.modelPlaza.rechargeRatioHint') }}
+              </p>
+              <input
+                id="model-plaza-recharge-ratio"
+                v-model.number="form.model_plaza_recharge_ratio"
+                type="number"
+                min="0.000001"
+                step="any"
+                required
+                class="input max-w-xs"
+              />
             </div>
 
             <div v-if="form.model_plaza_enabled">
@@ -7994,7 +8052,7 @@
 
         <!-- Tab: Email -->
         <!-- Tab: Payment -->
-        <div v-show="activeTab === 'payment'" class="space-y-6">
+        <div v-if="visitedTabs.has('payment')" v-show="activeTab === 'payment'" class="space-y-6">
           <!-- Payment System Settings -->
           <div class="card">
             <div
@@ -8537,7 +8595,7 @@
           />
         </div>
 
-        <div v-show="activeTab === 'email'" class="space-y-6">
+        <div v-if="visitedTabs.has('email')" v-show="activeTab === 'email'" class="space-y-6">
           <!-- Email disabled hint - show when email_verify_enabled is off -->
           <div v-if="!form.email_verify_enabled" class="card">
             <div class="p-6">
@@ -8959,7 +9017,7 @@
         <!-- /Tab: Email -->
 
         <!-- Tab: Backup -->
-        <div v-show="activeTab === 'backup'">
+        <div v-if="visitedTabs.has('backup')" v-show="activeTab === 'backup'">
           <BackupSettings />
         </div>
 
@@ -9037,7 +9095,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from "vue";
+import { ref, reactive, computed, onMounted, watch, defineAsyncComponent } from "vue";
 import { listPlatformIds } from "@/constants/platformCatalog";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";
@@ -9085,7 +9143,6 @@ import {
   type SiteBillingMode,
 } from "@/utils/siteBillingMode";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
-import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
 import GroupBadge from "@/components/common/GroupBadge.vue";
 import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
@@ -9153,6 +9210,13 @@ type SettingsTab =
   | "email"
   | "backup";
 const activeTab = ref<SettingsTab>("general");
+// Tab panels mount on first visit and stay mounted, so opening the page only
+// renders the default tab. The provider list (and its drag-and-drop library)
+// loads when the payment tab is first opened.
+const visitedTabs = ref(new Set<SettingsTab>([activeTab.value]));
+const PaymentProviderList = defineAsyncComponent(
+  () => import("@/components/payment/PaymentProviderList.vue"),
+);
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },
@@ -9176,6 +9240,7 @@ const settingsTabKeyboardActions = {
 
 function selectSettingsTab(tab: SettingsTab): void {
   activeTab.value = tab;
+  visitedTabs.value.add(tab);
 }
 
 function focusSettingsTab(tab: SettingsTab): void {
@@ -10116,12 +10181,15 @@ const form = reactive<SettingsForm>({
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
   model_plaza_description: '',
+  model_plaza_recharge_ratio: 1,
   // Plugin management menu visibility; plugin runtime is unaffected.
   plugin_management_enabled: false,
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
   // Allow user view error requests
   allow_user_view_error_requests: false,
+  usage_show_cache_rate: true,
+  usage_show_cache_rate_to_users: false,
   excel_bps_image_mode: 'relay' as 'relay' | 'native',
   excel_bps_image_max_image_mib: 20,
   excel_bps_image_max_images: 20,
@@ -11900,10 +11968,13 @@ async function saveSettings() {
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,
       model_plaza_description: form.model_plaza_description,
+      model_plaza_recharge_ratio: form.model_plaza_recharge_ratio,
       plugin_management_enabled: form.plugin_management_enabled,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,
+      usage_show_cache_rate: form.usage_show_cache_rate,
+      usage_show_cache_rate_to_users: form.usage_show_cache_rate_to_users,
       excel_bps_image_mode: form.excel_bps_image_mode,
       excel_bps_image_max_image_mib: form.excel_bps_image_max_image_mib,
       excel_bps_image_max_images: form.excel_bps_image_max_images,

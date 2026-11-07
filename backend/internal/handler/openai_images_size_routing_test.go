@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -37,9 +38,9 @@ func newOpenAIImagesSizeRoutingTestHandler(t *testing.T, accounts []service.Acco
 		openAIImagesSizeRoutingAccountRepo{openAIImagesFailoverAccountRepo{accounts: accounts}},
 		nil, nil, nil, nil, nil, nil,
 		cfg,
-		nil, nil, nil, nil, nil,
+		nil, nil, service.NewBillingService(cfg, nil), nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)
@@ -115,7 +116,7 @@ func TestOpenAIGatewayHandlerImages_SizeTierRoutesToAllowedAccounts(t *testing.T
 	rec, _ := serveOpenAIImagesSizeRoutingRequest(handler, 3141, `{"model":"gpt-image-1","prompt":"draw a cat","size":"2880x2880"}`)
 
 	require.Equal(t, http.StatusBadGateway, rec.Code, "the stub upstream fails every attempt")
-	require.Equal(t, []int64{2, 3}, upstream.calls(), "4K requests fail over only across 4K accounts")
+	require.Equal(t, []int64{2, 3}, slices.Compact(upstream.calls()), "same-account retries and failover only use 4K accounts")
 }
 
 func serveOpenAIResponsesSizeRoutingRequest(handler *OpenAIGatewayHandler, groupID int64, body string) (*httptest.ResponseRecorder, *gin.Context) {

@@ -840,6 +840,9 @@ func (s *BillingCacheService) ReserveFixedCharge(ctx context.Context, user *User
 
 // checkFixedChargeSubscription 按库中订阅用量校验日 / 周 / 月剩余额度覆盖 pending。
 func (s *BillingCacheService) checkFixedChargeSubscription(ctx context.Context, userID int64, group *Group, pending float64) error {
+	if group == nil || (!group.HasDailyLimit() && !group.HasWeeklyLimit() && !group.HasMonthlyLimit()) {
+		return nil
+	}
 	read := s.GetSubscriptionStatus
 	if s.subRepo != nil {
 		read = s.getSubscriptionFromDB

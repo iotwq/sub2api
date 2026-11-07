@@ -75,7 +75,10 @@ type Group struct {
 	// ModelPricing overrides channel and built-in prices for matching models.
 	// Token intervals are selected only when LongContextPricingEnabled is true.
 	LongContextPricingEnabled bool
-	ModelPricing              []ChannelModelPricing
+	// GPT61SolSubscriptionOptimizationEnabled enables the GPT-6.1 Sol subscription
+	// billing exemption and 500k generated-context default for this group.
+	GPT61SolSubscriptionOptimizationEnabled bool
+	ModelPricing                            []ChannelModelPricing
 
 	// Claude Code 客户端限制
 	ClaudeCodeOnly  bool

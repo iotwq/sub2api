@@ -221,10 +221,11 @@ type SystemSettings struct {
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
-	ModelPlazaEnabled       bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth   bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription   string `json:"model_plaza_description"`
-	PluginManagementEnabled bool   `json:"plugin_management_enabled"`
+	ModelPlazaEnabled       bool    `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth   bool    `json:"model_plaza_require_auth"`
+	ModelPlazaDescription   string  `json:"model_plaza_description"`
+	ModelPlazaRechargeRatio float64 `json:"model_plaza_recharge_ratio"`
+	PluginManagementEnabled bool    `json:"plugin_management_enabled"`
 
 	// Claude Code version check
 	MinClaudeCodeVersion string
@@ -320,6 +321,8 @@ type SystemSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests  bool
+	UsageShowCacheRate          bool
+	UsageShowCacheRateToUsers   bool
 	ExcelBPSImageMode           string
 	ExcelBPSImageMaxImageMiB    int
 	ExcelBPSImageMaxImages      int
@@ -436,6 +439,8 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	UsageShowCacheRate         bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers  bool `json:"usage_show_cache_rate_to_users"`
 }
 
 type LoginAgreementDocument struct {

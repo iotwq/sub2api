@@ -98,14 +98,13 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAdminComplianceStore, useAppStore, useAuthStore } from '@/stores'
 import { getLocale } from '@/i18n'
+import { loadMarkdown, renderMarkdown } from '@/utils/markdown'
 import zhDocument from '../../../../docs/legal/admin-compliance.zh.md?raw'
 import enDocument from '../../../../docs/legal/admin-compliance.en.md?raw'
 
@@ -115,11 +114,6 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 const typedPhrase = ref('')
 const attemptedSubmit = ref(false)
-
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
 
 const visible = computed(() => authStore.isAuthenticated && authStore.isAdmin && complianceStore.shouldShow)
 const expectedPhrase = computed(() => complianceStore.expectedPhrase)
@@ -137,10 +131,7 @@ const inputError = computed(() => {
   }
   return t('adminCompliance.inputMismatch')
 })
-const renderedDocument = computed(() => {
-  const html = marked.parse(currentDocument.value) as string
-  return DOMPurify.sanitize(html)
-})
+const renderedDocument = computed(() => renderMarkdown(currentDocument.value))
 
 watch(expectedPhrase, () => {
   typedPhrase.value = ''
@@ -153,6 +144,11 @@ watch(visible, (isVisible) => {
     attemptedSubmit.value = false
   }
 })
+
+// 弹窗出现时才加载 Markdown 渲染器
+watch(visible, (isVisible) => {
+  if (isVisible) void loadMarkdown()
+}, { immediate: true })
 
 function noop(): void {
   // 强制确认弹窗不允许通过关闭按钮绕过。

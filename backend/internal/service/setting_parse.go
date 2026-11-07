@@ -209,6 +209,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyModelPlazaEnabled:       "false",
 		SettingKeyModelPlazaRequireAuth:   "false",
 		SettingKeyModelPlazaDescription:   "",
+		SettingKeyModelPlazaRechargeRatio: "1",
 		SettingKeyPluginManagementEnabled: "false",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
@@ -270,6 +271,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
 
 		SettingKeyAllowUserViewErrorRequests:  "false",
+		SettingKeyUsageShowCacheRate:          "true",
+		SettingKeyUsageShowCacheRateToUsers:   "false",
 		SettingKeyExcelBPSImageMode:           "relay",
 		SettingKeyExcelBPSImageMaxImageMiB:    "20",
 		SettingKeyExcelBPSImageMaxImages:      "20",
@@ -847,6 +850,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
 	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
+	result.ModelPlazaRechargeRatio = parseModelPlazaRechargeRatio(settings[SettingKeyModelPlazaRechargeRatio])
 	result.PluginManagementEnabled = settings[SettingKeyPluginManagementEnabled] == "true"
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
@@ -1005,6 +1009,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 
 	result.AllowUserViewErrorRequests = settings[SettingKeyAllowUserViewErrorRequests] == "true" // default false
+	result.UsageShowCacheRate = settings[SettingKeyUsageShowCacheRate] != "false"
+	result.UsageShowCacheRateToUsers = settings[SettingKeyUsageShowCacheRateToUsers] == "true"
 	result.ExcelBPSImageMode = settings[SettingKeyExcelBPSImageMode]
 	if result.ExcelBPSImageMode == "" {
 		result.ExcelBPSImageMode = ExcelBPSImageModeRelay
@@ -1390,4 +1396,20 @@ func normalizeTablePreferences(defaultPageSize int, options []int) (int, []int) 
 	}
 
 	return defaultPageSize, normalizedOptions
+}
+
+// parseModelPlazaRechargeRatio keeps existing installations at 1:1 until configured.
+func parseModelPlazaRechargeRatio(raw string) float64 {
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 1
+	}
+	return normalizeModelPlazaRechargeRatio(value)
+}
+
+func normalizeModelPlazaRechargeRatio(value float64) float64 {
+	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 1
+	}
+	return value
 }

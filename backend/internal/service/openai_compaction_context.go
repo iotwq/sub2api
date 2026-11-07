@@ -3,6 +3,7 @@ package service
 import "context"
 
 type openAIForwardModelContextKey struct{}
+type openAIMessagesDispatchModelContextKey struct{}
 
 type openAIForwardModel struct {
 	model                  string
@@ -29,4 +30,21 @@ func openAIForwardModelFromContext(ctx context.Context) (openAIForwardModel, boo
 	}
 	forwardModel, ok := ctx.Value(openAIForwardModelContextKey{}).(openAIForwardModel)
 	return forwardModel, ok
+}
+
+// WithOpenAIMessagesDispatchMappedModel records the group-level model fallback
+// used by the Messages bridge when account model mapping has no match.
+func WithOpenAIMessagesDispatchMappedModel(ctx context.Context, model string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, openAIMessagesDispatchModelContextKey{}, model)
+}
+
+func openAIMessagesDispatchMappedModelFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	model, _ := ctx.Value(openAIMessagesDispatchModelContextKey{}).(string)
+	return model
 }

@@ -291,6 +291,8 @@ export interface PublicSettings {
   allow_user_view_error_requests?: boolean
   /** True when the deployment configures MCP_PUBLIC_URL; MCP is disabled otherwise. */
   mcp_enabled?: boolean
+  usage_show_cache_rate?: boolean
+  usage_show_cache_rate_to_users?: boolean
 }
 
 export interface AuthResponse {
@@ -595,6 +597,7 @@ export interface Group {
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
   long_context_pricing_enabled: boolean
+  gpt61_sol_subscription_optimization_enabled?: boolean
   // 图片生成计费配置
   allow_image_generation: boolean
   allow_batch_image_generation: boolean
@@ -819,6 +822,7 @@ export interface CreateGroupRequest {
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
   long_context_pricing_enabled?: boolean
+  gpt61_sol_subscription_optimization_enabled?: boolean
   force_openai_fast?: boolean
   free_openai_fast?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
@@ -1286,11 +1290,6 @@ export interface Account {
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
   ollama_cloud_usage?: OllamaCloudUsageState
-  codex_signal?: {
-    length: number
-    observed_at: string
-    last_312_at?: string
-  }
   opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {

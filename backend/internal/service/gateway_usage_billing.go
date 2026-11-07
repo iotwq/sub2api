@@ -384,10 +384,14 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	usageLogPersisted := false
 	var pending *PendingImageSettlement
 	pendingRepo, canRetryImages := repo.(PendingImageSettlementRepository)
-	if canRetryImages && usageLog != nil && usageLog.ImageCount > 0 && usageLog.VideoCount == 0 {
+	// Media generation is completed before settlement. Persist the exact billing
+	// command for both images and videos so a transient DB/Redis failure cannot
+	// turn a successful generation into an unbilled request. The table name is
+	// historical; the snapshot is protocol-agnostic.
+	if canRetryImages && usageLog != nil && (usageLog.ImageCount > 0 || usageLog.VideoCount > 0) {
 		pending = &PendingImageSettlement{Command: cmd, Usage: usageLog, Platform: p.Platform}
 		if err := pendingRepo.SavePendingImageSettlement(billingCtx, pending); err != nil {
-			return false, fmt.Errorf("persist image settlement: %w", err)
+			return false, mediaSettlementError(fmt.Errorf("persist image settlement: %w", err), false)
 		}
 	}
 	var result *UsageBillingApplyResult
@@ -404,6 +408,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	if err != nil {
 		if pending != nil {
 			_ = pendingRepo.FinishPendingImageSettlement(billingCtx, pending, err)
+			return false, mediaSettlementError(err, true)
 		}
 		return false, err
 	}
@@ -1040,7 +1045,10 @@ func (s *GatewayService) QuoteUsageCost(ctx context.Context, input *RecordUsageI
 	}
 	multiplier, imageMultiplier, pricingAt := s.recordUsageMultipliers(ctx, input.APIKey, user, input.PricingAt)
 	billingModel := s.recordUsageBillingModel(ctx, input.APIKey, input.Result, input.ChannelUsageFields)
-	cost := s.calculateRecordUsageCost(ctx, input.Result, input.APIKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	cost, err := s.calculateRecordUsageCost(ctx, input.Result, input.APIKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	if err != nil {
+		return 0
+	}
 	if cost == nil {
 		return 0
 	}
@@ -1128,7 +1136,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 		tokenCost.TotalCost += storageCost
 		tokenCost.ActualCost += storageCost * multiplier
 	}
-	return tokenCost
+	return tokenCost, nil
 }
 
 // compositeBillableModel 决定 composite 分组请求的计费模型：来源覆盖把计费模型

@@ -853,8 +853,7 @@ type openAIWSPoolMetrics struct {
 type openAIWSConnPool struct {
 	cfg *config.Config
 	// 通过接口解耦底层 WS 客户端实现，默认使用 coder/websocket。
-	clientDialer     openAIWSClientDialer
-	observeHandshake func(*Account, http.Header)
+	clientDialer openAIWSClientDialer
 
 	accounts sync.Map // key: int64(accountID), value: *openAIWSAccountPool
 	seq      atomic.Uint64
@@ -2156,9 +2155,6 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 			ResponseHeaders: cloneHeader(handshakeHeaders),
 			Err:             errors.New("openai ws dialer returned nil connection"),
 		}
-	}
-	if status == http.StatusSwitchingProtocols && p.observeHandshake != nil {
-		p.observeHandshake(req.Account, handshakeHeaders)
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders)

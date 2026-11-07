@@ -170,7 +170,7 @@ export default {
     chat: '模型问答',
     batchImage: '批量生图',
     communityChat: '用户群聊',
-    imageGeneration: '文生图',
+    imageGeneration: '生图网站',
     usage: '使用记录',
     redeem: '兑换',
     affiliate: '邀请返利',

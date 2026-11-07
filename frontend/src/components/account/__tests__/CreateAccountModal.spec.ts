@@ -8,6 +8,8 @@ import {
 } from '@/constants/platformCatalog'
 
 const {
+  generateAuthUrlMock,
+  exchangeCodeMock,
   createAccountMock,
   probeUpstreamBillingMock,
   syncUpstreamModelsMock,
@@ -16,6 +18,8 @@ const {
   createOpenAICodexPATMock,
   authIsSimpleMode,
 } = vi.hoisted(() => ({
+  generateAuthUrlMock: vi.fn(),
+  exchangeCodeMock: vi.fn(),
   createAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
   syncUpstreamModelsMock: vi.fn(),
@@ -44,6 +48,8 @@ vi.mock('@/stores/auth', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      generateAuthUrl: generateAuthUrlMock,
+      exchangeCode: exchangeCodeMock,
       create: createAccountMock,
       probeUpstreamBilling: probeUpstreamBillingMock,
       syncUpstreamModels: syncUpstreamModelsMock,
@@ -90,8 +96,8 @@ const OAuthAuthorizationFlowStub = defineComponent({
     showCodexPatOption: Boolean,
     initialInputMethod: String,
   },
-  data: () => ({ inputMethod: 'manual' }),
-  emits: ['import-codex-session', 'import-codex-pat'],
+  data: () => ({ inputMethod: 'manual', authCode: 'synthetic-code', oauthState: 'bps.test.PC' }),
+  emits: ['import-codex-session', 'import-codex-pat', 'generate-url'],
   template: `
     <div>
       <button data-testid="import-codex-session" @click="$emit('import-codex-session', 'session-json')">session</button>
@@ -222,6 +228,31 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it('creates an Excel OAuth account with BPS routing and no Codex-only imports', async () => {
+    generateAuthUrlMock.mockResolvedValue({ auth_url: 'https://auth.openai.com/api/accounts/authorize?state=bps.test.PC', session_id: 'excel-session' })
+    exchangeCodeMock.mockResolvedValue({ access_token: 'synthetic-at', refresh_token: 'synthetic-rt', client_id: 'app_fnr0pYvVwwFDocDumLG3H2Bp', expires_at: 1700000000 })
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('#openai-oauth-client').setValue('excel')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('BPS account')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    const flow = wrapper.findComponent(OAuthAuthorizationFlowStub)
+    expect(flow.props('showCodexSessionImportOption')).toBe(false)
+    expect(flow.props('showAgentIdentityOption')).toBe(false)
+    expect(flow.props('showCodexPatOption')).toBe(false)
+    flow.vm.$emit('generate-url')
+    await flushPromises()
+    expect(generateAuthUrlMock).toHaveBeenLastCalledWith('/admin/openai/generate-auth-url', { oauth_client: 'excel' })
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'openai', type: 'oauth',
+      credentials: expect.objectContaining({ client_id: 'app_fnr0pYvVwwFDocDumLG3H2Bp' }),
+      extra: expect.objectContaining({ openai_oauth_responses_endpoint: 'basispoints', openai_oauth_responses_websockets_v2_enabled: false }),
+    }))
+    wrapper.unmount()
+  })
 
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })

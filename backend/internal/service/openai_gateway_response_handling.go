@@ -395,6 +395,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if sawTerminalEvent && !sawFailedEvent {
 			s.clearOpenAIProxyStreamDisconnect(account)
 		}
+		if !sawTerminalEvent && basispointsResponse {
+			return resultWithUsage(), fmt.Errorf("Basispoints stream ended before a terminal event")
+		}
 		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
 			return resultWithUsage(), s.newOpenAIStreamFailoverError(
 				c,
@@ -464,6 +467,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				flushPending("Client disconnected during canceled stream flush, returning collected usage")
 			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", scanErr), true
+		}
+		if basispointsResponse {
+			return resultWithUsage(), fmt.Errorf("Basispoints stream read error: %w", scanErr), true
 		}
 		if errors.Is(scanErr, bufio.ErrTooLong) {
 			logger.LegacyPrintf("service.openai_gateway", "SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, scanErr)

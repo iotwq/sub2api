@@ -98,6 +98,27 @@ func TestIsImageGenerationIntentForPlatform_GrokPreservesHardSignals(t *testing.
 		[]byte(`{"model":"gpt-image-2","input":"draw"}`),
 		PlatformGrok,
 	))
+	for _, model := range []string{"grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-quality"} {
+		t.Run(model+"/request_model", func(t *testing.T) {
+			require.True(t, IsImageGenerationIntentForPlatform(
+				openAIResponsesEndpoint, model, nil, PlatformGrok,
+			))
+		})
+		t.Run(model+"/body_model", func(t *testing.T) {
+			require.True(t, IsImageGenerationIntentForPlatform(
+				openAIResponsesEndpoint, "public-image", []byte(`{"model":"`+model+`","input":"draw"}`), PlatformGrok,
+			))
+		})
+		t.Run(model+"/shared_intent_checks", func(t *testing.T) {
+			body := []byte(`{"model":"` + model + `","input":"draw"}`)
+			require.True(t, IsImageGenerationIntent(openAIResponsesEndpoint, model, nil))
+			require.True(t, IsImageGenerationIntent(openAIResponsesEndpoint, "public-image", body))
+			require.True(t, IsExplicitImageGenerationIntent(openAIResponsesEndpoint, model, nil))
+			require.True(t, IsExplicitImageGenerationIntent(openAIResponsesEndpoint, "public-image", body))
+			require.True(t, IsImageGenerationIntentMap(openAIResponsesEndpoint, model, nil))
+			require.True(t, IsImageGenerationIntentMap(openAIResponsesEndpoint, "public-image", map[string]any{"model": model}))
+		})
+	}
 }
 
 func TestIsImageGenerationIntentForPlatform_OtherPlatformsKeepDeclarationSemantics(t *testing.T) {

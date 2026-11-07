@@ -104,14 +104,11 @@ describe('AppSidebar community chat unread badge', () => {
   })
 
   it('keeps group and direct unread state separate', () => {
-    expect(componentSource).toContain('const communityChatGroupUnread = ref(false)')
-    expect(componentSource).toContain('const communityChatDirectUnread = ref(false)')
-    expect(componentSource).toContain('(communityChatGroupUnread.value || communityChatDirectUnread.value)')
-
-    expect(componentSource).toContain('communityChatAPI.getDirectUnread()')
-    expect(componentSource).toContain('communityChatDirectUnread.value = summary.total > 0')
+    expect(componentSource).toContain('useCommunityChatNotificationsStore()')
+    expect(componentSource).toContain('(communityChatNotifications.groupUnread || communityChatNotifications.directUnread)')
+    expect(componentSource).not.toContain('communityChatAPI.getDirectUnread()')
     expect(componentSource).not.toContain('let communityChatSocket: WebSocket')
-    expect(componentSource).toContain('useCommunityChatRealtime')
+    expect(componentSource).not.toContain('useCommunityChatRealtime')
   })
 
   it('does not clip the badge and blinks unless reduced motion is requested', () => {

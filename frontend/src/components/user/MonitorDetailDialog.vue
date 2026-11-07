@@ -37,7 +37,7 @@
                 class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px]"
                 :class="statusBadgeClass(m.latest_status)"
               >
-                {{ statusLabel(m.latest_status) }}
+                {{ statusLabel(m.latest_status, m.latest_latency_ms) }}
               </span>
             </td>
             <td v-if="detail.intelligence_enabled" class="py-2 pr-3"><MonitorIntelligenceBadge :result="m.intelligence" /></td>

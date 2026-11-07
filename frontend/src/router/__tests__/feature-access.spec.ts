@@ -8,6 +8,7 @@ type NavigationGuard = (
 
 const routerHarness = vi.hoisted(() => ({
   guard: null as NavigationGuard | null,
+  resolve: null as null | ((to: { meta: Record<string, unknown> }) => Promise<void>),
 }))
 
 const authStore = vi.hoisted(() => ({
@@ -38,6 +39,7 @@ vi.mock('vue-router', () => ({
       routerHarness.guard = guard
     }),
     afterEach: vi.fn(),
+    beforeResolve: vi.fn((guard: NonNullable<typeof routerHarness.resolve>) => { routerHarness.resolve = guard }),
     onError: vi.fn(),
   })),
 }))
@@ -118,6 +120,23 @@ describe('feature route guard', () => {
     appStore.publicSettingsLoaded = false
     appStore.cachedPublicSettings = null
     appStore.fetchPublicSettings.mockReset()
+  })
+
+  it('loads administrator messages before resolving an admin route only', async () => {
+    const locales = await import('@/i18n')
+    const pending = createDeferred<void>()
+    const load = vi.spyOn(locales, 'loadAdminLocaleMessages').mockReturnValue(pending.promise)
+    await routerHarness.resolve!({ meta: {} })
+    expect(load).not.toHaveBeenCalled()
+    let resolved = false
+    const navigation = routerHarness.resolve!({ meta: { requiresAdmin: true } }).then(() => { resolved = true })
+    expect(load).toHaveBeenCalledOnce()
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+    pending.resolve()
+    await navigation
+    expect(resolved).toBe(true)
+    load.mockRestore()
   })
 
   it('waits for the first public-settings request before deciding payment access', async () => {

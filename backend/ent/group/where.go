@@ -255,6 +255,11 @@ func LongContextPricingEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldLongContextPricingEnabled, v))
 }
 
+// Gpt61SolSubscriptionOptimizationEnabled applies equality check predicate on the "gpt61_sol_subscription_optimization_enabled" field. It's identical to Gpt61SolSubscriptionOptimizationEnabledEQ.
+func Gpt61SolSubscriptionOptimizationEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldGpt61SolSubscriptionOptimizationEnabled, v))
+}
+
 // ClaudeCodeOnly applies equality check predicate on the "claude_code_only" field. It's identical to ClaudeCodeOnlyEQ.
 func ClaudeCodeOnly(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldClaudeCodeOnly, v))
@@ -2088,6 +2093,16 @@ func LongContextPricingEnabledEQ(v bool) predicate.Group {
 // LongContextPricingEnabledNEQ applies the NEQ predicate on the "long_context_pricing_enabled" field.
 func LongContextPricingEnabledNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldLongContextPricingEnabled, v))
+}
+
+// Gpt61SolSubscriptionOptimizationEnabledEQ applies the EQ predicate on the "gpt61_sol_subscription_optimization_enabled" field.
+func Gpt61SolSubscriptionOptimizationEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldGpt61SolSubscriptionOptimizationEnabled, v))
+}
+
+// Gpt61SolSubscriptionOptimizationEnabledNEQ applies the NEQ predicate on the "gpt61_sol_subscription_optimization_enabled" field.
+func Gpt61SolSubscriptionOptimizationEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldGpt61SolSubscriptionOptimizationEnabled, v))
 }
 
 // ModelPricingIsNil applies the IsNil predicate on the "model_pricing" field.

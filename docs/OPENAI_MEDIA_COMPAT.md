@@ -6,29 +6,37 @@
 
 当前 OpenAI 兼容图片接口允许以下 NovelAI Diffusion 模型直接使用 `POST /v1/images/generations`：`nai-diffusion-4-5-full`、`nai-diffusion-5-full`。它们与其他图片模型共用模型映射、上游转发、价格和响应格式处理；在渠道定价中配置价格后即可参与计费。
 
-### Midjourney V7 / Seedream 5.0 Pro / Nano Banana 2
+### Midjourney V7、D / Seedream 5.0 / Nano Banana 2 / GPT Image D
 
-OpenAI 渠道通过 API URL + Key 接入、且提供 OpenAI 兼容图片接口的服务，可使用 `Midjourney-V7`、`seedream-5.0-pro`、`seedream-5.0-pro-x`、`nano-banana2` 和 `nano-banana2-pro`。以下八个完整模型名均可直接作为请求的 `model`，无需先改成无后缀名称：
+OpenAI 渠道通过 API URL + Key 接入、且提供 OpenAI 兼容图片接口的服务，可使用 `Midjourney-V7`、`midjourney-D`、`seedream-5.0-pro`、`seedream-5.0-pro-x`、`seedream-5.0-flash`、`nano-banana2`、`nano-banana2-pro`、`gpt-image-2-D` 和 `gpt-image-2.5-D`。以下十二个完整模型名均可直接作为请求的 `model`，无需先改成无后缀名称：
 
 - `Midjourney V7（满血）`
 - `Midjourney-V7`
+- `midjourney-D`
 - `seedream-5.0-pro（X）`
 - `seedream-5.0-pro`
 - `seedream-5.0-pro-x`
 - `seedream-5.0-pro（满血）`
+- `seedream-5.0-Flash（满血）`
 - `nano-banana2-pro（满血）`
 - `nano-banana2（满血）`
+- `gpt-image-2-D`
+- `gpt-image-2.5-D`
 
 也可配置账号模型映射，例如：
 
 | 用户请求模型 | 映射后的模型名示例 |
 | --- | --- |
 | `Midjourney-V7` | `Midjourney V7（满血）` |
+| `Midjourney-V7` | `midjourney-D` |
 | `seedream-5.0-pro` | `seedream-5.0-pro（X）` |
 | `seedream-5.0-pro` | `seedream-5.0-pro（满血）` |
 | `seedream-5.0-pro` | `seedream-5.0-pro-x` |
+| `seedream-5.0-flash` | `seedream-5.0-Flash（满血）` |
 | `nano-banana2-pro` | `nano-banana2-pro（满血）` |
 | `nano-banana2` | `nano-banana2（满血）` |
+| `gpt-image-2` | `gpt-image-2-D` |
+| `gpt-image-2` | `gpt-image-2.5-D` |
 
 模型分类忽略大小写，兼容 `Midjourney V7` 的空格写法，以及中文/英文括号标签；真正转发时保留映射右侧名称的原始大小写、空格和标签，不改写为 GPT 模型。
 
@@ -36,9 +44,69 @@ OpenAI 渠道通过 API URL + Key 接入、且提供 OpenAI 兼容图片接口�
 
 以上兼容模型仅选择 OpenAI API Key 账号；渠道映射后也采用相同限制，不进入 Codex OAuth/Setup Token 生图路径。管理员需为目标分组开启图片生成，配置账号模型白名单/映射及渠道图片定价；本次路由支持不新增或修改模型价格。同步图片结果继续遵循账号的“图片 URL 转 Base64”开关。
 
+`gpt-image-2-D`、`gpt-image-2.5-D`、`midjourney-D` 与 `seedream-5.0-pro（X）` 使用同一兼容转发方式：直接请求或映射后的上游模型名均保留完整 `-D` 后缀，不转换为原生 GPT 图片工具请求。三个型号需分别配置白名单/映射和实际图片价格。
+
 这里的 `nano-banana2` 名称使用标准 `/v1/images/*` 转发，不会自动改名为 Gemini 模型，也不会切换到 `/v1/api/nano-banana` 专用接口。
 
 `gpt-image-2`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 及其括号标签名称已有路由支持。
+
+### Nano Banana（as 渠道）
+
+以下三个完整模型 ID 可通过 OpenAI 平台的 API URL + Key 账号调用本站 `POST /v1/images/generations`，参考图编辑沿用 `POST /v1/images/edits` 的 JSON / multipart 接口：
+
+- `nano-banana-2.1（as）`
+- `nano-banana-2（as）`
+- `nano-banana-pro（as）`
+
+这三个型号与现有 `nano-banana2` 共用标准 Images 兼容转发。账号白名单可直接填写完整 ID，或通过渠道/账号模型映射转为这些名称。真正发送时保留连字符、版本号、中文括号和 `as` 标签；只按配置替换 `model`，其余图片参数和上传文件沿用现有透传。上游需实际支持对应的 Images 接口和参数。
+
+目标分组需开启图片生成，账号使用上游地址与 API Key，并为对应模型配置实际图片价格。只调度 OpenAI API Key 账号，不进入 Codex OAuth 原生生图；URL / Base64 响应和图片计费继续沿用既有配置。
+
+这里不会自动切换到 `/v1/api/nano-banana` 专用接口，也不会将型号改名为 Gemini 模型。当前文档中的 `gemini-nano-banana-2.1` 属于 Gemini 原生 `generateContent` 接口；它与本节的 `nano-banana-2.1（as）` 是不同的完整模型 ID，不能仅凭相似名称混用请求格式。本次没有新增无连字符的 `nano-banana2.1` 别名。
+
+### Seedream 5.0 Pro / Lite（G 渠道）
+
+`seedream-5.0-pro(G)`、`seedream-5.0-lite(G)` 支持与 `gpt-image-2-D` 相同的 OpenAI API Key 图片转发链路。Pro 已由现有括号标签分类规则覆盖，Lite 补入兼容图片模型名单。模型分类时可去掉括号标签，实际请求必须保留完整 `(G)`，不会改成无后缀的模型名。
+
+用户接口文档对外使用公开别名 `seedream-5.0-pro-x`、`seedream-5.0-lite-x`。在账号或渠道模型映射中分别指向 `seedream-5.0-pro(G)`、`seedream-5.0-lite(G)`；两个公开别名均可通过 Images 入口，实际发送名称由映射决定，不会由代码自动替换。用户页面示例不暴露上游 `(G)` 名称。
+
+接入步骤：
+
+1. 在 OpenAI 平台添加 API URL + Key 账号，Base URL 使用供应商地址（本次提供的上游为 `https://xjwx.cc.cd`，末尾带 `/v1` 也支持），填入上游 API Key。
+2. 将两个完整 ID 加入账号模型白名单/映射，目标分组开启图片生成。也可将用户模型名映射为这两个上游 ID；渠道映射与账号映射均沿用现有规则，仅调度 OpenAI API Key 账号。
+3. 配置渠道图片价格，再使用本站 API Key 调用本站 `POST /v1/images/generations`。请求参数完整透传，仅按配置替换 `model`；不添加质量档位，不转换为 Codex OAuth 的原生图片工具请求。
+
+根据本次提供的上游说明，能力与参数如下；参数范围、默认值及实际图像尺寸由上游执行：
+
+| 完整模型 ID | resolution | 参考图上限 | prompt | n |
+| --- | --- | --- | --- | --- |
+| `seedream-5.0-pro(G)` | 1K / 2K，默认 2K | 10 张 | 1–32000 UTF-16 码元 | 1–10，默认 1 |
+| `seedream-5.0-lite(G)` | 2K / 3K / 4K，默认 2K | 14 张 | 1–32000 UTF-16 码元 | 1–10，默认 1 |
+
+`aspect_ratio` 支持 1:1、2:3、3:2、3:4、4:3、9:16、16:9、21:9；`size` 支持 auto、模型支持的分辨率档位、比例及 WIDTHxHEIGHT。`resolution`、`aspect_ratio`、`size` 和 `response_format` 均保留原值。生成示例：
+
+```json
+{
+  "model": "seedream-5.0-pro(G)",
+  "prompt": "A ceramic teapot on a wooden table, soft natural light.",
+  "resolution": "2K",
+  "aspect_ratio": "16:9",
+  "n": 1,
+  "response_format": "url"
+}
+```
+
+Lite 将 `model` 替换为 `seedream-5.0-lite(G)`，并可选择 `resolution: "3K"` 或 `"4K"`。参考图请求沿用本站 `POST /v1/images/edits` 的 `images[].image_url` JSON 或图片文件 multipart 格式，前提是上游支持该编辑接口。`data[].url` / `data[].b64_json` 响应沿用现有透传和账号“图片 URL 转 Base64”开关。
+
+本次范围是 Images 路由与透传，不新增 Chat/Gemini 与 Images 的协议转换，也不根据供应商文档自动改价。本站仍沿用现有计费策略：能识别出图时按实际返回图片数量；识别不到图片时仍有现有张数兜底，不能据此承诺供应商“无有效图片不收费”的规则已在本站实现。现有分组图片价格档位为 1K/2K/4K，3K 可原样转发，但本次不新增独立 3K 定价档位。若供应商按分辨率差别定价，部署前需核对本站配置。
+
+### Grok Imagine 图片模型
+
+OpenAI 渠道通过 API URL + Key 接入上游时，也可使用 `grok-imagine-image`、`grok-imagine-image-2.0`、`grok-imagine-image-quality`。这些模型沿用本站 `POST /v1/images/generations` 文生图和 `POST /v1/images/edits` 参考图接口，账号模型映射后的完整模型名会原样写入上游请求。
+
+这组模型仅选择 OpenAI API Key 账号，不会进入 Codex OAuth/Setup Token 生图路径。管理员仍需为账号配置对应模型白名单或映射，为目标分组开启图片生成，并在渠道定价中配置图片价格；上游必须实际提供兼容 OpenAI 图片接口。
+
+上述账号限制只适用于 OpenAI 平台。Grok 平台仍按自身模型规则识别图片请求，包括请求体中映射后的模型名；不会因加入 OpenAI 兼容名单而丢失图片权限检查和图片计费所需的意图标记。
 
 ### 图片响应 URL 转 Base64 开关
 
@@ -62,6 +130,50 @@ OpenAI APIKey 账号新增和编辑页面提供“图片 URL 转 Base64”开关
 - `GET /v1/videos/{task_id}/content`
 
 即梦 SD2.0 请求体会保留 `seconds`、`aspect_ratio`、`images`、`videos`、`audios` 等字段并原样转发。该系列的参考素材使用公网 URL；本地文件先调用素材上传接口。
+
+### Grok Imagine 视频模型
+
+OpenAI 平台的 API URL + Key 账号支持 `grok-imagine-video-1.5` 和 `grok-imagine-video`。使用普通 OpenAI API Key 账号，配置对应模型白名单或映射，并为目标分组开启“允许图片生成”（视频入口共用此开关）。这两个模型不通过 Codex OAuth/Setup Token 账号转发，也不需要开启 MiniMax H3 视频端点能力；不要给该上游开启 MiniMax 专用能力，否则任务查询会使用 MiniMax `/v2` 路径。
+
+创建按客户端选择的协议转发：本站 `POST /v1/videos` 转发上游 `/v1/videos`；上述两个模型的 `POST /v1/videos/generations` 保留原同路径转发。无 `/v1` 前缀的本站路径也可用；不会在创建失败后自动改路径重复提交。查询统一使用 `/v1/videos/{task_id}`。
+
+按 2026-10-28 提供的 `api.kunrouai.com` 上游接口文档，账号 Base URL 填 `https://api.kunrouai.com` 或 `https://api.kunrouai.com/v1`，客户端应调用本站 **`POST /v1/videos`**。不要向这家上游使用 `/videos/generations`，除非上游另行明确支持。
+
+请求支持 `application/json` 和 `multipart/form-data`。除账号模型映射替换 `model` 外，请求参数和上传文件保留原内容：
+
+- 文生视频需填写 `prompt`；JSON 图生视频使用 `image: {"url":"..."}`，可省略提示词，URL 可为 HTTP(S)、Base64 data URL 或纯 Base64。`image.data` / `image.mime_type` 等不兼容结构会在本站拒绝，避免误作为文生视频收费。
+- multipart 首帧使用 `input_reference` 文件字段；无提示词时必须上传非空文件，系统保留文件名、Content-Type、boundary 和文件字节。只提供路径字符串不能代替文件上传。
+- `duration` 或 `seconds` 表示生成秒数，上游支持 1–15 秒，省略默认 8 秒；`resolution` 默认 480p，支持 720p，1.5 模型额外支持 1080p。`aspect_ratio`、`generate_audio` 等由上游按文档处理。
+- 计费支持 `size` 别名：848×480、544×544 对应 480p；1280×720、944×960 对应 720p；1920×1088、1920×1080、1440×1440 对应 1080p，也识别对应宽高交换写法。请求字符串使用 `x` 分隔。显式 `resolution` 优先；未识别的尺寸必须明确填写 `resolution`，不会静默按 480p 收费。
+
+JSON 文生视频示例：
+
+```json
+{
+  "model": "grok-imagine-video-1.5",
+  "prompt": "海边日落，镜头缓慢推进",
+  "duration": 8,
+  "resolution": "720p",
+  "aspect_ratio": "16:9"
+}
+```
+
+JSON 图生视频可改为 `{"model":"grok-imagine-video-1.5","image":{"url":"https://example.com/frame.jpg"},"seconds":8,"size":"1280x720"}`。multipart 上传示例（由 curl 自动填写 Content-Type 与 boundary）：
+
+```bash
+curl 'https://你的本站地址/v1/videos' \
+  -H 'Authorization: Bearer 你的本站APIKey' \
+  -F 'model=grok-imagine-video-1.5' \
+  -F 'input_reference=@frame.png' \
+  -F 'seconds=8' \
+  -F 'resolution=720p'
+```
+
+这是异步接口：创建先返回任务 JSON，不会在同一次创建响应中返回 MP4。`api.kunrouai.com` 上游返回 `id`，随后客户端用同一分组 Key 每 5–10 秒查询本站 `GET /v1/videos/{id}`；任务固定到创建账号。`queued` / `in_progress` 表示等待，`completed` 表示完成，`failed` 表示失败；状态、进度和字符串 `seconds` 原样返回。完成后调用本站 `GET /v1/videos/{id}/content` 下载 MP4，查询结果无需包含 URL。下载支持原有 Range 与 HEAD 行为。
+
+其他兼容上游仍可返回 `request_id` / `task_id`，以及 `done` 成功状态；返回的 `video.url` 原样保留。仅提供视频 URL、不支持 `/content` 的上游应直接使用其 URL。本站本次未增加 `/v1/tasks/{id}/artifacts` 或 artifacts 子路径；`api.kunrouai.com` 上游的文件列表接口不影响使用 `/videos/{id}/content` 下载视频。
+
+计费复用现有视频逻辑：渠道“视频（按秒）”价格乘输出时长，渠道“按次”价格不乘时长；分组视频价格及未单独配置时的 Grok 默认价格沿用原优先级。创建成功后记账，查询与下载不重复计费，明确失败继续走原幂等退款与后台补偿。这次兼容支持不新增或修改单价。
 
 ### Wan 3.0x / ViralDance 视频
 

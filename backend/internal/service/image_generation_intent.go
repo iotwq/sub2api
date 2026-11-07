@@ -36,12 +36,18 @@ func GroupAllowsImageGeneration(group *Group) bool {
 	return group == nil || group.AllowImageGeneration
 }
 
+func isImageGenerationIntentModel(model string) bool {
+	// OpenAI API-key routing excludes Grok models from native tool conversion,
+	// but permission checks and image billing must still recognize their intent.
+	return isGrokImageGenerationModel(model) || isOpenAIImageGenerationModel(model)
+}
+
 // IsImageGenerationIntent classifies requests that can produce generated images.
 func IsImageGenerationIntent(endpoint string, requestedModel string, body []byte) bool {
 	if IsImageGenerationEndpoint(endpoint) {
 		return true
 	}
-	if isOpenAIImageGenerationModel(requestedModel) {
+	if isImageGenerationIntentModel(requestedModel) {
 		return true
 	}
 	if len(body) == 0 || !gjson.ValidBytes(body) {
@@ -56,7 +62,7 @@ func IsImageGenerationIntent(endpoint string, requestedModel string, body []byte
 		case "model":
 			if !modelSeen {
 				modelSeen = true
-				imageIntent = isOpenAIImageGenerationModel(strings.TrimSpace(value.String()))
+				imageIntent = isImageGenerationIntentModel(strings.TrimSpace(value.String()))
 			}
 		case "tools":
 			if !toolsSeen {
@@ -83,7 +89,7 @@ func IsImageGenerationIntent(endpoint string, requestedModel string, body []byte
 // 不检测被动的 image_gen namespace 声明。用于 capability 路由决策——被动 namespace 不应
 // 强制要求原生 Responses 能力，否则 Chat Completions-only 账号会被误过滤（#4476）。
 func IsExplicitImageGenerationIntent(endpoint string, requestedModel string, body []byte) bool {
-	if IsImageGenerationEndpoint(endpoint) || isOpenAIImageGenerationModel(requestedModel) {
+	if IsImageGenerationEndpoint(endpoint) || isImageGenerationIntentModel(requestedModel) {
 		return true
 	}
 	if len(body) == 0 || !gjson.ValidBytes(body) {
@@ -96,7 +102,7 @@ func IsExplicitImageGenerationIntent(endpoint string, requestedModel string, bod
 		case "model":
 			if !modelSeen {
 				modelSeen = true
-				imageIntent = isOpenAIImageGenerationModel(strings.TrimSpace(value.String()))
+				imageIntent = isImageGenerationIntentModel(strings.TrimSpace(value.String()))
 			}
 		case "tools":
 			if !toolsSeen {
@@ -130,7 +136,7 @@ func IsImageGenerationIntentForPlatform(endpoint string, requestedModel string, 
 }
 
 func isExplicitGrokImageGenerationIntent(endpoint string, requestedModel string, body []byte) bool {
-	if IsImageGenerationEndpoint(endpoint) || isOpenAIImageGenerationModel(requestedModel) {
+	if IsImageGenerationEndpoint(endpoint) || isImageGenerationIntentModel(requestedModel) {
 		return true
 	}
 	if len(body) == 0 || !gjson.ValidBytes(body) {
@@ -144,7 +150,7 @@ func isExplicitGrokImageGenerationIntent(endpoint string, requestedModel string,
 		case "model":
 			if !modelSeen {
 				modelSeen = true
-				imageIntent = isOpenAIImageGenerationModel(strings.TrimSpace(value.String()))
+				imageIntent = isImageGenerationIntentModel(strings.TrimSpace(value.String()))
 			}
 		case "tools":
 			if !toolsSeen {
@@ -169,13 +175,13 @@ func IsImageGenerationIntentMap(endpoint string, requestedModel string, reqBody 
 	if IsImageGenerationEndpoint(endpoint) {
 		return true
 	}
-	if isOpenAIImageGenerationModel(requestedModel) {
+	if isImageGenerationIntentModel(requestedModel) {
 		return true
 	}
 	if reqBody == nil {
 		return false
 	}
-	if isOpenAIImageGenerationModel(firstNonEmptyString(reqBody["model"])) {
+	if isImageGenerationIntentModel(firstNonEmptyString(reqBody["model"])) {
 		return true
 	}
 	if hasOpenAIImageGenerationTool(reqBody) {

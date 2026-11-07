@@ -3168,6 +3168,20 @@
             <input v-model="editForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
             <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
           </label>
+          <label
+            v-if="editForm.platform === 'openai'"
+            class="mt-3 flex items-start gap-2"
+          >
+            <input
+              v-model="editForm.gpt61_sol_subscription_optimization_enabled"
+              type="checkbox"
+              class="mt-0.5"
+            />
+            <span>
+              <span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.gpt61SolSubscriptionOptimization") }}</span>
+              <span class="block text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.gpt61SolSubscriptionOptimizationHint") }}</span>
+            </span>
+          </label>
           <div class="mt-3 space-y-2">
             <PricingEntryCard v-for="(entry, index) in editForm.model_pricing" :key="index" :entry="entry" :platform="editForm.platform" hide-token-intervals @update="editForm.model_pricing[index] = $event" @remove="editForm.model_pricing.splice(index, 1)" />
           </div>
@@ -4981,6 +4995,7 @@ const createForm = reactive({
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
   long_context_pricing_enabled: true,
+  gpt61_sol_subscription_optimization_enabled: false,
   force_openai_fast: false,
   free_openai_fast: false,
   model_pricing: [] as PricingFormEntry[],
@@ -5348,6 +5363,7 @@ const editForm = reactive({
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
   long_context_pricing_enabled: true,
+  gpt61_sol_subscription_optimization_enabled: false,
   force_openai_fast: false,
   free_openai_fast: false,
   model_pricing: [] as PricingFormEntry[],
@@ -6115,6 +6131,8 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.monthly_limit_usd = group.monthly_limit_usd;
   editForm.long_context_pricing_enabled =
     group.long_context_pricing_enabled ?? true;
+  editForm.gpt61_sol_subscription_optimization_enabled =
+    group.gpt61_sol_subscription_optimization_enabled ?? false;
   editForm.force_openai_fast = group.force_openai_fast ?? false;
   editForm.free_openai_fast = group.free_openai_fast ?? false;
   editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
@@ -6250,6 +6268,7 @@ const closeEditModal = () => {
   editForm.video_price_1080p = null;
   editForm.video_model_prices = createVideoModelPricesForm();
   editForm.long_context_pricing_enabled = true;
+  editForm.gpt61_sol_subscription_optimization_enabled = false;
   editForm.force_openai_fast = false;
   editForm.free_openai_fast = false;
   editForm.model_pricing = [];

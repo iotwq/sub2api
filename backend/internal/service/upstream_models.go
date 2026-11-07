@@ -799,8 +799,25 @@ func (s *AccountTestService) fetchUpstreamModelListRequest(ctx context.Context, 
 	if account == nil {
 		return nil, nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
+	if account.UsesBasispointsResponses() {
+		if s.openaiGatewayService == nil {
+			return nil, nil, nil, newUpstreamModelSyncConfigError("Excel BPS model discovery is unavailable", nil)
+		}
+		response, err := s.openaiGatewayService.FetchExcelBPSModelsList(ctx, account)
+		if err != nil {
+			return nil, nil, nil, newUpstreamModelSyncUpstreamError("Excel BPS model discovery failed", err)
+		}
+		models, _, err := extractUpstreamModelCatalog(response.Body, false)
+		if err != nil {
+			return nil, nil, nil, newUpstreamModelSyncUpstreamError("Invalid Excel BPS model catalog", err)
+		}
+		return models, response.Body, nil, nil
+	}
+	if account.IsExcelOAuth() {
+		return nil, nil, nil, errExcelOAuthRouteUnavailable
+	}
 	if account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityMiniMaxVideo) {
-		return []string{"MiniMax-H3"}, nil, nil
+		return []string{"MiniMax-H3"}, nil, nil, nil
 	}
 
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {

@@ -13,11 +13,7 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	return accountTrafficController(s.httpUpstream).DoHTTP(withCodexTrafficRequest(request, account), func(req *http.Request) (*http.Response, error) {
-		response, err := s.doOpenAIUpstreamUncontrolled(req, proxyURL, account)
-		if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
-			s.observeCodexSignal(account, response.Header)
-		}
-		return response, err
+		return s.doOpenAIUpstreamUncontrolled(req, proxyURL, account)
 	})
 }
 
@@ -54,11 +50,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	useTLSFallback bool,
 ) (*http.Response, error) {
 	return accountTrafficController(s.httpUpstream).DoHTTP(withCodexTrafficRequest(request, account), func(req *http.Request) (*http.Response, error) {
-		response, err := s.doOpenAIAccountTestUncontrolled(req, proxyURL, account, useTLSFallback)
-		if err == nil && response != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
-			s.openaiGatewayService.observeCodexSignal(account, response.Header)
-		}
-		return response, err
+		return s.doOpenAIAccountTestUncontrolled(req, proxyURL, account, useTLSFallback)
 	})
 }
 

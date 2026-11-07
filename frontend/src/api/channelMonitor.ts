@@ -35,6 +35,8 @@ export interface UserMonitorView {
   primary_latency_ms: number | null
   primary_ping_latency_ms: number | null
   availability_7d: number
+  availability_15d?: number | null
+  availability_30d?: number | null
   extra_models: UserMonitorExtraModel[]
   timeline: MonitorTimelinePoint[]
   /**

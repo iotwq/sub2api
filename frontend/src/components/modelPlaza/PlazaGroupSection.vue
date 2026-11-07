@@ -10,8 +10,8 @@
           :name="group.name"
           :platform="group.platform as GroupPlatform"
           :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
-          :rate-multiplier="group.rate_multiplier"
-          :user-rate-multiplier="group.user_rate_multiplier ?? null"
+          :rate-multiplier="plazaGroupDisplayRate(group, rechargeRatio || 1, false)"
+          :user-rate-multiplier="group.user_rate_multiplier == null ? null : plazaGroupDisplayRate(group, rechargeRatio || 1)"
           :peak-rate-enabled="group.peak_rate_enabled"
           :peak-start="group.peak_start"
           :peak-end="group.peak_end"
@@ -58,6 +58,7 @@
         :models="group.models"
         :platform="group.platform"
         :rate-multiplier="group.rate_multiplier"
+        :recharge-ratio="rechargeRatio"
         :user-rate-multiplier="group.user_rate_multiplier ?? null"
         :image-rate-independent="group.image_rate_independent"
         :image-rate-multiplier="group.image_rate_multiplier"
@@ -79,6 +80,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlazaModelPricingTable from './PlazaModelPricingTable.vue'
+import { plazaGroupDisplayRate } from '@/utils/modelPlaza'
 import type { ModelPlazaGroup } from '@/api/modelPlaza'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { platformBorderStrongClass } from '@/utils/platformColors'
@@ -87,6 +89,7 @@ import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   group: ModelPlazaGroup
+  rechargeRatio?: number
 }>()
 
 const { t } = useI18n()
@@ -111,7 +114,7 @@ const peakNote = computed(() => {
 
 /**
  * 分组关闭了长上下文阶梯、但组内有模型官方带阶梯时提示:实付列只展示基础档,
- * 官方阶梯仅供参考。字段缺失(旧后端)不提示。
+ * 两侧均使用基础档。字段缺失(旧后端)不提示。
  */
 const longContextNote = computed(() => {
   if (props.group.long_context_pricing_enabled !== false) return ''

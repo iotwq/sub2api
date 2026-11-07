@@ -17,6 +17,9 @@ import (
 )
 
 func validateOpenAIWSBearerToken(account *Account, token string) error {
+	if account.IsExcelOAuth() {
+		return errExcelOAuthRouteUnavailable
+	}
 	if account == nil {
 		return errors.New("account is nil")
 	}
@@ -27,6 +30,9 @@ func validateOpenAIWSBearerToken(account *Account, token string) error {
 }
 
 func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (string, error) {
+	if account.IsExcelOAuth() {
+		return "", errExcelOAuthRouteUnavailable
+	}
 	if account == nil {
 		return "", errors.New("account is nil")
 	}

@@ -1,3 +1,5 @@
+import shared from './shared'
+
 export default {
     accounts: {
       title: '账号管理',
@@ -516,46 +518,7 @@ export default {
           unavailableDesc: '服务不可用 - 暂停 30 分钟'
         }
       },
-      usageWindow: {
-        statsTitle: '5小时窗口用量统计',
-        statsTitleDaily: '每日用量统计',
-        geminiProDaily: 'Pro',
-        geminiFlashDaily: 'Flash',
-        gemini3Pro: 'G3P',
-        gemini3Flash: 'G3F',
-        gemini3Image: 'G31FI',
-        antigravityGemini5h: 'G·5h',
-        antigravityGeminiWeekly: 'G·周',
-        antigravityArgon5h: 'A·5h',
-        antigravityArgonWeekly: 'A·周',
-        antigravityOther5h: 'C·5h',
-        antigravityOtherWeekly: 'C·周',
-        claude: 'Claude',
-        grokRequests: '请求',
-        grokTokens: 'Token',
-        grokFreeQuota24hHint: '按 sub2api 近 24 小时本地 Token 用量估算（上限 {limit}）',
-        grokWeeklyUsage: '周额度已用 {percent}%',
-        grokUsed: '已用 $',
-        grokBalance: '余额 $',
-        grokPrepaid: '预付余额',
-        grokMonthlyLimit: '月度已用/上限（USD）',
-        grokOverage: '超额 onDemandUsed/onDemandCap',
-        grokOverageShort: '超额 $',
-        grokUnknown: 'Grok 配额需等待首次上游响应返回 xAI rate-limit 头后显示。',
-        grokRetryAfter: '{time} 后重试',
-        grokProbe: '探测',
-        grokProbeTooltip: '发送最小 xAI Responses 探测请求并读取配额响应头',
-        grokResetUnsupported: '不支持重置',
-        grokResetUnsupportedTooltip: 'xAI 未向 Grok OAuth 账号开放重置额度接口',
-        grokNoHeaders: '未观察到配额响应头',
-        grokLastStatus: '状态 {status}',
-        grokLastProbe: '探测 {time}',
-        grokLastHeadersSeen: '响应头 {time}',
-        passiveSampled: '被动采样',
-        activeQuery: '查询',
-        estimatedTotalCost: '预计总费用 ${cost}',
-        estimatedTotalCostTooltip: '根据当前窗口费用和使用率估算达到 100% 使用率时的总费用'
-      },
+      usageWindow: shared.accounts.usageWindow,
       openaiReferral: {
         available: '可邀请',
         invite: '邀请用户',
@@ -768,13 +731,6 @@ export default {
       },
       // OpenAI specific hints
       openai: {
-        codexSignalUnknown: "降智检测：尚未检测",
-        codexSignalDetected: "疑似降智：收到 312 信号",
-        codexSignalNotDetected: "最近响应未发现 312",
-        codexSignalObserved: "最近检测：{time}",
-        codexSignalLength: "最近 state 长度：{length}",
-        codexSignalLast312: "最近一次 312：{time}",
-        codexSignalHelp: "被动检测 OAuth 实际请求与账号测试的上游 x-codex-turn-state。312 指字符串长度，不是 HTTP 状态码。仅作为疑似降智提示，不能证明模型能力；未发现信号也不代表质量正常。缺少有效响应头不会更新状态，不会自动停用账号。",
         baseUrlHint: '留空使用官方 OpenAI API',
         apiKeyHint: '您的 OpenAI API Key',
         oauthPassthrough: '自动透传（仅替换认证）',
@@ -848,6 +804,9 @@ export default {
         imageSizeTiersDesc:
           '限制本账号承接的生图尺寸档位，档位与计费一致：最长边 ≤1024 为 1K，≤2048 为 2K，更大为 4K（2560x1440 属于 4K）。指定了尺寸的请求只会调度到允许该档位的账号；未传尺寸或 auto 的请求优先调度到不限档位的账号，没有时依次选允许 4K、2K、1K 的账号。全选即不限，对 Images 接口与 Responses 生图工具生效。',
         imageSizeTiersAtLeastOne: '至少保留一个档位',
+        sunoAudioURLToProxy: 'Suno 音频 URL 转本站地址',
+        sunoAudioURLToProxyDesc:
+          '默认关闭。开启后，Suno 返回的音频会由服务端下载并暂存到本站，客户端只会收到本站 /pg/assets/ 音频地址；文件默认保留 24 小时。下载失败时不会把上游地址返回给客户端。',
         endpointCapabilities: '端点能力',
         endpointCapabilitiesDesc:
           '用于调度筛选。Gemini 原生接口用于透传 /v1beta/models；MiniMax H3 视频用于转发 V2 异步视频协议，均默认关闭。',
@@ -1430,6 +1389,15 @@ export default {
         batchFailed: '批量创建失败',
         // OpenAI specific
         openai: {
+          clientLabel: 'OAuth 授权入口',
+          excelEntryHint: '使用官方 Excel 授权入口创建独立 BPS 账号。该凭据仅用于 Basispoints，不能回退到 Codex；不会把已有 Codex 令牌转换为 Excel 令牌。',
+          excelTitle: 'BPS OAuth（Excel）授权',
+          excelOpenUrlDesc: '在浏览器中打开链接并完成 OpenAI 授权。跳转到 bps.openai.com 后，复制地址栏中的完整回调 URL。',
+          excelStep3EnterCode: '步骤 3：粘贴完整回调 URL',
+          excelAuthCodeDesc: '粘贴官方回调地址（包含 code 和 state），系统将自动提取授权信息。',
+          excelAuthCode: '官方回调 URL',
+          excelAuthCodePlaceholder: 'https://bps.openai.com/basispoints/extension/.../auth/callback?code=...&state=...',
+          excelAuthCodeHint: '必须使用本次生成的链接完成授权，并保留回调中的 code 和 state。',
           title: 'OpenAI 账户授权',
           followSteps: '请按照以下步骤完成 OpenAI 账户的授权：',
           step1GenerateUrl: '点击下方按钮生成授权链接',

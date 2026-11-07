@@ -751,6 +751,7 @@ export interface SystemSettings {
   model_plaza_enabled: boolean;
   model_plaza_require_auth: boolean;
   model_plaza_description: string;
+  model_plaza_recharge_ratio: number;
   plugin_management_enabled: boolean;
 
   // Affiliate (邀请返利) feature switch
@@ -761,6 +762,8 @@ export interface SystemSettings {
 
   // Allow user view error requests
   allow_user_view_error_requests: boolean;
+  usage_show_cache_rate: boolean;
+  usage_show_cache_rate_to_users: boolean;
   excel_bps_image_mode: 'relay' | 'native';
   excel_bps_image_max_image_mib: number;
   excel_bps_image_max_images: number;
@@ -1076,6 +1079,7 @@ export interface UpdateSettingsRequest {
   model_plaza_enabled?: boolean;
   model_plaza_require_auth?: boolean;
   model_plaza_description?: string;
+  model_plaza_recharge_ratio?: number;
   plugin_management_enabled?: boolean;
 
   // Affiliate (邀请返利) feature switch
@@ -1085,6 +1089,8 @@ export interface UpdateSettingsRequest {
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   allow_user_view_error_requests?: boolean;
+  usage_show_cache_rate?: boolean;
+  usage_show_cache_rate_to_users?: boolean;
   excel_bps_image_mode?: 'relay' | 'native';
   excel_bps_image_max_image_mib?: number;
   excel_bps_image_max_images?: number;

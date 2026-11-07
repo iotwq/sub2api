@@ -2,6 +2,17 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <script nonce="__CSP_NONCE_VALUE__">
+      // 首屏绘制前设置深色模式，避免深色用户先看到浅色背景再闪变。
+      // 规则与 src/main.ts 的 initThemeClass 保持一致；nonce 由后端按请求替换。
+      try {
+        var savedTheme = localStorage.getItem('theme')
+        var shouldUseDark =
+          savedTheme === 'dark' ||
+          (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.classList.toggle('dark', shouldUseDark)
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/png" href="/dragon-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ChinaAPI - AI API Gateway</title>

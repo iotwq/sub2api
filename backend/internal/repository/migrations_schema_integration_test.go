@@ -240,10 +240,12 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireColumnDefaultContains(t, tx, "payment_orders", "bonus_amount", "0")
 }
 
-func TestMigrationsRunner_TypeSafePlatformConstraints(t *testing.T) {
-	tx := testTx(t)
-	requireConstraintDefinitionContains(t, tx, "user_platform_quotas", "user_platform_quotas_platform_check", "'typesafe'", "'opencode_go'")
-	requireConstraintDefinitionContains(t, tx, "composite_model_routes", "composite_model_routes_target_platform_check", "'typesafe'", "'opencode_go'")
+func TestMigrationsRunner_PlatformConstraintsRemoved(t *testing.T) {
+	client := testEntTx(t).Client()
+	ctx := context.Background()
+	// Migration 242 moved the platform allowlist to application validation.
+	require.False(t, platformConstraintExists(t, ctx, client, "user_platform_quotas", "user_platform_quotas_platform_check"))
+	require.False(t, platformConstraintExists(t, ctx, client, "composite_model_routes", "composite_model_routes_target_platform_check"))
 }
 
 func requireIndex(t *testing.T, tx *sql.Tx, table, index string) {

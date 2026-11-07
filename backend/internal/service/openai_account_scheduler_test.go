@@ -48,8 +48,22 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableByGroupID(ctx context.Con
 	return append([]Account(nil), r.accounts...), nil
 }
 
-func (r schedulerTestOpenAIAccountRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
-	return r.ListSchedulableByGroupID(ctx, *groupID)
+func (r schedulerTestOpenAIAccountRepo) ListModelAvailabilityCandidates(_ context.Context, _ *int64, platforms []string, _ bool) ([]Account, error) {
+	accounts := append([]Account(nil), r.accounts...)
+	if len(platforms) == 0 {
+		return accounts, nil
+	}
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if _, ok := allowed[account.Platform]; ok {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered, nil
 }
 
 func (r schedulerTestOpenAIAccountRepo) ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error) {

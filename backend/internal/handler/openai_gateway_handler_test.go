@@ -100,6 +100,13 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 	}
 }
 
+func TestOpenAIMessagesSchedulingModel_PrefersChannelMapping(t *testing.T) {
+	mapped := service.ChannelMappingResult{Mapped: true, MappedModel: "channel-alias"}
+	require.Equal(t, "channel-alias", openAIMessagesSchedulingModel("client-model", mapped, "dispatch-model"))
+	require.Equal(t, "dispatch-model", openAIMessagesSchedulingModel("client-model", service.ChannelMappingResult{}, "dispatch-model"))
+	require.Equal(t, "client-model", openAIMessagesSchedulingModel("client-model", service.ChannelMappingResult{}, ""))
+}
+
 func TestOpenAIHandleStreamingAwareErrorWithCode_EmitsStableClassification(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

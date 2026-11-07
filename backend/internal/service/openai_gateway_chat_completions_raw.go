@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -33,6 +35,7 @@ import (
 // pensieve/short-term/maxims/dont-reuse-shared-headers-whitelist-across-different-upstream-trust-domains
 var openaiCCRawAllowedHeaders = map[string]bool{
 	"accept-language": true,
+	"idempotency-key": true,
 	"user-agent":      true,
 }
 
@@ -270,11 +273,26 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	var result *OpenAIForwardResult
 	var forwardErr error
 	if clientStream {
+		if shouldRelaySunoAudioURL(account, originalModel, billingModel, upstreamModel) {
+			streamBody, readErr := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+			_ = resp.Body.Close()
+			if readErr != nil {
+				writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to read Suno audio response")
+				return nil, fmt.Errorf("read Suno audio response: %w", readErr)
+			}
+			rewritten, relayErr := s.rewriteSunoAudioSSE(ctx, c, account, streamBody)
+			if relayErr != nil {
+				writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to store Suno audio response")
+				return nil, relayErr
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(rewritten))
+		}
 		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
 	} else {
 		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
+		markSunoForwardResult(result)
 		addOpenAIUsage(&result.Usage, bridgeUsage)
 		result.UpstreamEndpoint = grokChatRawEndpoint
 	}
@@ -534,6 +552,13 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 			writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
+	}
+	if shouldRelaySunoAudioURL(account, originalModel, billingModel, upstreamModel) {
+		respBody, err = s.rewriteSunoAudioResponseURLs(c.Request.Context(), c, account, respBody)
+		if err != nil {
+			writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to store Suno audio response")
+			return nil, err
+		}
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {

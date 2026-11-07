@@ -100,4 +100,31 @@ describe('MonitorCard quota snapshot visibility', () => {
     expect(wrapper.text()).toContain('claude-sonnet-4-5')
     expect(wrapper.text()).not.toContain('monitorCommon.checkMode.quota')
   })
+
+  it('labels a slow probe as high latency', () => {
+    const wrapper = mountCard(makeItem({
+      primary_model: 'gpt-test',
+      primary_status: 'degraded',
+      primary_latency_ms: 10000,
+    }))
+    expect(wrapper.text()).toContain('monitorCommon.status.highLatency')
+    expect(wrapper.text()).not.toContain('monitorCommon.status.degraded')
+    expect(wrapper.find('span.bg-amber-100').exists()).toBe(true)
+  })
+
+  it('keeps quota warnings distinct from high latency even when quota details are hidden', () => {
+    isQuotaVisible.mockReturnValue(false)
+    const wrapper = mountCard(makeItem({
+      primary_status: 'degraded',
+      primary_latency_ms: null,
+      latest_quota: {
+        source: 'cn_quota',
+        success: true,
+        tiers: [{ window: 'daily', label: 'requests', used_percent: 95 }],
+        fetched_at: '2026-10-31T00:00:00Z',
+      },
+    }))
+    expect(wrapper.text()).toContain('monitorCommon.status.degraded')
+    expect(wrapper.text()).not.toContain('monitorCommon.status.highLatency')
+  })
 })

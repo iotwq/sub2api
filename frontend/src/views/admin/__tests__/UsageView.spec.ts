@@ -87,8 +87,13 @@ vi.mock('@/api/admin/ops', () => ({
   listErrorLogs,
 }))
 
+const appStoreState = vi.hoisted(() => ({
+  cachedPublicSettings: {} as Record<string, boolean>,
+}))
+
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
+    get cachedPublicSettings() { return appStoreState.cachedPublicSettings },
     showError: vi.fn(),
     showWarning: vi.fn(),
     showSuccess: vi.fn(),
@@ -738,6 +743,7 @@ describe('admin UsageView ranking tab', () => {
 
 describe('admin UsageView model audit export', () => {
 	beforeEach(() => {
+		appStoreState.cachedPublicSettings = {}
 		vi.useFakeTimers()
 		list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
 		exportList.mockReset().mockResolvedValue({
@@ -771,7 +777,22 @@ describe('admin UsageView model audit export', () => {
 	})
 
 	afterEach(() => {
+		appStoreState.cachedPublicSettings = {}
 		vi.useRealTimers()
+	})
+
+	it.each([true, false])('exports cache rate only when enabled (%s)', async (enabled) => {
+		appStoreState.cachedPublicSettings = { usage_show_cache_rate: enabled }
+		const wrapper = mountRouteFilteredUsageView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+		await (wrapper.vm as any).exportToExcel()
+		const headers = aoaToSheet.mock.calls[0][0][0]
+		const row = sheetAddAoa.mock.calls[0][1][0]
+		expect(headers.includes('usage.latencyCacheRate')).toBe(enabled)
+		expect(row).toHaveLength(headers.length)
+		if (enabled) expect(row[headers.indexOf('usage.latencyCacheRate')]).toBe('0%')
+		wrapper.unmount()
 	})
 
 	it('exports requested, sent, response, and mismatch as separate admin columns', async () => {

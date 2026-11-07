@@ -130,34 +130,6 @@ describe('AccountUsageCell', () => {
     })
   })
 
-  it.each(['oauth', 'setup-token'] as const)('renders passive Codex signal status for OpenAI %s accounts', async (type) => {
-    getUsage.mockResolvedValue({})
-    const wrapper = mount(AccountUsageCell, {
-      props: {
-        account: makeAccount({
-          id: type === 'oauth' ? 9701 : 9702,
-          platform: 'openai',
-          type,
-          codex_signal: { length: 312, observed_at: "2026-09-24T00:00:00Z" },
-        }),
-      },
-      global: { stubs: {
-        OpenAIQuotaResetCell: { template: '<div data-test="quota-reset" />' },
-        UsageProgressBar: true,
-        AccountQuotaInfo: true,
-      } },
-    })
-    await flushPromises()
-    expect(wrapper.text()).toContain('admin.accounts.openai.codexSignalDetected')
-    if (type === 'setup-token') {
-      expect(getUsage).not.toHaveBeenCalled()
-      expect(wrapper.find('[data-test="quota-reset"]').exists()).toBe(false)
-    }
-    await wrapper.setProps({ account: { ...wrapper.props('account'), codex_signal: undefined } })
-    expect(wrapper.text()).toContain('admin.accounts.openai.codexSignalUnknown')
-    wrapper.unmount()
-  })
-
   it('renders eligible Ollama Cloud state and forwards query updates', async () => {
     const wrapper = mount(AccountUsageCell, {
       props: {

@@ -1,3 +1,5 @@
+import shared from './shared'
+
 export default {
     accounts: {
       title: 'Account Management',
@@ -644,13 +646,6 @@ export default {
       },
       // OpenAI specific hints
       openai: {
-        codexSignalUnknown: "Quality signal: not observed",
-        codexSignalDetected: "Possible degradation: 312 signal",
-        codexSignalNotDetected: "Latest response: no 312 signal",
-        codexSignalObserved: "Observed: {time}",
-        codexSignalLength: "Latest state length: {length}",
-        codexSignalLast312: "Last 312 signal: {time}",
-        codexSignalHelp: "Passively observes upstream x-codex-turn-state on OAuth requests and account tests. 312 is the string length, not an HTTP status. This is a heuristic, not proof of model capability; absence does not guarantee quality. Missing headers leave the last observation unchanged. Accounts are never disabled by this signal.",
         baseUrlHint: 'Leave default for official OpenAI API',
         apiKeyHint: 'Your OpenAI API Key',
         oauthPassthrough: 'Auto passthrough (auth only)',
@@ -730,6 +725,9 @@ export default {
         imageSizeTiersDesc:
           'Limits the image size tiers this account serves, using the billing tiers: longest edge ≤1024 is 1K, ≤2048 is 2K, larger is 4K (2560x1440 is 4K). Requests with an explicit size are only scheduled to accounts allowing that tier; requests without a size or with auto prefer accounts without a tier limit, then accounts allowing 4K, 2K and 1K in that order. Selecting all tiers means no limit. Applies to the Images API and the Responses image generation tool.',
         imageSizeTiersAtLeastOne: 'Keep at least one tier',
+        sunoAudioURLToProxy: 'Serve Suno audio from this gateway',
+        sunoAudioURLToProxyDesc:
+          'Off by default. When enabled, the gateway downloads Suno audio and stores it temporarily under /pg/assets/, so clients only receive this service URL. Files are kept for up to 24 hours; upstream URLs are never returned when download fails.',
         endpointCapabilities: 'Endpoint capabilities',
         endpointCapabilitiesDesc:
           'Used by account routing. Gemini Native enables /v1beta/models passthrough; MiniMax H3 Video enables the V2 asynchronous video protocol. Both are off by default.',
@@ -1326,6 +1324,15 @@ export default {
         batchFailed: 'Batch creation failed',
         // OpenAI specific
         openai: {
+          clientLabel: 'OAuth authorization entry',
+          excelEntryHint: 'Create a separate BPS account through the official Excel authorization flow. These credentials only support Basispoints and cannot fall back to Codex. Existing Codex tokens are not converted.',
+          excelTitle: 'BPS OAuth (Excel) authorization',
+          excelOpenUrlDesc: 'Open the link in your browser and authorize OpenAI. After redirecting to bps.openai.com, copy the complete callback URL from the address bar.',
+          excelStep3EnterCode: 'Step 3: Paste the complete callback URL',
+          excelAuthCodeDesc: 'Paste the official callback URL including code and state. Authorization details will be extracted automatically.',
+          excelAuthCode: 'Official callback URL',
+          excelAuthCodePlaceholder: 'https://bps.openai.com/basispoints/extension/.../auth/callback?code=...&state=...',
+          excelAuthCodeHint: 'Authorize using the link generated for this session and keep both code and state in the callback.',
           title: 'OpenAI Account Authorization',
           followSteps: 'Follow these steps to complete OpenAI account authorization:',
           step1GenerateUrl: 'Click the button below to generate the authorization URL',
@@ -1768,46 +1775,7 @@ export default {
         usageTrend: '30-Day Cost & Request Trend',
         noData: 'No usage data available for this account'
       },
-      usageWindow: {
-        statsTitle: '5-Hour Window Usage Statistics',
-        statsTitleDaily: 'Daily Usage Statistics',
-        geminiProDaily: 'Pro',
-        geminiFlashDaily: 'Flash',
-        gemini3Pro: 'G3P',
-        gemini3Flash: 'G3F',
-        gemini3Image: 'G31FI',
-        antigravityGemini5h: 'G·5h',
-        antigravityGeminiWeekly: 'G·wk',
-        antigravityArgon5h: 'A·5h',
-        antigravityArgonWeekly: 'A·wk',
-        antigravityOther5h: 'C·5h',
-        antigravityOtherWeekly: 'C·wk',
-        claude: 'Claude',
-        grokRequests: 'Req',
-        grokTokens: 'Tok',
-        grokFreeQuota24hHint: 'Estimated from local token usage over the rolling 24-hour window ({limit} limit)',
-        grokWeeklyUsage: 'Weekly {percent}%',
-        grokUsed: 'Used $',
-        grokBalance: 'Bal $',
-        grokPrepaid: 'Prepaid balance',
-        grokMonthlyLimit: 'Monthly used / limit (USD)',
-        grokOverage: 'Overage onDemandUsed/onDemandCap',
-        grokOverageShort: 'OD $',
-        grokUnknown: 'Grok quota is unknown until the first upstream response includes xAI rate-limit headers.',
-        grokRetryAfter: 'Retry after {time}',
-        grokProbe: 'Probe',
-        grokProbeTooltip: 'Send a minimal xAI Responses probe and read quota headers',
-        grokResetUnsupported: 'Reset unsupported',
-        grokResetUnsupportedTooltip: 'xAI does not expose reset credits for Grok OAuth accounts',
-        grokNoHeaders: 'No quota headers observed',
-        grokLastStatus: 'Status {status}',
-        grokLastProbe: 'Probe {time}',
-        grokLastHeadersSeen: 'Headers {time}',
-        passiveSampled: 'Passive',
-        activeQuery: 'Query',
-        estimatedTotalCost: 'Est. total ${cost}',
-        estimatedTotalCostTooltip: 'Estimated total cost at 100% utilization, based on current window cost and utilization'
-      },
+      usageWindow: shared.accounts.usageWindow,
       openaiReferral: {
         available: 'Invites left',
         invite: 'Invite user',

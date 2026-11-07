@@ -60,7 +60,7 @@ interface Bar {
 }
 
 // 4 级高度 + 颜色双重编码：高=好+绿，短=坏+红，灰=未测试。
-// 长绿(正常) > 中黄(降级) > 短红(失败/系统错误) > 很短灰(未测试)。
+// 长绿(正常) > 中黄(延迟较高/配额告警) > 短红(失败/系统错误) > 很短灰(未测试)。
 const STATUS_HEIGHT: Record<string, number> = {
   operational: 100,
   degraded: 65,
@@ -102,7 +102,7 @@ const displayBars = computed<Bar[]>(() => {
     const heightPct = STATUS_HEIGHT[status] ?? STATUS_HEIGHT.empty
     const latency = formatLatency(point.latency_ms)
     const relative = formatRelativeTime(point.checked_at)
-    const label = statusLabel(point.status)
+    const label = statusLabel(point.status, point.latency_ms)
     bars.push({
       colorClass,
       heightPct,

@@ -48,11 +48,11 @@ func (h *OpenAIGatewayHandler) NanoBanana(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+		if handleRequestBodyReadError(c, reqLog, err) {
 			return
 		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		status, message := requestBodyReadFailure(reqLog, c.Request, err)
+		h.errorResponse(c, status, "invalid_request_error", message)
 		return
 	}
 	parsed, err := service.ParseOpenAINanoBananaRequest(body)
@@ -332,10 +332,10 @@ func (h *OpenAIGatewayHandler) NanoBanana(c *gin.Context) {
 		if result != nil && result.UpstreamModel != "" {
 			upstreamModel = result.UpstreamModel
 		}
-		// Upstream work has completed. Settlement owns the reservation from here;
-		// a bookkeeping error must not turn a successful generation into free usage.
+		// Upstream work has completed. Successful settlement or a durable pending
+		// settlement owns the hold; a pre-persistence error leaves it for the
+		// handler defer to release.
 		settlementHold := mediaHold
-		mediaHold = nil
 		if err := h.gatewayService.RecordUsage(c.Request.Context(), &service.OpenAIRecordUsageInput{
 			Result:             result,
 			APIKey:             apiKey,
@@ -359,6 +359,11 @@ func (h *OpenAIGatewayHandler) NanoBanana(c *gin.Context) {
 				zap.String("model", requestModel),
 				zap.Int64("account_id", account.ID),
 			).Error("openai.nano_banana.record_usage_failed", zap.Error(err))
+			if service.MediaBalanceHoldRetained(err) {
+				mediaHold = nil
+			}
+		} else {
+			mediaHold = nil
 		}
 
 		reqLog.Debug("openai.nano_banana.request_completed",

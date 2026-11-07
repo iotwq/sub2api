@@ -148,7 +148,7 @@ type CheckResult struct {
 	Quota *domain.MonitorQuotaSnapshot
 }
 
-// UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
+// UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7/15/30d 可用率 + 附加模型最近状态）。
 type UserMonitorView struct {
 	IntelligenceEnabled  bool
 	Intelligence         *domain.MonitorIntelligenceResult
@@ -159,8 +159,10 @@ type UserMonitorView struct {
 	PrimaryModel         string
 	PrimaryStatus        string
 	PrimaryLatencyMs     *int
-	PrimaryPingLatencyMs *int    // 主模型最近一次 ping 延迟
-	Availability7d       float64 // 0-100
+	PrimaryPingLatencyMs *int     // 主模型最近一次 ping 延迟
+	Availability7d       float64  // 0-100
+	Availability15d      *float64 // nil 表示该窗口查询失败；无历史沿用详情的 0
+	Availability30d      *float64
 	ExtraModels          []ExtraModelStatus
 	Timeline             []UserMonitorTimelinePoint // 主模型最近 N 个历史点（按 checked_at DESC，最新在前）
 	// LatestQuota 主模型最近一次配额快照；channel_monitor_show_quota=false

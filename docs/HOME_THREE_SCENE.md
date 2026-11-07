@@ -18,9 +18,11 @@ The default `/home` page uses a full-bleed Three.js scene as the primary first-s
 - Twelve visible packets move along those paths to make task flow legible rather than adding unrelated ambient motion.
 - Pointer movement changes the network viewing angle without moving or resizing the page layout.
 - The scene is monochrome (white and zinc greys on a transparent canvas) and is tuned for a dark backdrop. In light mode `html:not(.dark) .home-three-scene` applies `filter: invert(1)` so the glow renders as dark lines on a white page.
-- Users with `prefers-reduced-motion: reduce` get a single rendered frame instead of a continuous animation loop.
+- Users with `prefers-reduced-motion: reduce` get a static frame instead of a continuous animation loop. Resizing redraws that frame because changing the canvas size clears its previous contents.
 - The canvas resizes with its container through `ResizeObserver`.
 - WebGL resources are disposed when the component unmounts.
+- If navigation unmounts the component while Three.js is still loading, initialization is skipped when the import finishes. No renderer, observer, or animation loop is created for the detached canvas.
+- Offscreen canvases pause their animation loop and resume a single loop when visible again.
 - Desktop shows the complete node descriptions and live trace metrics. Narrow screens hide secondary descriptions and compress the trace so labels do not overlap the hero copy.
 
 ## Verification
@@ -29,6 +31,7 @@ Run these commands from `frontend/`:
 
 ```bash
 pnpm typecheck
+pnpm exec vitest run src/components/home/__tests__/HomeThreeScene.spec.ts
 pnpm exec eslint src/views/HomeView.vue src/components/home/HomeThreeScene.vue src/i18n/locales/zh/landing.ts src/i18n/locales/en/landing.ts
 pnpm build
 ```

@@ -23,9 +23,9 @@ func TestDefaultModelsIncludeGPT6Astra(t *testing.T) {
 	require.Equal(t, "GPT-6 Astra", displayName)
 }
 
-func TestDefaultModelsPreferConcreteGPT56SolForAccountTests(t *testing.T) {
+func TestDefaultModelsPreferCurrentDefaultForAccountTests(t *testing.T) {
 	require.NotEmpty(t, DefaultModels)
-	require.Equal(t, "gpt-5.6-sol", DefaultModels[0].ID)
+	require.Equal(t, "gpt-6.1-sol", DefaultModels[0].ID)
 }
 
 func TestDefaultModelsIncludeGPTImage25And26(t *testing.T) {
@@ -33,6 +33,20 @@ func TestDefaultModelsIncludeGPTImage25And26(t *testing.T) {
 	require.Contains(t, DefaultModelIDs(), "gpt-image-2.5-sunburst")
 	require.Contains(t, DefaultModelIDs(), "gpt-image-2.6-flare")
 	require.Contains(t, DefaultModelIDs(), "gpt-image-2.6-sunburst")
+}
+
+func TestDefaultModelsIncludeSuno(t *testing.T) {
+	require.Contains(t, DefaultModelIDs(), "suno")
+}
+
+func TestDefaultModelsIncludeVideoModels(t *testing.T) {
+	for _, model := range []string{
+		"firefly-video-v2-fast", "firefly-video-v2", "wan3.0x", "wan3.0x-480p",
+		"wan3.0x-1080p", "viraldance933", "viraldance933-fast", "viraldance2.5-30",
+		"dola-viraldance2.0", "dola-viraldance2.5",
+	} {
+		require.Contains(t, DefaultModelIDs(), model)
+	}
 }
 
 func TestGPT6SolLunaModelIdentity(t *testing.T) {

@@ -90,9 +90,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import { useAnnouncementStore } from '@/stores/announcements'
+import { loadMarkdown, renderMarkdown } from '@/utils/markdown'
 import { formatRelativeWithDateTime } from '@/utils/format'
 import type { Announcement, UserAnnouncement } from '@/types'
 import '@/styles/announcement-markdown.css'
@@ -117,17 +116,12 @@ const displayedAnnouncement = computed(() => (
   props.preview ? props.announcement : announcementStore.currentPopup
 ))
 
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
+const renderedContent = computed(() => renderMarkdown(displayedAnnouncement.value?.content))
 
-const renderedContent = computed(() => {
-  const content = displayedAnnouncement.value?.content
-  if (!content) return ''
-  const html = marked.parse(content) as string
-  return DOMPurify.sanitize(html)
-})
+// 有公告要显示时才加载 Markdown 渲染器
+watch(displayedAnnouncement, (popup) => {
+  if (popup) void loadMarkdown()
+}, { immediate: true })
 
 function handleDismiss() {
   if (props.preview) {

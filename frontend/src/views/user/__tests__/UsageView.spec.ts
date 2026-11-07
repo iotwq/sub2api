@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
@@ -118,6 +118,9 @@ vi.mock('vue-i18n', async () => {
 const simpleStub = { template: '<div><slot /></div>' }
 const chartStub = { template: '<div />' }
 
+enableAutoUnmount(afterEach)
+afterEach(() => { vi.useRealTimers() })
+
 const usageLog = {
   id: 1,
   request_id: 'req-user-export',
@@ -160,7 +163,7 @@ function mountUsageView() {
         DateRangePicker: true,
         Icon: true,
         UsageStatsCards: chartStub,
-        UsageTable: { ...chartStub, props: ['columns'] },
+        UsageTable: { ...chartStub, props: ['columns', 'cacheRateAudience'] },
         UserErrorRequestsTable: chartStub,
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
@@ -173,6 +176,7 @@ function mountUsageView() {
 
 describe('user UsageView', () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     query.mockReset()
     getStats.mockReset()
     getDashboardModels.mockReset()
@@ -217,6 +221,61 @@ describe('user UsageView', () => {
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
+  it('merges rapid statistic filter changes while updating the list immediately', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    for (const model of ['first', 'second', 'latest']) {
+      (wrapper.vm as any).filters.model = model
+      ;(wrapper.vm as any).applyFilters()
+    }
+    expect(query).toHaveBeenCalledTimes(4)
+    expect(getStats).toHaveBeenCalledTimes(1)
+    expect(getDashboardModels).toHaveBeenCalledTimes(1)
+    expect(getDashboardSnapshotV2).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(150)
+    for (const request of [getStats, getDashboardModels, getDashboardSnapshotV2]) {
+      expect(request).toHaveBeenCalledTimes(2)
+      expect(request.mock.calls[1][0]).toMatchObject({ model: 'latest' })
+    }
+  })
+
+  it('cancels old statistics and ignores their eventual results', async () => {
+    let resolveOld!: (value: unknown) => void
+    getStats.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const signals = [getStats.mock.calls[0][2]?.signal, getDashboardModels.mock.calls[0][1]?.signal, getDashboardSnapshotV2.mock.calls[0][1]?.signal]
+    ;(wrapper.vm as any).applyFilters()
+    expect(signals.every(signal => signal?.aborted)).toBe(true)
+    await vi.advanceTimersByTimeAsync(150)
+    resolveOld({ total_requests: 999, endpoints: [{ endpoint: 'old' }] })
+    await flushPromises()
+    expect((wrapper.vm as any).usageStats.total_requests).toBe(1)
+    expect((wrapper.vm as any).inboundEndpointStats).toEqual([])
+  })
+
+  it('manual refresh runs immediately and cancels a queued statistic refresh', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    ;(wrapper.vm as any).applyFilters()
+    ;(wrapper.vm as any).refreshData()
+    await flushPromises()
+    expect(getStats).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(150)
+    expect(getStats).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancels all statistics and queued refreshes when leaving the page', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const signals = [getStats.mock.calls[0][2]?.signal, getDashboardModels.mock.calls[0][1]?.signal, getDashboardSnapshotV2.mock.calls[0][1]?.signal]
+    ;(wrapper.vm as any).applyFilters()
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(signals.every(signal => signal?.aborted)).toBe(true)
+    expect(getStats).toHaveBeenCalledTimes(1)
+  })
+
   it('loads logs, stats, model stats, and snapshot on first render', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
@@ -229,7 +288,7 @@ describe('user UsageView', () => {
       include_trend: true,
       include_model_stats: false,
       include_group_stats: true,
-    }))
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
@@ -338,15 +397,15 @@ describe('user UsageView', () => {
 
     ;(wrapper.vm as any).filters.native_compaction_v2 = true
     ;(wrapper.vm as any).applyFilters()
-    await flushPromises()
+    await vi.advanceTimersByTimeAsync(150)
 
     expect(query).toHaveBeenCalledWith(
       expect.objectContaining({ native_compaction_v2: true }),
       expect.anything()
     )
-    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }), undefined, expect.anything())
+    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }), expect.anything())
+    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }), expect.anything())
 
     query.mockClear()
     getStats.mockClear()
@@ -354,16 +413,16 @@ describe('user UsageView', () => {
     getDashboardSnapshotV2.mockClear()
 
     ;(wrapper.vm as any).resetFilters()
-    await flushPromises()
+    await vi.advanceTimersByTimeAsync(150)
 
     expect((wrapper.vm as any).filters.native_compaction_v2).toBeNull()
     expect(query).toHaveBeenCalledWith(
       expect.objectContaining({ native_compaction_v2: null }),
       expect.anything()
     )
-    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }))
-    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }))
-    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }))
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }), undefined, expect.anything())
+    expect(getDashboardModels).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }), expect.anything())
+    expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }), expect.anything())
   })
 
   it('exports csv with current filters and without admin-only fields', async () => {
@@ -415,6 +474,42 @@ describe('user UsageView', () => {
     window.URL.revokeObjectURL = originalRevokeObjectURL
     vi.unstubAllGlobals()
     clickSpy.mockRestore()
+  })
+
+  it.each([
+    [true, true, true],
+    [true, false, false],
+    [false, true, false],
+  ])('keeps user CSV cache visibility consistent (%s, %s)', async (enabled, showToUsers, visible) => {
+    appStoreState.cachedPublicSettings = { usage_show_cache_rate: enabled, usage_show_cache_rate_to_users: showToUsers }
+    const wrapper = mountUsageView()
+    await flushPromises()
+    expect(wrapper.findComponent(UsageTable).props('cacheRateAudience')).toBe('user')
+    let csvContent = ''
+    const OriginalBlob = globalThis.Blob
+    vi.stubGlobal('Blob', vi.fn((parts: BlobPart[], options?: BlobPropertyBag) => {
+      csvContent = parts.map(String).join('')
+      return new OriginalBlob(parts, options)
+    }))
+    const originalCreateObjectURL = window.URL.createObjectURL
+    const originalRevokeObjectURL = window.URL.revokeObjectURL
+    window.URL.createObjectURL = vi.fn(() => 'blob:usage-export')
+    window.URL.revokeObjectURL = vi.fn()
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      await (wrapper.vm as any).exportToCSV()
+      const [headers, row] = csvContent.trim().split('\n').map(line => line.split(','))
+      expect(headers.includes('Cache Rate')).toBe(visible)
+      expect(row).toHaveLength(headers.length)
+      if (visible) expect(row[headers.indexOf('Cache Rate')]).toBe('98.6%')
+    } finally {
+      window.URL.createObjectURL = originalCreateObjectURL
+      window.URL.revokeObjectURL = originalRevokeObjectURL
+      vi.unstubAllGlobals()
+      clickSpy.mockRestore()
+      wrapper.unmount()
+      appStoreState.cachedPublicSettings = { allow_user_view_error_requests: true }
+    }
   })
 
   it('keeps formula-injection protection for dangerous exported values', async () => {

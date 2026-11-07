@@ -96,17 +96,28 @@ export interface ChatCompletionChunk {
 export interface ResponsesOutputContentPart {
   type?: string
   text?: string
+  annotations?: ResponsesAnnotation[]
+}
+
+export interface ResponsesAnnotation {
+  type?: string
+  url?: string
+  title?: string
 }
 
 export interface ResponsesOutputItem {
   type?: string
   content?: ResponsesOutputContentPart[]
+  summary?: Array<{ type?: string; text?: string }>
+  action?: { sources?: ResponsesAnnotation[] }
 }
 
 export interface ResponsesResponse {
   output_text?: string
   output?: ResponsesOutputItem[]
   error?: { message?: string }
+  status?: string
+  incomplete_details?: { reason?: string }
 }
 
 export interface ResponsesStreamEvent {
@@ -115,6 +126,9 @@ export interface ResponsesStreamEvent {
   text?: string
   response?: ResponsesResponse
   error?: { message?: string }
+  item?: ResponsesOutputItem
+  part?: ResponsesOutputContentPart
+  annotation?: ResponsesAnnotation
 }
 
 export async function fetchOpenAIModels(baseUrl: string, apiKey: string): Promise<OpenAIModel[]> {
@@ -217,6 +231,8 @@ export async function streamResponses(
   options: {
     signal?: AbortSignal
     onDelta: (delta: string) => void
+    onEvent?: (event: ResponsesStreamEvent) => void
+    onOpen?: () => void
   }
 ): Promise<void> {
   const normalizedBase = normalizeBaseUrl(baseUrl)
@@ -236,16 +252,21 @@ export async function streamResponses(
     throw new Error(message)
   }
 
+  options.onOpen?.()
   if (response.headers.get('content-type')?.includes('application/json')) {
     const data = (await response.json()) as ResponsesResponse
     if (data.error?.message) {
       throw new Error(data.error.message)
+    }
+    if (data.status === 'failed' || data.status === 'incomplete') {
+      throw new Error(data.incomplete_details?.reason || `Response ${data.status}`)
     }
 
     const text = extractResponsesText(data)
     if (text) {
       options.onDelta(text)
     }
+    options.onEvent?.({ type: 'response.completed', response: data })
     return
   }
 
@@ -268,6 +289,7 @@ export async function streamResponses(
       if (parsed.error?.message) {
         throw new Error(parsed.error.message)
       }
+      options.onEvent?.(parsed)
 
       switch (parsed.type) {
         case 'response.output_text.delta':
@@ -278,10 +300,9 @@ export async function streamResponses(
           }
           break
         case 'response.failed':
-          if (parsed.response?.error?.message) {
-            throw new Error(parsed.response.error.message)
-          }
-          break
+          throw new Error(parsed.response?.error?.message || 'Response failed')
+        case 'response.incomplete':
+          throw new Error(parsed.response?.incomplete_details?.reason || 'Response incomplete')
         case 'response.completed':
         case 'response.done':
           if (!receivedDelta && parsed.response) {

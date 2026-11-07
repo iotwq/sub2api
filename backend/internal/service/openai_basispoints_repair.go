@@ -8,6 +8,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // The bridge closes the preceding response before acquiring another account
@@ -39,6 +40,9 @@ func (s *OpenAIGatewayService) basispointsStreamWithRepairs(ctx context.Context,
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, openAIUpstreamErrorBodyReadLimit))
 			stop()
 			_ = resp.Body.Close()
+			if isExcelBPSModelPermissionError(resp.StatusCode, gjson.GetBytes(raw, "error.code").String()) {
+				s.coolDownExcelBPSModel(account, gjson.GetBytes(body, "model").String())
+			}
 			s.observeBasispointsUpstreamResponse(repairCtx, account, resp, raw)
 			return nil, fmt.Errorf("Basispoints tool correction returned HTTP %d", resp.StatusCode)
 		}
@@ -79,7 +83,11 @@ func (s *OpenAIGatewayService) handleBasispointsTerminalFailure(c *gin.Context, 
 	if committed {
 		writeOpenAICompactSSEFailureMessage(c, failure.Status, failure.Code, failure.Message)
 	} else {
-		c.JSON(failure.Status, gin.H{"error": failure.Details()})
+		details := failure.Details()
+		if bridgeFailure := basispoints.ParseBridgeFailure(terminal); bridgeFailure != nil {
+			details = bridgeFailure.Details()
+		}
+		c.JSON(failure.Status, gin.H{"error": details})
 	}
 	return result, failure
 }

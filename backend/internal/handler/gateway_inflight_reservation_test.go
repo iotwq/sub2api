@@ -43,7 +43,7 @@ func newInflightTestGinContext() *gin.Context {
 	return c
 }
 
-func TestReserveInflightBalance_SkipsWhenDisabledOrSubscription(t *testing.T) {
+func TestReserveInflightBalance_SkipsWhenDisabledAndCoversSubscription(t *testing.T) {
 	cfg := &config.Config{}
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
@@ -60,7 +60,7 @@ func TestReserveInflightBalance_SkipsWhenDisabledOrSubscription(t *testing.T) {
 	done, err = reserveInflightBalance(newInflightTestGinContext(), billing, est, apiKey, &service.UserSubscription{}, tokenInflightEstimate("m", []byte(`{}`)))
 	require.NoError(t, err)
 	done()
-	require.Equal(t, 0, est.calls, "subscription mode must be unaffected")
+	require.Equal(t, 1, est.calls, "subscription requests must reserve before dispatch")
 }
 
 func TestReserveInflightBalance_UnpricedFailOpenByDefaultFailClosedOptIn(t *testing.T) {
@@ -79,6 +79,16 @@ func TestReserveInflightBalance_UnpricedFailOpenByDefaultFailClosedOptIn(t *test
 	cfg.Billing.InflightReservation.FailClosedOnUnpriced = true
 	_, err = reserveInflightBalance(newInflightTestGinContext(), billing, est, apiKey, nil, tokenInflightEstimate("unknown", nil))
 	require.ErrorIs(t, err, service.ErrInsufficientBalance)
+}
+
+func TestReserveKnownCostSkipsWhenDisabled(t *testing.T) {
+	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, &config.Config{}, nil)
+	t.Cleanup(billing.Stop)
+	apiKey := &service.APIKey{User: &service.User{ID: 1}}
+
+	done, err := reserveKnownCost(newInflightTestGinContext(), billing, apiKey, nil, 1)
+	require.NoError(t, err)
+	done()
 }
 
 // handlerInflightCache 内存版余额缓存 + 在途预留（语义同 Redis Lua）。

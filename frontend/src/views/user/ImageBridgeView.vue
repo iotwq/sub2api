@@ -83,11 +83,11 @@ const targetUrl = computed(() => {
 
 <style scoped>
 .image-bridge-page {
-  @apply min-h-[calc(100vh-8rem)] rounded-[2rem] border border-[#e8e0d3] bg-[#fbf8f2] p-4 shadow-[0_28px_70px_rgba(15,23,42,0.08)] dark:border-[#2a3039] dark:bg-[#10141a] md:p-6;
+  @apply -m-2 rounded-2xl border border-[#e8e0d3] bg-[#fbf8f2] p-1.5 shadow-[0_28px_70px_rgba(15,23,42,0.08)] dark:border-[#2a3039] dark:bg-[#10141a] md:-m-4 md:p-2 lg:-m-6;
 }
 
 .image-bridge-shell {
-  @apply flex min-h-[240px] rounded-[1.75rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)] dark:border-[#242933] dark:bg-[#141920]/90 md:p-7;
+  @apply flex h-[calc(100dvh-6rem)] min-h-[420px] overflow-y-auto rounded-[1.75rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)] dark:border-[#242933] dark:bg-[#141920]/90 md:h-[calc(100dvh-6.25rem)] md:p-7;
 }
 
 .image-bridge-main {

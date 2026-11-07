@@ -16,7 +16,7 @@ func newPlazaService(channels []Channel, groups []Group, pricing *PricingService
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return channels, nil },
 	}
-	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, pricing, nil, nil)
+	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, nil, pricing, nil, nil)
 }
 
 func plazaPricedChannel(id int64, name string, groupIDs []int64, platform string, models ...string) Channel {
@@ -247,8 +247,8 @@ func TestListPlazaGroups_OfficialPricingFill(t *testing.T) {
 	require.Nil(t, byName["token-absent"].OfficialPricing)
 }
 
-func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
-	// 图片计费模型:档位价按实收口径合成(分组图片价 > 渠道档位价 > 渠道默认按次价),
+func TestListPlazaGroups_ChannelImagePricingOverridesGroupDisplay(t *testing.T) {
+	// 展示图片价格优先渠道价，独立倍率字段保持透传；
 	// 分组独立倍率字段透传;未配图片价的分组保持渠道定价原样。
 	perReq := 0.2
 	tier4K := 0.3
@@ -286,15 +286,10 @@ func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
 	require.Len(t, media.Models, 1)
 	p := media.Models[0].Pricing
 	require.NotNil(t, p)
-	require.Len(t, p.Intervals, 3)
-	tierPrices := map[string]float64{}
-	for _, iv := range p.Intervals {
-		require.NotNil(t, iv.PerRequestPrice)
-		tierPrices[iv.TierLabel] = *iv.PerRequestPrice
-	}
-	require.InDelta(t, 0.02, tierPrices["1K"], 1e-9, "1K 用分组图片价")
-	require.InDelta(t, 0.2, tierPrices["2K"], 1e-9, "2K 分组未配,回落渠道默认按次价")
-	require.InDelta(t, 0.3, tierPrices["4K"], 1e-9, "4K 分组未配,回落渠道档位价")
+	require.Len(t, p.Intervals, 1)
+	require.Equal(t, "4K", p.Intervals[0].TierLabel)
+	require.InDelta(t, 0.3, *p.Intervals[0].PerRequestPrice, 1e-9)
+	require.InDelta(t, 0.2, *p.PerRequestPrice, 1e-9)
 
 	plain := byName["g-plain"]
 	require.False(t, plain.ImageRateIndependent)
@@ -309,7 +304,7 @@ func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
 	require.Len(t, channels[0].ModelPricing[0].Intervals, 1)
 }
 
-func TestListPlazaGroups_GroupModelImagePricingWinsOverGroupImageTiers(t *testing.T) {
+func TestListPlazaGroups_ChannelImagePricingWinsOverGroupModelAndImageTiers(t *testing.T) {
 	groupImage1K, groupImage2K, groupImage4K := 0.05, 0.055, 0.06
 	model1K, model2K, model4K := 0.05, 0.075, 0.1
 	channels := []Channel{{
@@ -319,6 +314,11 @@ func TestListPlazaGroups_GroupModelImagePricingWinsOverGroupImageTiers(t *testin
 			Models:          []string{"yeahzi-image"},
 			BillingMode:     BillingModeImage,
 			PerRequestPrice: testPtrFloat64(0.2),
+			Intervals: []PricingInterval{
+				{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.2)},
+				{TierLabel: "2K", PerRequestPrice: testPtrFloat64(0.3)},
+				{TierLabel: "4K", PerRequestPrice: testPtrFloat64(0.4)},
+			},
 		}},
 	}}
 	groups := []Group{{
@@ -349,12 +349,12 @@ func TestListPlazaGroups_GroupModelImagePricingWinsOverGroupImageTiers(t *testin
 		require.NotNil(t, iv.PerRequestPrice)
 		tierPrices[iv.TierLabel] = *iv.PerRequestPrice
 	}
-	require.InDelta(t, 0.05, tierPrices["1K"], 1e-9)
-	require.InDelta(t, 0.075, tierPrices["2K"], 1e-9)
-	require.InDelta(t, 0.1, tierPrices["4K"], 1e-9)
+	require.InDelta(t, 0.2, tierPrices["1K"], 1e-9)
+	require.InDelta(t, 0.3, tierPrices["2K"], 1e-9)
+	require.InDelta(t, 0.4, tierPrices["4K"], 1e-9)
 }
 
-func TestListPlazaGroups_GroupModelFlatImagePriceWinsOverGroupImageTiers(t *testing.T) {
+func TestListPlazaGroups_ChannelFlatImagePriceWinsOverGroupModelAndImageTiers(t *testing.T) {
 	groupPrice := 0.2
 	channels := []Channel{{
 		ID: 1, Name: "img-ch", Status: StatusActive, GroupIDs: []int64{10},
@@ -378,8 +378,8 @@ func TestListPlazaGroups_GroupModelFlatImagePriceWinsOverGroupImageTiers(t *test
 	p := out[0].Models[0].Pricing
 	require.Equal(t, BillingModeImage, p.BillingMode)
 	require.NotNil(t, p.PerRequestPrice)
-	require.InDelta(t, 0.1, *p.PerRequestPrice, 1e-9)
-	require.Empty(t, p.Intervals, "模型级固定价不应被分组图片档位覆盖")
+	require.InDelta(t, 0.2, *p.PerRequestPrice, 1e-9)
+	require.Empty(t, p.Intervals, "本站模型广场展示渠道价，不应被分组价卡或图片档位覆盖")
 }
 
 func TestListPlazaGroups_GroupImagePriceIgnoredForNonImageModes(t *testing.T) {
@@ -403,7 +403,7 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, sentinel },
 	}
-	svc := NewModelPlazaService(repo, &stubGroupRepoForAvailable{}, nil, nil, nil)
+	svc := NewModelPlazaService(repo, &stubGroupRepoForAvailable{}, nil, nil, nil, nil)
 	out, err := svc.ListGroups(context.Background())
 	require.Nil(t, out)
 	require.ErrorIs(t, err, sentinel)
@@ -411,7 +411,7 @@ func TestListPlazaGroups_RepoErrorsPropagate(t *testing.T) {
 	svc2 := NewModelPlazaService(
 		&mockChannelRepository{listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, nil }},
 		&stubGroupRepoForAvailable{listActiveErr: sentinel},
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	out2, err2 := svc2.ListGroups(context.Background())
 	require.Nil(t, out2)
@@ -428,7 +428,7 @@ func newPlazaServiceWithBilling(channels []Channel, groups []Group, groupPlatfor
 	}
 	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := NewBillingService(&config.Config{}, catalog)
-	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, catalog, bs, NewModelPricingResolver(cs, bs))
+	return NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: groups}, nil, catalog, bs, NewModelPricingResolver(cs, bs))
 }
 
 func plazaModelsByName(models []PlazaModel) map[string]PlazaModel {
@@ -506,7 +506,7 @@ func TestListGroups_GeminiCatalogLadderShownWholeRequest(t *testing.T) {
 	require.Len(t, m.OfficialPricing.Intervals, 2)
 }
 
-func TestListGroups_GroupTokenCardOverridesChannelPricing(t *testing.T) {
+func TestListGroups_ChannelTokenPricingOverridesGroupDisplay(t *testing.T) {
 	channels := []Channel{plazaPricedChannel(1, "ch", []int64{10}, PlatformAnthropic, "claude-sonnet-4")}
 	groups := []Group{{
 		ID: 10, Name: "g", Platform: PlatformAnthropic, RateMultiplier: 1, LongContextPricingEnabled: true,
@@ -516,12 +516,13 @@ func TestListGroups_GroupTokenCardOverridesChannelPricing(t *testing.T) {
 	out, err := svc.ListGroups(context.Background())
 	require.NoError(t, err)
 	m := out[0].Models[0]
-	require.InDelta(t, 1e-6, *m.Pricing.InputPrice, 1e-15, "分组价卡优先于渠道平价")
+	require.InDelta(t, 3e-6, *m.Pricing.InputPrice, 1e-15, "模型广场展示渠道平价")
+	require.InDelta(t, 1e-6, *groups[0].ModelPricing[0].InputPrice, 1e-15, "不修改计费价卡")
 	require.InDelta(t, 15e-6, *m.Pricing.OutputPrice, 1e-15, "卡未配置的项回落目录价")
 	require.Empty(t, m.Pricing.Intervals)
 }
 
-func TestListGroups_ImageModelKeepsTierSynthesisWithBilling(t *testing.T) {
+func TestListGroups_ImageModelKeepsChannelPricingWithBilling(t *testing.T) {
 	channels := []Channel{{
 		ID: 1, Name: "ch", Status: StatusActive, GroupIDs: []int64{10},
 		ModelPricing: []ChannelModelPricing{{
@@ -539,9 +540,8 @@ func TestListGroups_ImageModelKeepsTierSynthesisWithBilling(t *testing.T) {
 	m := out[0].Models[0]
 	require.Equal(t, BillingModeImage, m.Pricing.BillingMode)
 	require.Empty(t, m.LongContextBasis)
-	require.Len(t, m.Pricing.Intervals, 3)
-	require.InDelta(t, 0.02, *m.Pricing.Intervals[0].PerRequestPrice, 1e-12)
-	require.InDelta(t, 0.04, *m.Pricing.Intervals[1].PerRequestPrice, 1e-12)
+	require.Empty(t, m.Pricing.Intervals)
+	require.InDelta(t, 0.04, *m.Pricing.PerRequestPrice, 1e-12)
 }
 
 func TestListGroups_CatalogMissingStillShowsChannelFlatPricing(t *testing.T) {
@@ -581,4 +581,159 @@ func TestListGroups_TimePricingPassthrough(t *testing.T) {
 	require.InDelta(t, 0.5, m.TimePricing.Periods[0].Multiplier, 1e-12)
 	// 展示单价为标准时段价
 	require.InDelta(t, 0.28e-6, *m.Pricing.InputPrice, 1e-15)
+}
+
+type plazaAccountRepo struct {
+	AccountRepository
+	byGroup map[int64][]Account
+	err     error
+}
+
+func (r plazaAccountRepo) ListModelAvailabilityCandidates(ctx context.Context, gid *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	return r.byGroup[*gid], r.err
+}
+
+func TestListPlazaGroups_DefaultAccountModelsWithoutChannelPricing(t *testing.T) {
+	platforms := []string{PlatformOpenAI, PlatformAnthropic, PlatformGrok, PlatformGemini}
+	groups := make([]Group, 0, len(platforms))
+	accounts := make(map[int64][]Account)
+	for i, platform := range platforms {
+		id := int64(i + 1)
+		groups = append(groups, Group{ID: id, Name: platform, Platform: platform, RateMultiplier: 1})
+		accounts[id] = []Account{{ID: id, Platform: platform, Type: AccountTypeAPIKey}}
+	}
+	groups = append(groups, Group{ID: 100, Platform: PlatformOpenAI, Name: "empty"})
+	svc := newPlazaServiceWithBilling(nil, groups, nil, nil)
+	svc.accountRepo = plazaAccountRepo{byGroup: accounts}
+	out, err := svc.ListGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 4, "无渠道定价的四个平台展示，空组不展示")
+	for _, g := range out {
+		require.NotEmpty(t, g.Models)
+		priced := false
+		for _, m := range g.Models {
+			require.Equal(t, g.Platform, m.Platform)
+			require.NotContains(t, m.Name, "*")
+			if m.Pricing != nil && m.Pricing.InputPrice != nil {
+				priced = true
+			}
+		}
+		require.True(t, priced, "%s 应含默认价", g.Platform)
+	}
+}
+
+func TestListPlazaGroups_AccountMappingsAndAllowlist(t *testing.T) {
+	group := Group{ID: 1, Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5.5", "alias"}}}
+	svc := newPlazaService(nil, []Group{group}, nil)
+	svc.accountRepo = plazaAccountRepo{byGroup: map[int64][]Account{1: {
+		{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-*": "gpt-5.5", "alias": "gpt-5.5", "hidden": "gpt-5.5"}}},
+		{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"foreign": "claude-sonnet-4"}}},
+	}}}
+	out, err := svc.ListGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].Models, 2)
+	require.Equal(t, "alias", out[0].Models[0].Name)
+	require.Equal(t, "gpt-5.5", out[0].Models[1].Name)
+	svc.accountRepo = plazaAccountRepo{err: errors.New("read failed")}
+	_, err = svc.ListGroups(context.Background())
+	require.ErrorContains(t, err, "read failed")
+}
+
+func TestListPlazaGroups_ChannelPriceBeatsCatalogFallback(t *testing.T) {
+	catalog := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{"custom": {Mode: "chat", InputCostPerToken: 9e-6, OutputCostPerToken: 10e-6}})
+	unpriced := Channel{ID: 1, Name: "a", Status: StatusActive, GroupIDs: []int64{1}, ModelMapping: map[string]map[string]string{PlatformOpenAI: {"custom": "custom"}}}
+	priced := plazaPricedChannel(2, "b", []int64{1}, PlatformOpenAI, "custom")
+	priced.ModelPricing[0].CacheWritePrice = testPtrFloat64(4e-6)
+	priced.ModelPricing[0].CacheReadPrice = testPtrFloat64(0)
+	svc := newPlazaService([]Channel{unpriced, priced}, []Group{{ID: 1, Platform: PlatformOpenAI}}, catalog)
+	out, err := svc.ListGroups(context.Background())
+	require.NoError(t, err)
+	p := out[0].Models[0].Pricing
+	require.InDelta(t, 3e-6, *p.InputPrice, 1e-15)
+	require.InDelta(t, 15e-6, *p.OutputPrice, 1e-15)
+	require.InDelta(t, 4e-6, *p.CacheWritePrice, 1e-15)
+	require.Equal(t, float64(0), *p.CacheReadPrice)
+}
+
+func TestListPlazaGroups_WildcardChannelPricingForAccountModel(t *testing.T) {
+	channel := plazaPricedChannel(1, "channel", []int64{1}, PlatformOpenAI, "gpt-image-*")
+	channel.ModelPricing[0].BillingMode = BillingModePerRequest
+	channel.ModelPricing[0].PerRequestPrice = testPtrFloat64(6)
+	svc := newPlazaServiceWithBilling([]Channel{channel}, []Group{{ID: 1, Platform: PlatformOpenAI}}, map[int64]string{1: PlatformOpenAI}, nil)
+	svc.accountRepo = plazaAccountRepo{byGroup: map[int64][]Account{1: {{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-image-2-D": "gpt-image-2-D"}}}}}}
+	out, err := svc.ListGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out[0].Models, 1)
+	require.Equal(t, BillingModePerRequest, out[0].Models[0].Pricing.BillingMode)
+	require.Equal(t, float64(6), *out[0].Models[0].Pricing.PerRequestPrice)
+	require.Equal(t, "image", out[0].Models[0].MediaType)
+}
+
+func TestPlazaMediaType(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode BillingMode
+		want string
+	}{
+		{"gpt-image-2-D", BillingModePerRequest, "image"},
+		{"midjourney-D", BillingModePerRequest, "image"},
+		{"seedream-5.0-pro（X）", BillingModePerRequest, "image"},
+		{"grok-imagine-video-1.5", BillingModePerRequest, "video"},
+		{"MiniMax-H3", BillingModeVideo, "video"},
+		{"custom-image", BillingModeImage, "image"},
+		{"suno", BillingModePerRequest, ""},
+		{"gpt-image-2", BillingModeToken, ""},
+	} {
+		require.Equal(t, tc.want, plazaMediaType(PlazaModel{Name: tc.name, Pricing: &ChannelModelPricing{BillingMode: tc.mode}}), tc.name)
+	}
+}
+
+func TestListPlazaGroups_ReflectsChannelAndAccountChanges(t *testing.T) {
+	var channels []Channel
+	repo := &mockChannelRepository{
+		listAllFn: func(context.Context) ([]Channel, error) { return channels, nil },
+		getGroupPlatformsFn: func(context.Context, []int64) (map[int64]string, error) {
+			return map[int64]string{1: PlatformOpenAI}, nil
+		},
+	}
+	catalog := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
+		"existing-model":    {Mode: "chat", InputCostPerToken: 3e-6, OutputCostPerToken: 5e-6},
+		"new-default-model": {Mode: "chat", InputCostPerToken: 7e-6, OutputCostPerToken: 9e-6},
+	})
+	accounts := map[int64][]Account{}
+	setAccountModels := func(mapping map[string]any) {
+		accounts[1] = []Account{{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": mapping}}}
+	}
+	setAccountModels(map[string]any{"existing-model": "existing-model"})
+	cs := NewChannelService(repo, nil, nil, nil, nil)
+	bs := NewBillingService(&config.Config{}, catalog)
+	svc := NewModelPlazaService(repo, &stubGroupRepoForAvailable{activeGroups: []Group{{ID: 1, Platform: PlatformOpenAI}}}, plazaAccountRepo{byGroup: accounts}, catalog, bs, NewModelPricingResolver(cs, bs))
+	prices := func() map[string]float64 {
+		out, err := svc.ListGroups(context.Background())
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+		values := map[string]float64{}
+		for _, m := range out[0].Models {
+			require.NotNil(t, m.Pricing, m.Name)
+			require.NotNil(t, m.Pricing.InputPrice, m.Name)
+			values[m.Name] = *m.Pricing.InputPrice
+		}
+		return values
+	}
+	require.InDelta(t, 3e-6, prices()["existing-model"], 1e-15, "未配置渠道时展示默认价格")
+
+	channels = []Channel{plazaPricedChannel(1, "channel", []int64{1}, PlatformOpenAI, "existing-model", "channel-added-model")}
+	channels[0].ModelPricing[0].InputPrice = testPtrFloat64(4e-6)
+	cs.InvalidateCache() // ChannelService.Create/Update performs this after saving.
+	require.Len(t, prices(), 2)
+	require.InDelta(t, 4e-6, prices()["channel-added-model"], 1e-15, "新增渠道模型自动出现")
+	channels[0].ModelPricing[0].InputPrice = testPtrFloat64(6e-6)
+	cs.InvalidateCache()
+	require.InDelta(t, 6e-6, prices()["existing-model"], 1e-15, "渠道改价下一次读取更新")
+
+	setAccountModels(map[string]any{"existing-model": "existing-model", "new-default-model": "new-default-model"})
+	values := prices()
+	require.Len(t, values, 3)
+	require.InDelta(t, 7e-6, values["new-default-model"], 1e-15, "分组新增有默认价的模型下一次读取出现")
 }

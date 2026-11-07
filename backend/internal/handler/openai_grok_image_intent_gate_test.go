@@ -67,6 +67,16 @@ func TestOpenAIGatewayHandlerResponses_ImagePermissionHardSignalsStillRejected(t
 	}
 }
 
+func TestOpenAIGatewayHandlerResponses_GrokImageModelsRespectPermissionGate(t *testing.T) {
+	for _, model := range []string{"grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-quality"} {
+		t.Run(model, func(t *testing.T) {
+			rec := runOpenAIResponsesImagePermissionGateTest(t, service.PlatformGrok, `{"model":"`+model+`","input":"draw"}`)
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			require.Contains(t, rec.Body.String(), service.ImageGenerationPermissionMessage())
+		})
+	}
+}
+
 func TestOpenAIGatewayHandlerResponses_PassiveNamespaceDoesNotTrigger403(t *testing.T) {
 	passiveNamespace := `{"model":"gpt-5.5","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}],"tool_choice":"auto","input":"write code"}`
 	rec := runOpenAIResponsesImagePermissionGateTest(t, service.PlatformOpenAI, passiveNamespace)

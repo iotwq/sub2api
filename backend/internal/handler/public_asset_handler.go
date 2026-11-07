@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +44,9 @@ var publicAssetKinds = map[string]publicAssetKindSpec{
 }
 
 type PublicAssetHandler struct {
-	assetsDir string
+	assetsDir       string
+	cleanupInterval time.Duration
+	config          *config.Config
 }
 
 func NewPublicAssetHandler(_ *service.SettingService, cfg *config.Config) *PublicAssetHandler {
@@ -51,7 +56,77 @@ func NewPublicAssetHandler(_ *service.SettingService, cfg *config.Config) *Publi
 	}
 	assetsDir := filepath.Join(dataDir, "pg", "assets")
 	_ = os.MkdirAll(assetsDir, 0755)
-	return &PublicAssetHandler{assetsDir: assetsDir}
+	cleanupInterval := time.Duration(0)
+	if cfg != nil && cfg.Server.PublicAssetCleanupIntervalSeconds > 0 {
+		cleanupInterval = time.Duration(cfg.Server.PublicAssetCleanupIntervalSeconds) * time.Second
+	}
+	return &PublicAssetHandler{assetsDir: assetsDir, cleanupInterval: cleanupInterval, config: cfg}
+}
+
+// StartCleanup starts the optional background cleanup loop for expired assets.
+// The context owns the goroutine lifetime and should be cancelled during shutdown.
+func (h *PublicAssetHandler) StartCleanup(ctx context.Context) {
+	if h == nil || ctx == nil || h.cleanupInterval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(h.cleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				_ = h.cleanupExpiredAssets(now)
+			}
+		}
+	}()
+}
+
+func (h *PublicAssetHandler) cleanupExpiredAssets(now time.Time) error {
+	entries, err := os.ReadDir(h.assetsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !isSafeAssetComponent(entry.Name()) {
+			continue
+		}
+		assetDir := filepath.Join(h.assetsDir, entry.Name())
+		files, err := os.ReadDir(assetDir)
+		if err != nil {
+			continue
+		}
+		hasRegularFile := false
+		allExpired := true
+		for _, file := range files {
+			if file.IsDir() {
+				allExpired = false
+				continue
+			}
+			info, err := file.Info()
+			if err != nil {
+				allExpired = false
+				continue
+			}
+			hasRegularFile = true
+			if !assetExpired(info.ModTime(), now) {
+				allExpired = false
+			}
+		}
+		if !hasRegularFile {
+			if info, err := entry.Info(); err != nil || !assetExpired(info.ModTime(), now) {
+				allExpired = false
+			}
+		}
+		if allExpired {
+			_ = os.RemoveAll(assetDir)
+		}
+	}
+	return nil
 }
 
 // Upload accepts a temporary image, video, or audio asset for a video request.
@@ -136,8 +211,8 @@ func (h *PublicAssetHandler) Serve(c *gin.Context) {
 	}
 	path := filepath.Join(h.assetsDir, assetID, filename)
 	info, err := os.Stat(path)
-	if err != nil || info.IsDir() || time.Since(info.ModTime()) > publicAssetTTL {
-		if err == nil && time.Since(info.ModTime()) > publicAssetTTL {
+	if err != nil || info.IsDir() || (err == nil && assetExpired(info.ModTime(), time.Now())) {
+		if err == nil && assetExpired(info.ModTime(), time.Now()) {
 			_ = os.RemoveAll(filepath.Dir(path))
 		}
 		c.Status(http.StatusNotFound)
@@ -150,17 +225,59 @@ func (h *PublicAssetHandler) Serve(c *gin.Context) {
 
 func (h *PublicAssetHandler) publicBaseURL(c *gin.Context) string {
 	scheme := "http"
-	if isRequestHTTPS(c) {
+	if c.Request.TLS != nil {
 		scheme = "https"
 	}
-	if forwardedProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); forwardedProto == "https" {
-		scheme = "https"
-	}
-	host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
-	if host == "" {
-		host = strings.TrimSpace(c.Request.Host)
+	host := strings.TrimSpace(c.Request.Host)
+	if h.isTrustedProxy(c) {
+		if forwardedProto := strings.ToLower(strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0])); forwardedProto == "https" || forwardedProto == "http" {
+			scheme = forwardedProto
+		}
+		if forwardedHost := validForwardedHost(c.GetHeader("X-Forwarded-Host")); forwardedHost != "" {
+			host = forwardedHost
+		}
 	}
 	return scheme + "://" + host
+}
+
+func (h *PublicAssetHandler) isTrustedProxy(c *gin.Context) bool {
+	if h == nil || h.config == nil || len(h.config.Server.TrustedProxies) == 0 {
+		return false
+	}
+	peer := strings.TrimSpace(c.Request.RemoteAddr)
+	if host, _, err := net.SplitHostPort(peer); err == nil {
+		peer = host
+	}
+	peerIP := net.ParseIP(peer)
+	if peerIP == nil {
+		return false
+	}
+	for _, raw := range h.config.Server.TrustedProxies {
+		raw = strings.TrimSpace(raw)
+		if ip := net.ParseIP(raw); ip != nil && ip.Equal(peerIP) {
+			return true
+		}
+		if _, network, err := net.ParseCIDR(raw); err == nil && network.Contains(peerIP) {
+			return true
+		}
+	}
+	return false
+}
+
+func validForwardedHost(raw string) string {
+	host := strings.TrimSpace(raw)
+	if host == "" || strings.ContainsAny(host, ",\r\n\t /\\") {
+		return ""
+	}
+	u, err := url.Parse("http://" + host)
+	if err != nil || u.Host != host || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	return host
+}
+
+func assetExpired(modTime, now time.Time) bool {
+	return now.Sub(modTime) > publicAssetTTL
 }
 
 func randomAssetID() (string, error) {

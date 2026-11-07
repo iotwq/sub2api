@@ -171,6 +171,22 @@ func openAIChannelForwardModel(mapping service.ChannelMappingResult, requestedMo
 	return requestedModel
 }
 
+// openAIMessagesSchedulingModel keeps account selection aligned with the model
+// that the Messages bridge places in the forwarded request body. Channel
+// mapping happens before account model mapping in ForwardAsAnthropic, so it
+// must take precedence over the dispatch fallback here as well.
+func openAIMessagesSchedulingModel(routingModel string, channelMapping service.ChannelMappingResult, dispatchModel string) string {
+	if channelMapping.Mapped {
+		if mappedModel := strings.TrimSpace(channelMapping.MappedModel); mappedModel != "" {
+			return service.NormalizeOpenAICompatRequestedModel(mappedModel)
+		}
+	}
+	if dispatchModel = strings.TrimSpace(dispatchModel); dispatchModel != "" {
+		return dispatchModel
+	}
+	return routingModel
+}
+
 type grokMediaEligibilityProber interface {
 	ProbeMediaEligibility(ctx context.Context, accountID int64) (bool, string, error)
 }
@@ -1337,16 +1353,14 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
 	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
+	msgPricingCtx = service.WithOpenAIMessagesDispatchMappedModel(msgPricingCtx, effectiveMappedModel)
 	c.Request = c.Request.WithContext(msgPricingCtx)
 
 	for {
 		if failoverClientGone(c) {
 			return
 		}
-		currentRoutingModel := routingModel
-		if effectiveMappedModel != "" {
-			currentRoutingModel = effectiveMappedModel
-		}
+		currentRoutingModel := openAIMessagesSchedulingModel(routingModel, channelMappingMsg, effectiveMappedModel)
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),

@@ -44,6 +44,7 @@ function mountTable(
   rateMultiplier: number,
   userRateMultiplier?: number | null,
   extraProps?: {
+    rechargeRatio?: number
     imageRateIndependent?: boolean
     imageRateMultiplier?: number | null
     videoRateIndependent?: boolean
@@ -63,8 +64,8 @@ describe('PlazaModelPricingTable', () => {
     { enabled: true, multiplier: 0.5, userRate: null, expected: 0.5 },
     { enabled: true, multiplier: 0, userRate: 0.05, expected: 0 },
     { enabled: true, multiplier: -1, userRate: null, expected: 0 },
-    { enabled: false, multiplier: 1, userRate: 0.05, expected: 0.05 },
-    { enabled: false, multiplier: 1, userRate: null, expected: 0.15 }
+    { enabled: false, multiplier: 1, userRate: 0.05, expected: 1 },
+    { enabled: false, multiplier: 1, userRate: null, expected: 1 }
   ])('uses the video billing multiplier $expected when independent=$enabled', (tc) => {
     const model = tokenModel({ name: 'video-test', official_pricing: null })
     model.pricing!.billing_mode = 'video'
@@ -77,6 +78,10 @@ describe('PlazaModelPricingTable', () => {
     })
     try {
       expect(wrapper.text()).toContain(`$${(2 * tc.expected).toFixed(2)}`)
+      expect(wrapper.text()).toContain('modelPlaza.table.perSecond')
+      expect(wrapper.text()).not.toContain('modelPlaza.table.perRequest')
+      expect(wrapper.findAll('tbody td')[1].text()).toContain('modelPlaza.table.perUnitSecond')
+      expect(wrapper.findAll('tbody td')[2].text()).toContain('modelPlaza.table.perUnitSecond')
       const rateCell = wrapper.findAll('tbody tr td').at(-1)!
       if (tc.enabled) expect(rateCell.text()).toBe(`${tc.expected}x`)
       else expect(rateCell.text()).toContain(`${tc.expected}x`)
@@ -85,19 +90,29 @@ describe('PlazaModelPricingTable', () => {
     }
   })
 
-  it('applies video independent rates to resolution tiers', () => {
-    const model = tokenModel({ name: 'video-tier-test', official_pricing: null })
+  it('shows per-second resolution prices with video independent rates', () => {
+    const model = tokenModel({ name: 'MiniMax-H3', official_pricing: null })
     model.pricing!.billing_mode = 'video'
-    model.pricing!.intervals = [{
-      min_tokens: 0, max_tokens: null, tier_label: '720p',
+    model.pricing!.intervals = [
+      { label: '768P', price: 0.72 }, { label: '2K', price: 1.2 }
+    ].map(tier => ({
+      min_tokens: 0, max_tokens: null, tier_label: tier.label,
       input_price: null, output_price: null, cache_write_price: null,
-      cache_read_price: null, per_request_price: 2
-    }]
+      cache_read_price: null, per_request_price: tier.price
+    }))
     const wrapper = mountTable([model], 0.15, 0.05, {
-      videoRateIndependent: true, videoRateMultiplier: 0.5
+      videoRateIndependent: true, videoRateMultiplier: 0.5, rechargeRatio: 6
     })
-    expect(wrapper.text()).toContain('720p')
-    expect(wrapper.text()).toContain('$1.00')
+    const cells = wrapper.findAll('tbody td')
+    expect(cells[0].text()).toContain('modelPlaza.table.perSecond')
+    expect(cells[1].text()).toContain('768P $0.06')
+    expect(cells[1].text()).toContain('2K $0.10')
+    expect(cells[2].text()).toContain('768P $0.12')
+    expect(cells[2].text()).toContain('2K $0.20')
+    for (const cell of cells.slice(1, 3)) {
+      expect(cell.text().match(/modelPlaza.table.perUnitSecond/g)).toHaveLength(2)
+      expect(cell.text()).not.toContain('modelPlaza.table.perUnitRequest')
+    }
     wrapper.unmount()
   })
 
@@ -161,32 +176,14 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('0.8x')
   })
 
-  it('模型按官方输出价从高到低排序,无官方价的排最后', () => {
-    const expensive = tokenModel({
-      name: 'model-expensive',
-      official_pricing: {
-        input_price: 1e-5,
-        output_price: 7.5e-5,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: null
-      }
-    })
-    const cheap = tokenModel({
-      name: 'model-cheap',
-      official_pricing: {
-        input_price: 1e-6,
-        output_price: 5e-6,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: null
-      }
-    })
-    const noOfficial = tokenModel({ name: 'model-no-official', official_pricing: null })
-
-    const wrapper = mountTable([cheap, noOfficial, expensive], 1)
-    const names = wrapper.findAll('tbody tr').map((tr) => tr.find('td').text())
-    expect(names).toEqual(['model-expensive', 'model-cheap', 'model-no-official'])
+  it('模型按渠道输出价排序，不受官方参考价影响', () => {
+    const expensive = tokenModel({ name: 'expensive' })
+    expensive.pricing!.output_price = 75e-6
+    const cheap = tokenModel({ name: 'cheap' })
+    cheap.pricing!.output_price = 5e-6
+    const missing = tokenModel({ name: 'missing', pricing: null })
+    const wrapper = mountTable([cheap, missing, expensive], 1)
+    expect(wrapper.findAll('tbody tr').map(tr => tr.find('td').text())).toEqual(['expensive', 'cheap', 'missing'])
   })
 
   it('官方输出价相同时按模型名降序(新版本号在前)', () => {
@@ -254,22 +251,21 @@ describe('PlazaModelPricingTable', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()
     expect(text).toContain('modelPlaza.table.paidPrice')
-    expect(text).toContain('modelPlaza.table.officialPrice')
+    expect(text).toContain('modelPlaza.table.modelPrice')
     // token 行:模型 + 实付 3 列 + 官方 3 列 + 倍率
     expect(wrapper.findAll('tbody td')).toHaveLength(8)
   })
 
-  it('官方价包含 1h 缓存写入价;official_pricing 为 null 时官方三列显示 -', () => {
-    const withOfficial = mountTable([tokenModel()], 1)
-    expect(withOfficial.text()).toContain('$6.00')
-    expect(withOfficial.text()).toContain('(1h')
-
-    const withoutOfficial = mountTable([tokenModel({ official_pricing: null })], 1)
-    const cells = withoutOfficial.findAll('tbody td')
-    // 官方 输入/输出/缓存 三列均为 -
-    expect(cells[4].text().trim()).toBe('-')
-    expect(cells[5].text().trim()).toBe('-')
-    expect(cells[6].text().trim()).toBe('-')
+  it('两侧使用同一份模型价格，官方参考价缺失也能展示', () => {
+    const model = tokenModel({ official_pricing: null })
+    model.pricing!.cache_write_1h_price = 7e-6
+    const cells = mountTable([model], 0.5).findAll('tbody td')
+    expect(cells[4].text()).toBe('$3.00')
+    expect(cells[5].text()).toBe('$15.00')
+    expect(cells[6].text()).toContain('$7.00')
+    expect(cells[3].text()).toContain('$3.50')
+    const missing = mountTable([tokenModel({ pricing: null })], 1).findAll('tbody td')
+    expect(missing.slice(4, 7).map(cell => cell.text())).toEqual(['-', '-', '-'])
   })
 
   it('实付价分别展示自定义 5m 与 1h 缓存写入价', () => {
@@ -305,6 +301,48 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('modelPlaza.table.perRequest')
     // 单位后缀跟在价格后(按次 → / 次)
     expect(text).toContain('modelPlaza.table.perUnitRequest')
+  })
+
+  it('生图独立倍率开启时,非图片媒体计费保持 1x', () => {
+    const model = tokenModel({
+      name: 'music-request',
+      media_type: 'video',
+      pricing: {
+        billing_mode: 'per_request',
+        input_price: null,
+        output_price: null,
+        cache_write_price: null,
+        cache_read_price: null,
+        image_input_price: null,
+        image_output_price: null,
+        per_request_price: 4,
+        intervals: []
+      },
+      official_pricing: null
+    })
+    const wrapper = mountTable([model], 1, 0.5, {
+      rechargeRatio: 6,
+      imageRateIndependent: true,
+      imageRateMultiplier: 1
+    })
+    expect(wrapper.text()).toContain('$0.6667')
+    expect(wrapper.text()).toContain('1x')
+    wrapper.unmount()
+  })
+
+  it('模型广场价格与倍率最多显示 4 位小数', () => {
+    const model = tokenModel({
+      pricing: {
+        ...tokenModel().pricing!,
+        input_price: 1e-6,
+        output_price: 10e-6
+      }
+    })
+    const text = mountTable([model], 1, null, { rechargeRatio: 6 }).text()
+    expect(text).toContain('$0.1667')
+    expect(text).toContain('$1.6667')
+    expect(text).not.toContain('0.1666666667')
+    expect(text).not.toContain('1.666666667')
   })
 
   it('token 模型阶梯定价内联进输入/输出列,按倍率折算', () => {
@@ -622,7 +660,7 @@ describe('PlazaModelPricingTable 长上下文阶梯', () => {
     expect(cells[6].text()).toContain('$6.25')
     expect(cells[6].text()).toContain('$12.50')
     expect(cells[6].text()).toContain('$1.00')
-    expect(cells[6].text()).not.toContain('(1h')
+    expect(cells[6].text()).toContain('(1h')
   })
 
   it('整单计价的档位标签带 tooltip;边际计价在模型名旁加徽章并换用边际说明', () => {
@@ -660,7 +698,7 @@ describe('PlazaModelPricingTable 长上下文阶梯', () => {
     expect(cells[3].text()).toContain('modelPlaza.table.cacheWrite')
     expect(cells[3].text()).toContain('modelPlaza.table.cacheRead')
     expect(cells[3].findAll('.leading-5')).toHaveLength(0)
-    expect(cells[6].text()).toContain('(1h')
+    expect(cells[6].text()).not.toContain('(1h')
   })
 })
 
@@ -755,5 +793,66 @@ describe('PlazaModelPricingTable 分时计价', () => {
     const wrapper = mountTable([tokenModel()], 1)
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.find('[title*="modelPlaza.table.timePricingRowHint"]').exists()).toBe(false)
+  })
+})
+
+
+describe('模型广场充值换算', () => {
+  it('Token 四项使用渠道模型价乘分组倍率除充值比例', () => {
+    const model = tokenModel()
+    model.pricing!.cache_write_1h_price = 6e-6
+    const cells = mountTable([model], 0.36, null, { rechargeRatio: 6 }).findAll('tbody td')
+    expect(cells[1].text()).toBe('$0.18')
+    expect(cells[2].text()).toBe('$0.90')
+    expect(cells[3].text()).toContain('$0.225')
+    expect(cells[3].text()).toContain('$0.36')
+    expect(cells[3].text()).toContain('$0.018')
+    expect(cells[4].text()).toBe('$3.00')
+    expect(cells[7].text()).toBe('0.06x')
+  })
+
+  it.each(['per_request', 'image', 'video'] as const)('%s 模型价先除充值比例，再乘实际倍率', (mode) => {
+    // A video model can still be configured per request; use billing mode for units.
+    const model = tokenModel({ media_type: 'video' })
+    model.pricing!.billing_mode = mode
+    model.pricing!.per_request_price = 6
+    const cells = mountTable([model], 0.36, null, { rechargeRatio: 6 }).findAll('tbody td')
+    expect(cells).toHaveLength(4)
+    expect(cells[1].text()).toContain('$0.06')
+    expect(cells[2].text()).toContain('$1.00')
+    expect(cells[3].text()).toBe('0.06x')
+    if (mode === 'per_request') {
+      expect(cells[0].text()).toContain('modelPlaza.table.perRequest')
+      expect(cells[1].text()).toContain('modelPlaza.table.perUnitRequest')
+      expect(cells[2].text()).toContain('modelPlaza.table.perUnitRequest')
+    } else if (mode === 'image') {
+      expect(cells[0].text()).toContain('modelPlaza.table.perImage')
+      expect(cells[1].text()).toContain('modelPlaza.table.perUnitImage')
+      expect(cells[2].text()).toContain('modelPlaza.table.perUnitImage')
+    }
+  })
+
+  it.each([
+    { mode: 'image', media: 'image', independent: true, groupRate: 0.36, rate: '1x', paid: '$1.00' },
+    { mode: 'per_request', media: 'image', independent: true, groupRate: 1, rate: '1x', paid: '$1.00' },
+    { mode: 'image', media: 'image', independent: false, groupRate: 1, rate: '0.1667x', paid: '$0.1667' },
+    { mode: 'video', media: 'video', independent: true, groupRate: 1, rate: '1x', paid: '$1.00' }
+  ] as const)('独立媒体倍率 $mode enabled=$independent group=$groupRate', ({ mode, media, independent, groupRate, rate, paid }) => {
+    const model = tokenModel({ media_type: media })
+    model.pricing!.billing_mode = mode
+    model.pricing!.per_request_price = 6
+    const cells = mountTable([model], groupRate, null, {
+      rechargeRatio: 6, imageRateIndependent: independent, imageRateMultiplier: 1,
+      videoRateIndependent: independent, videoRateMultiplier: 1
+    }).findAll('tbody td')
+    expect(cells[1].text()).toContain(paid)
+    expect(cells[2].text()).toContain('$1.00')
+    expect(cells[3].text()).toBe(rate)
+  })
+
+  it('分时价格计算保留除充值比例后的精度', () => {
+    const model = tokenModel({ time_pricing: { timezone: 'Asia/Shanghai', periods: [{ start_time: '00:00', end_time: '06:00', multiplier: 0.25 }] } })
+    const rows = mountTable([model], 1, null, { rechargeRatio: 6 }).findAll('tbody tr')
+    expect(rows[1].findAll('td')[1].text()).toBe('$0.125')
   })
 })

@@ -13,6 +13,7 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
+import { loadAdminLocaleMessages } from '@/i18n'
 
 /**
  * Route definitions with lazy loading
@@ -1048,6 +1049,11 @@ router.beforeEach(async (to, _from, next) => {
 
   // All checks passed, allow navigation
   next()
+})
+
+// Permission guards run first; load admin-only messages before mounting that page.
+router.beforeResolve(async (to) => {
+  if (to.meta.requiresAdmin) await loadAdminLocaleMessages()
 })
 
 /**

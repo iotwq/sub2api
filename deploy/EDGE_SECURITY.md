@@ -117,11 +117,37 @@ CPU can remain quadratic for large arguments delivered in many small deltas.
 Measure this separately from allocation savings; cumulative bytes allocated in
 benchmarks are not retained heap or RSS.
 
+## URL security defaults
+
+`security.url_allowlist.allow_private_hosts` and
+`security.url_allowlist.allow_insecure_http` default to `false`. If either key
+is omitted during an upgrade, private/local upstream URLs or `http://` URLs may
+stop working. Existing explicit YAML or environment values remain in effect;
+the application logs a startup warning when an omitted value falls back to
+`false`.
+
+Enable `allow_private_hosts` only when trusted private upstreams are required.
+Enable `allow_insecure_http` only when an upstream cannot use HTTPS. Both can be
+set under `security.url_allowlist` in YAML or with the corresponding
+`SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS` and
+`SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP` environment variables. The HTTP
+setting applies when URL allowlist checks are disabled.
+
 ## Trusted client IPs
 
-`security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
-compatibility. While enabled, raw forwarding headers take over client-IP
-resolution for logs and security-sensitive paths. Custom headers from
+`security.trust_forwarded_ip_for_api_key_acl` defaults to `false`. In that
+mode, `server.trusted_proxies` determines which proxy-provided client IPs are
+accepted. Existing installations retain a value already stored in the settings
+database. During the first migration, a stored legacy `false` value is changed
+to `true` only when `server.trusted_proxies` was not explicitly configured;
+when the setting is missing, the configured default applies. An omitted value
+that falls back to `false` produces a startup warning. Configure the exact
+trusted proxy addresses for the preferred mode, or explicitly enable the
+compatibility switch if raw forwarding headers must continue to take over
+client-IP resolution.
+
+While the compatibility switch is enabled, raw forwarding headers take over
+client-IP resolution for logs and security-sensitive paths. Custom headers from
 `security.forwarded_client_ip_headers` are checked in configured order before
 the built-in `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` fallback.
 Header names are case-insensitive, normalized when loaded, de-duplicated, and
@@ -139,12 +165,10 @@ headers are ignored completely when the switch is disabled. In that mode Gin's
 CIDR/IP addresses that connect directly to Sub2API. An explicit empty list
 trusts no forwarded client IPs.
 
-On the first upgrade to this mode, a legacy `false` value is changed to `true`
-only when `server.trusted_proxies` was not explicitly configured; explicit
-proxy policies remain in secure mode. New installations persist the configured
-custom header list during database initialization. Existing installations
-backfill a missing database value from the YAML configuration. A hidden
-migration marker prevents later administrator changes from being overwritten.
+New installations persist the configured custom header list during database
+initialization. Existing installations backfill a missing database value from
+the YAML configuration. A hidden migration marker prevents later administrator
+changes from being overwritten.
 If settings cannot be read or the persisted custom-header list is malformed,
 the process fails closed to trusted-proxy mode with no custom headers. If a
 migration write fails, the computed mode remains active for the current process

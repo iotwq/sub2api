@@ -40,7 +40,7 @@ func inflightNoop() {}
 // 成功时把预留句柄挂到 c.Request 的 context 上：之后通过 submit*UsageRecordTask 提交的
 // 计费任务会接管一个引用，直到余额缓存实际扣减后才释放。返回的 done 必须 defer 调用
 // （停止续期并归还 handler 引用；没有提交计费任务时即刻释放）。
-// 开关关闭、订阅模式、Redis 故障时返回 no-op（fail-open）；无法定价时默认 fail-open，
+// 开关关闭、Redis 故障时返回 no-op（fail-open）；无法定价时默认 fail-open，
 // 配置 fail_closed_on_unpriced=true 时返回 ErrInsufficientBalance。
 func reserveInflightBalance(
 	c *gin.Context,
@@ -74,9 +74,6 @@ func reserveInflightBalanceCtx(
 	if billing == nil || estimator == nil || apiKey == nil || apiKey.User == nil || !billing.InflightReservationEnabled() {
 		return ctx, inflightNoop, nil
 	}
-	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() && subscription != nil {
-		return ctx, inflightNoop, nil
-	}
 	estimate, priced := estimator.EstimateInflightReservation(ctx, apiKey, req)
 	if !priced && billing.InflightReservationFailClosedOnUnpriced() {
 		return ctx, inflightNoop, service.ErrInsufficientBalance
@@ -84,7 +81,11 @@ func reserveInflightBalanceCtx(
 	if estimate <= 0 {
 		return ctx, inflightNoop, nil
 	}
-	res, err := billing.ReserveInflight(ctx, apiKey.User, apiKey.Group, subscription, estimate)
+	// ReserveFixedCharge covers both standard-balance reservations and the
+	// subscription/API-key scope reservations. The old ReserveInflight path
+	// deliberately skipped subscription accounts, which left concurrent
+	// requests able to pass the cached quota check before usage was recorded.
+	res, err := billing.ReserveFixedCharge(ctx, apiKey.User, apiKey, apiKey.Group, subscription, estimate)
 	if err != nil {
 		return ctx, inflightNoop, err
 	}
@@ -92,6 +93,38 @@ func reserveInflightBalanceCtx(
 		return ctx, inflightNoop, nil
 	}
 	return service.WithInflightReservation(ctx, res), res.HandlerDone, nil
+}
+
+// reserveKnownCost registers a caller-supplied cost before dispatching a
+// request whose charge is already known (for example audio or Live). The
+// reservation is attached to the request context so submit*UsageRecordTask
+// keeps it alive until the durable billing transaction completes.
+func reserveKnownCost(
+	c *gin.Context,
+	billing *service.BillingCacheService,
+	apiKey *service.APIKey,
+	subscription *service.UserSubscription,
+	amount float64,
+) (func(), error) {
+	if c == nil || c.Request == nil || billing == nil || !billing.InflightReservationEnabled() || apiKey == nil || apiKey.User == nil || amount <= 0 {
+		return inflightNoop, nil
+	}
+	res, err := billing.ReserveFixedCharge(
+		c.Request.Context(),
+		apiKey.User,
+		apiKey,
+		apiKey.Group,
+		subscription,
+		amount,
+	)
+	if err != nil {
+		return inflightNoop, err
+	}
+	if res == nil {
+		return inflightNoop, nil
+	}
+	c.Request = c.Request.WithContext(service.WithInflightReservation(c.Request.Context(), res))
+	return res.HandlerDone, nil
 }
 
 // grokMediaInflightEstimate 媒体生成请求的估算输入；状态/内容查询返回空模型（不预留：

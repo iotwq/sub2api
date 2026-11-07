@@ -822,6 +822,20 @@ func (_u *GroupUpdate) SetNillableLongContextPricingEnabled(v *bool) *GroupUpdat
 	return _u
 }
 
+// SetGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field.
+func (_u *GroupUpdate) SetGpt61SolSubscriptionOptimizationEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetGpt61SolSubscriptionOptimizationEnabled(v)
+	return _u
+}
+
+// SetNillableGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableGpt61SolSubscriptionOptimizationEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetGpt61SolSubscriptionOptimizationEnabled(*v)
+	}
+	return _u
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (_u *GroupUpdate) SetModelPricing(v jsontext.Value) *GroupUpdate {
 	_u.mutation.SetModelPricing(v)
@@ -1819,6 +1833,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.LongContextPricingEnabled(); ok {
 		_spec.SetField(group.FieldLongContextPricingEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Gpt61SolSubscriptionOptimizationEnabled(); ok {
+		_spec.SetField(group.FieldGpt61SolSubscriptionOptimizationEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.ModelPricing(); ok {
 		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)
@@ -3042,6 +3059,20 @@ func (_u *GroupUpdateOne) SetNillableLongContextPricingEnabled(v *bool) *GroupUp
 	return _u
 }
 
+// SetGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field.
+func (_u *GroupUpdateOne) SetGpt61SolSubscriptionOptimizationEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetGpt61SolSubscriptionOptimizationEnabled(v)
+	return _u
+}
+
+// SetNillableGpt61SolSubscriptionOptimizationEnabled sets the "gpt61_sol_subscription_optimization_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableGpt61SolSubscriptionOptimizationEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetGpt61SolSubscriptionOptimizationEnabled(*v)
+	}
+	return _u
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (_u *GroupUpdateOne) SetModelPricing(v jsontext.Value) *GroupUpdateOne {
 	_u.mutation.SetModelPricing(v)
@@ -4069,6 +4100,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.LongContextPricingEnabled(); ok {
 		_spec.SetField(group.FieldLongContextPricingEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Gpt61SolSubscriptionOptimizationEnabled(); ok {
+		_spec.SetField(group.FieldGpt61SolSubscriptionOptimizationEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.ModelPricing(); ok {
 		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)

@@ -2,7 +2,7 @@
   <div class="mt-3 w-full border-t border-gray-100 pt-3 dark:border-dark-700/60" data-testid="intelligence-timeline">
     <div class="mb-2 flex items-center justify-between gap-2 text-xs">
       <span class="text-gray-500 dark:text-gray-400" :title="t('monitorCommon.intelligence.scope')">
-        {{ t('monitorCommon.intelligence.title') }}
+        {{ t('monitorCommon.intelligence.timelineTitle') }}
       </span>
       <MonitorIntelligenceBadge :result="buckets[0]?.intelligence" :checked-at="buckets[0]?.checked_at" />
     </div>

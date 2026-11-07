@@ -48,8 +48,10 @@ export interface AvailabilityRow {
 export function useChannelMonitorFormat() {
   const { t } = useI18n()
 
-  function statusLabel(s: MonitorStatus | ''): string {
+  function statusLabel(s: MonitorStatus | '', latencyMs?: number | null): string {
     if (!s) return t('monitorCommon.status.unknown')
+    // Pure-quota checks have no probe latency; keep their quota warning label.
+    if (s === STATUS_DEGRADED && latencyMs != null) return t('monitorCommon.status.highLatency')
     return t(`monitorCommon.status.${s}`)
   }
 

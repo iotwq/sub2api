@@ -219,7 +219,7 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	// Codex discovery lists Responses drivers, not image_generation tool models.
 	// Add locally supported image choices only to the OAuth test picker; keep the
 	// shared upstream catalog and API-key discovery authoritative.
-	if account != nil && account.IsOpenAIOAuthLike() {
+	if account != nil && account.IsOpenAIOAuthLike() && !account.UsesBasispointsResponses() && !account.IsExcelOAuth() {
 		passthrough := account.IsOpenAIPassthroughEnabled()
 		seen := make(map[string]bool, len(payload.Data))
 		for _, model := range payload.Data {
@@ -847,6 +847,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
 	testModelID = account.GetMappedModel(testModelID)
+	if account.IsExcelOAuth() && (!account.UsesBasispointsResponses() || isOpenAIImageModel(testModelID)) {
+		return s.sendErrorAndEnd(c, errExcelOAuthRouteUnavailable.Error())
+	}
 	if IsMiniMaxH3VideoModel(testModelID) {
 		return s.testOpenAIMiniMaxVideoConnection(c, account, testModelID)
 	}

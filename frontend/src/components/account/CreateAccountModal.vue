@@ -455,6 +455,15 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'openai' && accountCategory === 'oauth-based'">
+        <label for="openai-oauth-client" class="input-label">{{ t('admin.accounts.oauth.openai.clientLabel') }}</label>
+        <select id="openai-oauth-client" v-model="openaiOAuthClient" class="input">
+          <option value="codex">Codex OAuth</option>
+          <option value="excel">BPS OAuth (Excel)</option>
+        </select>
+        <p v-if="isExcelOAuth" class="mt-2 text-xs text-gray-500">{{ t('admin.accounts.oauth.openai.excelEntryHint') }}</p>
+      </div>
+
       <!-- Account Type Selection (Grok) -->
       <div v-if="form.platform === 'grok'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -3287,7 +3296,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="form.platform === 'openai'"
+        v-if="!isExcelOAuth && form.platform === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3366,7 +3375,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="!isExcelOAuth && form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         data-testid="create-openai-ws-mode"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3790,6 +3799,7 @@
     <div v-else class="space-y-5">
       <OAuthAuthorizationFlow
         ref="oauthFlowRef"
+        :excel-oauth="isExcelOAuth"
         :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"
         :auth-url="currentAuthUrl"
         :session-id="currentSessionId"
@@ -3799,13 +3809,13 @@
         :show-proxy-warning="form.platform !== 'openai' && form.platform !== 'grok' && !!form.proxy_id"
         :allow-multiple="form.platform === 'anthropic'"
         :show-cookie-option="form.platform === 'anthropic'"
-        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity' || form.platform === 'grok'"
-        :show-mobile-refresh-token-option="form.platform === 'openai'"
+        :show-refresh-token-option="(form.platform === 'openai' && !isExcelOAuth) || form.platform === 'antigravity' || form.platform === 'grok'"
+        :show-mobile-refresh-token-option="form.platform === 'openai' && !isExcelOAuth"
         :show-session-token-option="false"
         :show-access-token-option="false"
-        :show-codex-session-import-option="form.platform === 'openai'"
-        :show-agent-identity-option="form.platform === 'openai'"
-        :show-codex-pat-option="form.platform === 'openai'"
+        :show-codex-session-import-option="form.platform === 'openai' && !isExcelOAuth"
+        :show-agent-identity-option="form.platform === 'openai' && !isExcelOAuth"
+        :show-codex-pat-option="form.platform === 'openai' && !isExcelOAuth"
         :show-sso-option="form.platform === 'grok'"
         :show-email-password-option="false"
         :show-manual-option="true"
@@ -4365,6 +4375,9 @@ const hideAccountLongContextBilling = computed(() => {
 // OAuth composables
 const oauth = useAccountOAuth() // For Anthropic OAuth
 const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
+const openaiOAuthClient = ref<'codex' | 'excel'>('codex')
+const isExcelOAuth = computed(() => form.platform === 'openai' && accountCategory.value === 'oauth-based' && openaiOAuthClient.value === 'excel')
+watch(openaiOAuthClient, () => openaiOAuth.resetState())
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
 const grokOAuth = useGrokOAuth() // For Grok OAuth
@@ -4988,7 +5001,7 @@ const openAIWSModeHintKey = computed(() =>
 )
 
 const isOpenAIModelRestrictionDisabled = computed(() =>
-  form.platform === 'openai' && openaiPassthroughEnabled.value
+  form.platform === 'openai' && !isExcelOAuth.value && openaiPassthroughEnabled.value
 )
 
 const mixedChannelWarningMessageText = computed(() => {
@@ -5653,6 +5666,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  openaiOAuthClient.value = 'codex'
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -5859,6 +5873,14 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     delete extra.images_url_to_b64_json
   }
   applyOpenAIImageSizeTiersToExtra(extra, openAIImageSizeTiers.value)
+
+  if (isExcelOAuth.value) {
+    extra.openai_oauth_responses_endpoint = 'basispoints'
+    extra.openai_oauth_responses_websockets_v2_mode = OPENAI_WS_MODE_OFF
+    extra.openai_oauth_responses_websockets_v2_enabled = false
+    delete extra.openai_passthrough
+    delete extra.openai_oauth_passthrough
+  }
 
   return Object.keys(extra).length > 0 ? extra : undefined
 }
@@ -6291,7 +6313,7 @@ const goBackToBasicInfo = () => {
 
 const handleGenerateUrl = async () => {
   if (form.platform === 'openai') {
-    await openaiOAuth.generateAuthUrl(form.proxy_id)
+    await openaiOAuth.generateAuthUrl(form.proxy_id, undefined, isExcelOAuth.value ? 'excel' : 'codex')
   } else if (form.platform === 'gemini') {
     await geminiOAuth.generateAuthUrl(
       form.proxy_id,

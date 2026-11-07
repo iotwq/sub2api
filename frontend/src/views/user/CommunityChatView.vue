@@ -2206,11 +2206,11 @@ function resetFileDragState(): void {
 
 <style scoped>
 .community-chat-page {
-  @apply min-h-[calc(100vh-8rem)] rounded-[2rem] border border-[#aaa095] bg-[#b9b1a7] p-3 shadow-[0_28px_70px_rgba(15,23,42,0.14)] dark:border-[#252b35] dark:bg-[#0f1319] md:p-4;
+  @apply -m-2 rounded-2xl border border-[#aaa095] bg-[#b9b1a7] p-1.5 shadow-[0_28px_70px_rgba(15,23,42,0.14)] dark:border-[#252b35] dark:bg-[#0f1319] md:-m-4 md:p-2 lg:-m-6;
 }
 
 .community-chat-panel {
-  @apply flex h-[calc(100vh-8rem)] min-h-[640px] flex-col overflow-hidden rounded-[1.5rem] border border-[#a99f94] bg-[#c8bfb4] shadow-[0_18px_45px_rgba(15,23,42,0.14)] dark:border-[#252b35] dark:bg-[#121821]/95;
+  @apply flex h-[calc(100dvh-6rem)] min-h-[420px] flex-col overflow-hidden rounded-[1.5rem] border border-[#a99f94] bg-[#c8bfb4] shadow-[0_18px_45px_rgba(15,23,42,0.14)] dark:border-[#252b35] dark:bg-[#121821]/95 md:h-[calc(100dvh-6.25rem)];
 }
 
 .community-chat-header {

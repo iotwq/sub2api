@@ -397,11 +397,14 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled: settings.PluginManagementEnabled,
 		ModelPlazaDescription:   settings.ModelPlazaDescription,
+		ModelPlazaRechargeRatio: settings.ModelPlazaRechargeRatio,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 
 		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
 		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+		UsageShowCacheRate:          settings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:   settings.UsageShowCacheRateToUsers,
 		ExcelBPSImageMode:           settings.ExcelBPSImageMode,
 		ExcelBPSImageMaxImageMiB:    settings.ExcelBPSImageMaxImageMiB,
 		ExcelBPSImageMaxImages:      settings.ExcelBPSImageMaxImages,

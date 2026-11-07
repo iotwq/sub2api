@@ -180,7 +180,7 @@ func TestDisplayPricingPreservesConfiguredReasoningEffortMultipliers(t *testing.
 	require.Equal(t, 3.0, raw.ReasoningEffortMultipliers["max"])
 }
 
-func TestPlazaUsesGroupReasoningEffortMultipliers(t *testing.T) {
+func TestPlazaUsesChannelReasoningEffortMultipliers(t *testing.T) {
 	m := &PlazaModel{Name: "custom-model", Platform: PlatformOpenAI, Pricing: &ChannelModelPricing{
 		ReasoningEffortMultipliers: map[string]float64{"max": 3},
 	}}
@@ -189,7 +189,7 @@ func TestPlazaUsesGroupReasoningEffortMultipliers(t *testing.T) {
 		ReasoningEffortMultipliers: map[string]float64{"high": 1.5},
 	}}}
 	(&ModelPlazaService{}).fillDisplayPricing(context.Background(), m, g)
-	require.Equal(t, map[string]float64{"high": 1.5}, m.Pricing.ReasoningEffortMultipliers)
+	require.Equal(t, map[string]float64{"max": 3}, m.Pricing.ReasoningEffortMultipliers)
 	m.Pricing.ReasoningEffortMultipliers["high"] = 9
 	require.Equal(t, 1.5, g.ModelPricing[0].ReasoningEffortMultipliers["high"])
 }

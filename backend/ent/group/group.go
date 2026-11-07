@@ -100,6 +100,8 @@ const (
 	FieldAudioSttPricePerHour = "audio_stt_price_per_hour"
 	// FieldLongContextPricingEnabled holds the string denoting the long_context_pricing_enabled field in the database.
 	FieldLongContextPricingEnabled = "long_context_pricing_enabled"
+	// FieldGpt61SolSubscriptionOptimizationEnabled holds the string denoting the gpt61_sol_subscription_optimization_enabled field in the database.
+	FieldGpt61SolSubscriptionOptimizationEnabled = "gpt61_sol_subscription_optimization_enabled"
 	// FieldModelPricing holds the string denoting the model_pricing field in the database.
 	FieldModelPricing = "model_pricing"
 	// FieldClaudeCodeOnly holds the string denoting the claude_code_only field in the database.
@@ -269,6 +271,7 @@ var Columns = []string{
 	FieldAudioTtsPricePerMillionChars,
 	FieldAudioSttPricePerHour,
 	FieldLongContextPricingEnabled,
+	FieldGpt61SolSubscriptionOptimizationEnabled,
 	FieldModelPricing,
 	FieldClaudeCodeOnly,
 	FieldFallbackGroupID,
@@ -394,6 +397,8 @@ var (
 	AudioSttPricePerHourValidator func(float64) error
 	// DefaultLongContextPricingEnabled holds the default value on creation for the "long_context_pricing_enabled" field.
 	DefaultLongContextPricingEnabled bool
+	// DefaultGpt61SolSubscriptionOptimizationEnabled holds the default value on creation for the "gpt61_sol_subscription_optimization_enabled" field.
+	DefaultGpt61SolSubscriptionOptimizationEnabled bool
 	// DefaultClaudeCodeOnly holds the default value on creation for the "claude_code_only" field.
 	DefaultClaudeCodeOnly bool
 	// DefaultModelRoutingEnabled holds the default value on creation for the "model_routing_enabled" field.
@@ -652,6 +657,11 @@ func ByAudioSttPricePerHour(opts ...sql.OrderTermOption) OrderOption {
 // ByLongContextPricingEnabled orders the results by the long_context_pricing_enabled field.
 func ByLongContextPricingEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLongContextPricingEnabled, opts...).ToFunc()
+}
+
+// ByGpt61SolSubscriptionOptimizationEnabled orders the results by the gpt61_sol_subscription_optimization_enabled field.
+func ByGpt61SolSubscriptionOptimizationEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGpt61SolSubscriptionOptimizationEnabled, opts...).ToFunc()
 }
 
 // ByClaudeCodeOnly orders the results by the claude_code_only field.

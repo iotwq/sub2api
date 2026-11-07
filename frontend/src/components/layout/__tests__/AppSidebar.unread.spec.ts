@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia, setActivePinia } from 'pinia'
+import { useCommunityChatNotificationsStore } from '@/stores/communityChatNotifications'
 import AppSidebar from '../AppSidebar.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -39,15 +41,21 @@ vi.mock('@/api', () => ({
 
 let wrapper: VueWrapper | undefined
 beforeEach(() => {
+  setActivePinia(createPinia())
   vi.clearAllMocks()
   mocks.auth.isAdmin = false
   mocks.app.sidebarCollapsed = false
   mocks.listMessages.mockResolvedValue({ items: [] })
   mocks.getDirectUnread.mockResolvedValue({ total: 2, conversations: [] })
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined })
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = undefined
+  useCommunityChatNotificationsStore().stopSession()
+})
 
 async function openSidebar() {
+  useCommunityChatNotificationsStore().startSession(mocks.auth.user.id)
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }],
@@ -68,6 +76,19 @@ function seen(scope: 'group' | 'direct') {
 }
 
 describe('sidebar unread notifications while viewing community chat', () => {
+  it('does not reload unread state when navigation remounts the sidebar', async () => {
+    await openSidebar()
+    expect(badgeVisible()).toBe(true)
+    const groupRequests = mocks.listMessages.mock.calls.length
+    const directRequests = mocks.getDirectUnread.mock.calls.length
+    wrapper!.unmount()
+    wrapper = undefined
+    await openSidebar()
+    expect(badgeVisible()).toBe(true)
+    expect(mocks.listMessages).toHaveBeenCalledTimes(groupRequests)
+    expect(mocks.getDirectUnread).toHaveBeenCalledTimes(directRequests)
+  })
+
   it.each([
     { admin: false, collapsed: false }, { admin: false, collapsed: true },
     { admin: true, collapsed: false }, { admin: true, collapsed: true },

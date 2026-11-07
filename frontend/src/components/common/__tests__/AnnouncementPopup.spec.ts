@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 
 import AnnouncementPopup from '../AnnouncementPopup.vue'
 import { useAnnouncementStore } from '@/stores/announcements'
+import { loadMarkdown } from '@/utils/markdown'
 
 const announcementMarkdownStyles = readFileSync(
   resolve(process.cwd(), 'src/styles/announcement-markdown.css'),
@@ -62,6 +63,7 @@ describe('AnnouncementPopup', () => {
     }
 
     const wrapper = mount(AnnouncementPopup)
+    await loadMarkdown()
     await wrapper.vm.$nextTick()
 
     const content = document.body.querySelector('.markdown-body')
@@ -90,6 +92,9 @@ describe('AnnouncementPopup', () => {
         preview: true,
       },
     })
+
+    await loadMarkdown()
+    await wrapper.vm.$nextTick()
 
     expect(document.body.textContent).toContain('Preview announcement')
     expect(document.body.querySelector('.markdown-body h2')?.textContent).toBe('Preview heading')

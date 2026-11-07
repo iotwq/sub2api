@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -24,6 +25,7 @@ func TestPublicAssetUploadAndServe(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Pricing.DataDir = dataDir
 	cfg.Server.FrontendURL = "https://admin.example.test/password"
+	cfg.Server.TrustedProxies = []string{"127.0.0.1/32"}
 	h := NewPublicAssetHandler(nil, cfg)
 	groupID := int64(1)
 
@@ -40,6 +42,7 @@ func TestPublicAssetUploadAndServe(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "api.example.test")
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = req
@@ -77,4 +80,101 @@ func TestPublicAssetUploadAndServe(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(dataDir, "pg", "assets"))
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
+}
+
+func TestPublicAssetUploadIgnoresForwardedHeadersFromUntrustedPeer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dataDir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Pricing.DataDir = dataDir
+	h := NewPublicAssetHandler(nil, cfg)
+	groupID := int64(1)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("kind", "image"))
+	part, err := writer.CreateFormFile("file", "image.png")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake-png"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "http://internal:8080/pg/assets", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "attacker.example")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID})
+	h.Upload(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var response struct {
+		Data struct {
+			URL string `json:"url"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.True(t, strings.HasPrefix(response.Data.URL, "http://internal:8080/pg/assets/"))
+	require.NotContains(t, response.Data.URL, "attacker.example")
+}
+
+func TestPublicAssetCleanupRemovesOnlyExpiredDirectories(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Pricing.DataDir = dataDir
+	h := NewPublicAssetHandler(nil, cfg)
+	old := time.Now().Add(-publicAssetTTL - time.Hour)
+	newTime := time.Now().Add(-time.Hour)
+
+	oldDir := filepath.Join(h.assetsDir, "old")
+	newDir := filepath.Join(h.assetsDir, "new")
+	require.NoError(t, os.MkdirAll(oldDir, 0755))
+	require.NoError(t, os.MkdirAll(newDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(oldDir, "a.png"), []byte("old"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(newDir, "a.png"), []byte("new"), 0644))
+	require.NoError(t, os.Chtimes(filepath.Join(oldDir, "a.png"), old, old))
+	require.NoError(t, os.Chtimes(filepath.Join(newDir, "a.png"), newTime, newTime))
+
+	require.NoError(t, h.cleanupExpiredAssets(time.Now()))
+	_, err := os.Stat(oldDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(newDir, "a.png"))
+	require.NoError(t, err)
+}
+
+func TestPublicAssetCleanupIntervalIsConfigurable(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pricing.DataDir = t.TempDir()
+	h := NewPublicAssetHandler(nil, cfg)
+	require.Zero(t, h.cleanupInterval)
+
+	cfg.Server.PublicAssetCleanupIntervalSeconds = 2
+	h = NewPublicAssetHandler(nil, cfg)
+	require.Equal(t, 2*time.Second, h.cleanupInterval)
+}
+
+func TestPublicAssetServeExpiredStillDeletesAndReturnsNotFound(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Pricing.DataDir = dataDir
+	h := NewPublicAssetHandler(nil, cfg)
+	assetDir := filepath.Join(h.assetsDir, "expired")
+	require.NoError(t, os.MkdirAll(assetDir, 0755))
+	path := filepath.Join(assetDir, "file.png")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0644))
+	old := time.Now().Add(-publicAssetTTL - time.Hour)
+	require.NoError(t, os.Chtimes(path, old, old))
+
+	req := httptest.NewRequest(http.MethodGet, "http://internal/pg/assets/expired/file.png", nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	c.Params = gin.Params{{Key: "asset_id", Value: "expired"}, {Key: "filename", Value: "file.png"}}
+	h.Serve(c)
+	c.Writer.WriteHeaderNow()
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	_, err := os.Stat(assetDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

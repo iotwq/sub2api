@@ -1065,7 +1065,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	// 图片生成计费
 	imageInputSize := s.extractImageInputSize(body)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
-	imageCount = resolveGeminiImageCount(c, originalModel, mappedModel)
+	if imageCount == 0 {
+		imageCount = resolveGeminiImageCount(c, originalModel, mappedModel)
+	}
 	// 客户端在收到结束分片前断开时只计已送达的图片：Claude 兼容流不向客户端转发图片。
 	if clientDisconnect && !streamFinished {
 		imageCount = 0
@@ -1629,10 +1631,13 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	// 图片生成计费
 	imageInputSize := s.extractImageInputSize(body)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
-	imageCount = resolveGeminiImageCount(c, originalModel, mappedModel)
 	// 客户端在收到结束分片前断开时只计已送达的图片。
-	if clientDisconnect && !streamFinished {
-		imageCount = observedGeminiImageOutputs(c)
+	if imageCount == 0 {
+		if clientDisconnect && !streamFinished {
+			imageCount = observedGeminiImageOutputs(c)
+		} else {
+			imageCount = resolveGeminiImageCount(c, originalModel, mappedModel)
+		}
 	}
 
 	return &ForwardResult{
@@ -1656,7 +1661,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 }
 
 func (s *GeminiMessagesCompatService) newGeminiNativeForwardResult(requestID, originalModel, mappedModel string, stream bool, startTime time.Time, streamResult *geminiNativeStreamResult, requestBody []byte) *ForwardResult {
-	if streamResult == nil {
+	if streamResult == nil || (!streamResult.usage.hasObservedTokens() && streamResult.imageCount == 0) {
 		return nil
 	}
 	usage := ClaudeUsage{}
@@ -1665,16 +1670,17 @@ func (s *GeminiMessagesCompatService) newGeminiNativeForwardResult(requestID, or
 	}
 	imageInputSize := s.extractImageInputSize(requestBody)
 	return &ForwardResult{
-		RequestID:      requestID,
-		Usage:          usage,
-		Model:          originalModel,
-		UpstreamModel:  mappedModel,
-		Stream:         stream,
-		Duration:       time.Since(startTime),
-		FirstTokenMs:   streamResult.firstTokenMs,
-		ImageCount:     streamResult.imageCount,
-		ImageSize:      normalizeOpenAIImageSizeTier(imageInputSize),
-		ImageInputSize: imageInputSize,
+		RequestID:        requestID,
+		Usage:            usage,
+		Model:            originalModel,
+		UpstreamModel:    mappedModel,
+		Stream:           stream,
+		Duration:         time.Since(startTime),
+		FirstTokenMs:     streamResult.firstTokenMs,
+		ImageCount:       streamResult.imageCount,
+		ImageSize:        normalizeOpenAIImageSizeTier(imageInputSize),
+		ImageInputSize:   imageInputSize,
+		ClientDisconnect: streamResult.clientDisconnect,
 	}
 }
 
@@ -2341,6 +2347,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] Client disconnected during messages stream, billing collected usage: %v", err)
 				return &geminiStreamResult{
 					usage:            &usage,
+					imageCount:       imageCount,
 					firstTokenMs:     firstTokenMs,
 					clientDisconnect: true,
 					finished:         finishReason != "",
@@ -2616,7 +2623,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	})
 	flusher.Flush()
 
-	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, imageCount: imageCount}, nil
+	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, imageCount: imageCount, finished: finishReason != ""}, nil
 }
 
 func writeSSE(w io.Writer, event string, data any) {

@@ -399,7 +399,9 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		}
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
-	if provider == MonitorProviderOpenAI || provider == MonitorProviderAnthropic || provider == MonitorProviderGrok {
+	switch provider {
+	case MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGrok,
+		MonitorProviderGemini, MonitorProviderDeepseek, MonitorProviderZhipu, MonitorProviderKimi:
 		headers[ChannelMonitorProbeAttemptsHeader] = strconv.Itoa(ChannelMonitorProbeAttempts)
 	}
 	full := joinURL(endpoint, monitorRequestPath(provider, endpoint, adapter, model))

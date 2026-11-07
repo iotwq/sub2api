@@ -142,7 +142,7 @@ func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	require.Equal(t, 64*1024, cfg.Server.MaxHeaderBytes)
 	require.Empty(t, cfg.Server.TrustedProxies)
 	require.False(t, cfg.Server.TrustedProxiesConfigured)
-	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
+	require.False(t, cfg.TrustForwardedIPForAPIKeyACL())
 	require.Equal(t, int64(32*1024*1024), cfg.Gateway.TextMaxBodySize)
 	require.Equal(t, int64(1<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
 	require.Equal(t, 120, cfg.Gateway.RequestBodyReadTimeoutSeconds)
@@ -862,11 +862,11 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	if cfg.Security.URLAllowlist.Enabled {
 		t.Fatalf("URLAllowlist.Enabled = true, want false")
 	}
-	if !cfg.Security.URLAllowlist.AllowInsecureHTTP {
-		t.Fatalf("URLAllowlist.AllowInsecureHTTP = false, want true")
+	if cfg.Security.URLAllowlist.AllowInsecureHTTP {
+		t.Fatalf("URLAllowlist.AllowInsecureHTTP = true, want false")
 	}
-	if !cfg.Security.URLAllowlist.AllowPrivateHosts {
-		t.Fatalf("URLAllowlist.AllowPrivateHosts = false, want true")
+	if cfg.Security.URLAllowlist.AllowPrivateHosts {
+		t.Fatalf("URLAllowlist.AllowPrivateHosts = true, want false")
 	}
 	if !cfg.Security.ResponseHeaders.Enabled {
 		t.Fatalf("ResponseHeaders.Enabled = false, want true")
@@ -2754,4 +2754,26 @@ func TestLoadSimpleModeAutoCreateDefaultGroups(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadAndValidateExcelBPSConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 120, cfg.Gateway.ExcelBPSStreamDataIntervalTimeout)
+	require.False(t, cfg.Gateway.ExcelBPSStateRedisEnabled)
+	for _, timeout := range []int{0, 30, 120, 300} {
+		cfg.Gateway.ExcelBPSStreamDataIntervalTimeout = timeout
+		require.NoError(t, cfg.Validate())
+	}
+	for _, timeout := range []int{-1, 1, 29, 301} {
+		cfg.Gateway.ExcelBPSStreamDataIntervalTimeout = timeout
+		require.ErrorContains(t, cfg.Validate(), "excel_bps_stream_data_interval_timeout")
+	}
+	t.Setenv("GATEWAY_EXCEL_BPS_STREAM_DATA_INTERVAL_TIMEOUT", "60")
+	t.Setenv("GATEWAY_EXCEL_BPS_STATE_REDIS_ENABLED", "true")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.Equal(t, 60, cfg.Gateway.ExcelBPSStreamDataIntervalTimeout)
+	require.True(t, cfg.Gateway.ExcelBPSStateRedisEnabled)
 }

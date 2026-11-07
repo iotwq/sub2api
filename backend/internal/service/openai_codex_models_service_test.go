@@ -1266,15 +1266,22 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.NoError(t, err)
 	require.True(t, configured)
 	models := decodeCodexManifestModels(t, manifest.Body)
-	require.Equal(t, "glm-5.3", models[0]["slug"])
+	var glmModel map[string]any
+	for _, model := range models {
+		if model["slug"] == "glm-5.3" {
+			glmModel = model
+			break
+		}
+	}
+	require.NotNil(t, glmModel)
 	require.Contains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-image-2")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "codex-auto-review")
-	require.Equal(t, "GLM 5.3", models[0]["display_name"])
-	require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, models[0]))
-	require.Equal(t, "medium", models[0]["default_reasoning_level"])
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
-	require.EqualValues(t, 1_000_000, models[0]["context_window"])
+	require.Equal(t, "GLM 5.3", glmModel["display_name"])
+	require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, glmModel))
+	require.Equal(t, "medium", glmModel["default_reasoning_level"])
+	require.Equal(t, []any{"text"}, glmModel["input_modalities"])
+	require.EqualValues(t, 1_000_000, glmModel["context_window"])
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
 
 	notModified, configured, err := svc.BuildGroupConfiguredCodexModelsManifest(
@@ -3806,7 +3813,7 @@ func TestGPT61SolOfflineCodexCatalog(t *testing.T) {
 	m := catalog.Models[0]
 	require.Equal(t, "gpt-6.1-sol", m["slug"])
 	require.Equal(t, "low", m["default_reasoning_level"])
-	require.EqualValues(t, 500000, m["context_window"])
+	require.EqualValues(t, 272000, m["context_window"])
 	require.EqualValues(t, 872000, m["max_context_window"])
 	require.Equal(t, "xhigh", m["multi_agent_reasoning_effort"])
 	require.Equal(t, "v2", m["multi_agent_version"])
@@ -3867,8 +3874,8 @@ func TestGPT61SolAPIKeyCatalogContextWindow(t *testing.T) {
 		body string
 		want int64
 	}{
-		{"missing uses updated default", `{"models":[{"slug":"gpt-6.1-sol"}]}`, 500_000},
-		{"null uses updated default", `{"models":[{"slug":"gpt-6.1-sol","context_window":null}]}`, 500_000},
+		{"missing uses original default", `{"models":[{"slug":"gpt-6.1-sol"}]}`, 272_000},
+		{"null uses original default", `{"models":[{"slug":"gpt-6.1-sol","context_window":null}]}`, 272_000},
 		{"lower upstream window is preserved", `{"models":[{"slug":"gpt-6.1-sol","context_window":272000}]}`, 272_000},
 		{"higher upstream window is preserved", `{"models":[{"slug":"gpt-6.1-sol","context_window":1000000,"max_context_window":1000000}]}`, 1_000_000},
 	} {

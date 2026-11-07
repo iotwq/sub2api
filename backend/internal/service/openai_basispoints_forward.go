@@ -22,10 +22,10 @@ var openAIBasispointsReplay basispoints.ReplayCache
 var openAIBasispointsCatalog basispoints.CatalogCache
 
 func prepareOpenAIBasispointsBody(c *gin.Context, account *Account, body []byte) ([]byte, *basispoints.Bridge, error) {
-	return prepareOpenAIBasispointsBodyWithImages(c, account, body, nil)
+	return prepareOpenAIBasispointsBodyWithImages(c, account, body, nil, nil)
 }
 
-func prepareOpenAIBasispointsBodyWithImages(c *gin.Context, account *Account, body []byte, relay *basispoints.ImageRelay, native ...*basispoints.NativeImages) ([]byte, *basispoints.Bridge, error) {
+func prepareOpenAIBasispointsBodyWithImages(c *gin.Context, account *Account, body []byte, relay *basispoints.ImageRelay, store basispoints.StateStore, native ...*basispoints.NativeImages) ([]byte, *basispoints.Bridge, error) {
 	identity, _ := resolveOpenAIWSExecutionScope(c, body, getAPIKeyIDFromContext(c))
 	var replay *basispoints.ReplayCache
 	var catalog *basispoints.CatalogCache
@@ -37,6 +37,9 @@ func prepareOpenAIBasispointsBodyWithImages(c *gin.Context, account *Account, bo
 		}
 		replay = &openAIBasispointsReplay
 		catalog = &openAIBasispointsCatalog
+		if store != nil {
+			replay, catalog = basispoints.NewPersistentCaches(c.Request.Context(), store)
+		}
 	}
 	// Without a stable client thread identity, require complete history rather
 	// than sharing cached tool calls across unrelated conversations.
@@ -90,9 +93,13 @@ func (s *OpenAIGatewayService) doOpenAIBasispoints(req *http.Request, account *A
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	return accountTrafficController(s.httpUpstream).DoHTTP(withCodexTrafficRequest(req, account), func(req *http.Request) (*http.Response, error) {
+	resp, err := accountTrafficController(s.httpUpstream).DoHTTP(withCodexTrafficRequest(req, account), func(req *http.Request) (*http.Response, error) {
 		return s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	})
+	if err == nil && req.URL.Path == "/basispoints/api/responses" {
+		s.guardBasispointsProgress(req.Context(), resp)
+	}
+	return resp, err
 }
 
 func (s *OpenAIGatewayService) forwardOpenAIBasispoints(ctx context.Context, c *gin.Context, account *Account, body []byte, start time.Time) (*OpenAIForwardResult, error) {
@@ -158,6 +165,13 @@ func (s *OpenAIGatewayService) forwardOpenAIBasispointsWithChatResponse(ctx cont
 	if c.GetBool(bpsAccountProbeRequiredContextKey) && basispoints.NativeFallbackReason(body) != "" {
 		return nil, errors.New("bps probe path is unavailable")
 	}
+	if err := basispoints.ValidateNewAgentMessage(body); err != nil {
+		var contentErr *basispoints.ContentValidationError
+		if errors.As(err, &contentErr) {
+			return fail(400, "basispoints_request_invalid", err.Error(), contentErr.Path)
+		}
+		return fail(400, "basispoints_request_invalid", err.Error())
+	}
 	imageSettings, err := s.settingService.GetExcelBPSImageRelaySettings(ctx)
 	if err != nil {
 		if isBasispointsClientCancellation(c, err) {
@@ -212,8 +226,25 @@ func (s *OpenAIGatewayService) forwardOpenAIBasispointsWithChatResponse(ctx cont
 			return fail(503, "basispoints_image_relay_unavailable", "Basispoints image relay is unavailable")
 		}
 	}
-	wireBody, bridge, err := prepareOpenAIBasispointsBodyWithImages(c, account, body, relay, images)
+	var stateStore basispoints.StateStore
+	if s.cfg != nil && s.cfg.Gateway.ExcelBPSStateRedisEnabled {
+		if identity, _ := resolveOpenAIWSExecutionScope(c, body, getAPIKeyIDFromContext(c)); identity != "" {
+			var ok bool
+			stateStore, ok = s.cache.(basispoints.StateStore)
+			if !ok {
+				return fail(503, "basispoints_state_unavailable", basispoints.ErrStateUnavailable.Error())
+			}
+		}
+	}
+	wireBody, bridge, err := prepareOpenAIBasispointsBodyWithImages(c, account, body, relay, stateStore, images)
 	if err != nil {
+		if errors.Is(err, basispoints.ErrStateUnavailable) || errors.Is(err, basispoints.ErrStateCapacity) {
+			return fail(503, "basispoints_state_unavailable", err.Error())
+		}
+		var schemaErr *basispoints.ToolSchemaValidationError
+		if errors.As(err, &schemaErr) {
+			return fail(400, "basispoints_request_invalid", err.Error(), schemaErr.Path)
+		}
 		if errors.Is(err, basispoints.ErrImageRelayFull) || errors.Is(err, basispoints.ErrImageRelayStorage) {
 			return fail(503, "basispoints_image_relay_unavailable", err.Error())
 		}
@@ -353,8 +384,9 @@ func (s *OpenAIGatewayService) forwardOpenAIBasispointsWithChatResponse(ctx cont
 		if resp.StatusCode == http.StatusUnauthorized {
 			message = "Basispoints authentication failed; request was not replayed"
 		}
-		if gjson.GetBytes(raw, "error.code").String() == "basispoints_model_access_changed" {
-			code = "basispoints_model_access_changed"
+		if isExcelBPSModelPermissionError(resp.StatusCode, gjson.GetBytes(raw, "error.code").String()) {
+			s.coolDownExcelBPSModel(account, model)
+			code = gjson.GetBytes(raw, "error.code").String()
 			message = "This model is not available on the account's Basispoints endpoint"
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -429,7 +461,7 @@ func (s *OpenAIGatewayService) forwardOpenAIBasispointsWithChatResponse(ctx cont
 			}
 		}
 	} else {
-		parsed, parseErr := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, model)
+		parsed, parseErr := s.handleBasispointsBufferedResponse(resp, c, account, originalModel, model)
 		err = parseErr
 		if parsed != nil {
 			result.ResponseID = parsed.responseID
@@ -442,16 +474,26 @@ func (s *OpenAIGatewayService) forwardOpenAIBasispointsWithChatResponse(ctx cont
 	result.UpstreamResponseModel = observedUpstreamResponseModel(c)
 	result.UpstreamResponseModelConflict = observedUpstreamResponseModelConflict(c)
 	if terminal := c.GetString(basispointsFailurePayloadKey); terminal != "" {
-		result.UpstreamTerminalEvent = gjson.Get(terminal, "type").String()
-		// Preserve the existing usage/no-usage return policy below while keeping
-		// accepted failures distinct from pre-send account failover errors.
-		err = basispoints.ParseUpstreamFailure([]byte(terminal))
+		if failure := basispoints.ParseUpstreamFailure([]byte(terminal)); failure != nil {
+			result.UpstreamTerminalEvent = gjson.Get(terminal, "type").String()
+			err = failure
+		} else if failure := basispoints.ParseBridgeFailure([]byte(terminal)); failure != nil {
+			result.UpstreamTerminalEvent = failure.UpstreamTerminalEvent
+			err = fmt.Errorf("%s", failure.Message)
+		}
 	}
 	if err != nil {
 		if isBasispointsClientCancellation(c, ctx.Err()) {
 			MarkOpsClientCancellation(c, stream)
 			result.ClientDisconnect = true
 			return result, context.Canceled
+		}
+		if c.GetString(basispointsFailurePayloadKey) == "" {
+			// HTTP was accepted. A read timeout/EOF cannot replay the user turn.
+			err = fmt.Errorf("Basispoints stream ended before completion")
+			if !IsResponseCommitted(c) {
+				s.writeBasispointsIncomplete(c, resp, stream, chat != nil)
+			}
 		}
 		if !OpenAIForwardResultHasBillableUsage(result) {
 			return nil, err

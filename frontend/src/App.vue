@@ -1,17 +1,21 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
-import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
-import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { LOCALE_CHANGED_EVENT } from '@/i18n'
+import { useCommunityChatNotificationsStore } from '@/stores/communityChatNotifications'
+
+// 公告弹窗和管理员合规弹窗只在登录后才可能出现，按需加载，
+// 避免首页、登录页首屏就下载 markdown 渲染库和合规文档。
+const AnnouncementPopup = defineAsyncComponent(() => import('@/components/common/AnnouncementPopup.vue'))
+const AdminComplianceDialog = defineAsyncComponent(() => import('@/components/admin/AdminComplianceDialog.vue'))
 
 const router = useRouter()
 const route = useRoute()
@@ -21,6 +25,16 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const communityChatNotifications = useCommunityChatNotificationsStore()
+
+watch(
+  () => authStore.isAuthenticated ? authStore.user?.id : null,
+  (userId) => {
+    if (userId) communityChatNotifications.startSession(userId)
+    else communityChatNotifications.stopSession()
+  },
+  { immediate: true }
+)
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -136,6 +150,7 @@ router.afterEach(() => {
 })
 
 onBeforeUnmount(() => {
+  communityChatNotifications.stopSession()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
   window.removeEventListener(LOCALE_CHANGED_EVENT, updateDocumentTitle)
@@ -168,6 +183,6 @@ onMounted(async () => {
   <NavigationProgress />
   <RouterView />
   <Toast />
-  <AnnouncementPopup />
-  <AdminComplianceDialog />
+  <AnnouncementPopup v-if="authStore.isAuthenticated" />
+  <AdminComplianceDialog v-if="authStore.isAuthenticated && authStore.isAdmin" />
 </template>

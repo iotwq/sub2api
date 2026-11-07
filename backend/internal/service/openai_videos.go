@@ -50,7 +50,7 @@ const openAIVideoModelFireflyV2 = "firefly-video-v2"
 const openAIVideoModelFireflyV2Fast = "firefly-video-v2-fast"
 const openAIVideoModelMiniMaxH3 = "minimax-h3"
 const openAIVideoModelMiniMaxH3Canonical = "MiniMax-H3"
-const supportedOpenAIVideoModelsText = "video-ds-2.0-fast, video-ds-2.0, as-sd2.0-fast, firefly-video-v2, firefly-video-v2-fast, MiniMax-H3, sora-2-landscape-8s, sora-2-landscape-12s, sora-2-portrait-8s, sora-2-portrait-12s, wan3.0x, wan3.0x-480p, wan3.0x-1080p, viraldance933, viraldance933-fast, viraldance2.5-30, viraldance2.5-15, viraldance2.5-480p-15, dola-viraldance2.0, or dola-viraldance2.5"
+const supportedOpenAIVideoModelsText = "video-ds-2.0-fast, video-ds-2.0, as-sd2.0-fast, firefly-video-v2, firefly-video-v2-fast, MiniMax-H3, grok-imagine-video-1.5, grok-imagine-video, sora-2-landscape-8s, sora-2-landscape-12s, sora-2-portrait-8s, sora-2-portrait-12s, wan3.0x, wan3.0x-480p, wan3.0x-1080p, viraldance933, viraldance933-fast, viraldance2.5-30, viraldance2.5-15, viraldance2.5-480p-15, dola-viraldance2.0, or dola-viraldance2.5"
 
 type OpenAIVideoTaskBinding struct {
 	ID        int64
@@ -139,6 +139,19 @@ func ParseOpenAIVideoOperationRequestWithContentType(endpoint OpenAIVideoEndpoin
 	if err := validateViraleeVideoDuration(model, body); err != nil {
 		return nil, err
 	}
+	hasGrokImage := false
+	if isOpenAIGrokVideoModel(model) {
+		if image := gjson.GetBytes(body, "image"); image.Exists() {
+			imageURL := image.Get("url")
+			if !image.IsObject() || imageURL.Type != gjson.String || strings.TrimSpace(imageURL.String()) == "" {
+				return nil, fmt.Errorf("Grok video image requires a non-empty image.url")
+			}
+			hasGrokImage = true
+		}
+		if _, err := openAIGrokVideoResolution(body); err != nil {
+			return nil, err
+		}
+	}
 	if endpoint == OpenAIVideoEndpointContext || endpoint == OpenAIVideoEndpointRegenerate {
 		if !IsMiniMaxH3VideoModel(model) {
 			return nil, fmt.Errorf("video endpoint %s requires %s", endpoint, openAIVideoModelMiniMaxH3Canonical)
@@ -160,7 +173,7 @@ func ParseOpenAIVideoOperationRequestWithContentType(endpoint OpenAIVideoEndpoin
 	if endpoint == OpenAIVideoEndpointRegenerate && sourceTaskID == "" && !miniMaxVideoHasBaseVideo(body) {
 		return nil, fmt.Errorf("MiniMax-H3 regeneration requires source_task_id or a content[] base_video entry")
 	}
-	if endpoint != OpenAIVideoEndpointRegenerate && prompt == "" {
+	if endpoint != OpenAIVideoEndpointRegenerate && prompt == "" && !hasGrokImage {
 		if IsFireflyV2VideoModel(model) {
 			return nil, fmt.Errorf("Firefly video endpoint requires prompt or shots")
 		}
@@ -181,6 +194,7 @@ func parseOpenAIVideoMultipartRequest(endpoint OpenAIVideoEndpoint, body []byte,
 		return nil, fmt.Errorf("multipart boundary is required")
 	}
 	fields := make(map[string][]string)
+	hasInputReference := false
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
 	for {
 		part, err := reader.NextPart()
@@ -191,8 +205,14 @@ func parseOpenAIVideoMultipartRequest(endpoint OpenAIVideoEndpoint, body []byte,
 			return nil, fmt.Errorf("failed to parse multipart request")
 		}
 		if part.FileName() != "" {
-			_, _ = io.Copy(io.Discard, part)
+			size, readErr := io.Copy(io.Discard, part)
 			_ = part.Close()
+			if readErr != nil {
+				return nil, fmt.Errorf("failed to read multipart file: %w", readErr)
+			}
+			if part.FormName() == "input_reference" && size > 0 {
+				hasInputReference = true
+			}
 			continue
 		}
 		value, err := io.ReadAll(part)
@@ -210,26 +230,40 @@ func parseOpenAIVideoMultipartRequest(endpoint OpenAIVideoEndpoint, body []byte,
 	if !IsOpenAIVideoModel(model) {
 		return nil, fmt.Errorf("video endpoint supports %s, got %q", supportedOpenAIVideoModelsText, model)
 	}
-	if !IsFireflyV2VideoModel(model) {
-		return nil, fmt.Errorf("multipart video requests require firefly-video-v2 or firefly-video-v2-fast")
+	isGrok := isOpenAIGrokVideoModel(model)
+	if !IsFireflyV2VideoModel(model) && !isGrok {
+		return nil, fmt.Errorf("multipart video requests require Firefly v2 or Grok Imagine video models")
 	}
 	if endpoint != OpenAIVideoEndpointCreate {
 		return nil, fmt.Errorf("multipart video requests are only supported for task creation")
 	}
 	prompt := firstOpenAIVideoMultipartField(fields, "prompt")
-	if prompt == "" {
+	if prompt == "" && !isGrok {
 		prompt = extractOpenAIVideoShotsPrompt(gjson.Parse(firstOpenAIVideoMultipartField(fields, "shots")))
 	}
-	if prompt == "" {
+	if prompt == "" && isGrok && !hasInputReference {
+		return nil, fmt.Errorf("Grok video requires prompt or an input_reference image file")
+	}
+	if prompt == "" && !isGrok {
 		return nil, fmt.Errorf("Firefly video endpoint requires prompt or shots")
 	}
-	billingBody, err := json.Marshal(map[string]string{
+	billingFields := map[string]string{
 		"model":      model,
 		"duration":   firstOpenAIVideoMultipartField(fields, "duration"),
 		"resolution": firstOpenAIVideoMultipartField(fields, "resolution"),
-	})
+	}
+	if isGrok {
+		billingFields["seconds"] = firstOpenAIVideoMultipartField(fields, "seconds")
+		billingFields["size"] = firstOpenAIVideoMultipartField(fields, "size")
+	}
+	billingBody, err := json.Marshal(billingFields)
 	if err != nil {
 		return nil, fmt.Errorf("build video billing request: %w", err)
+	}
+	if isGrok {
+		if _, err := openAIGrokVideoResolution(billingBody); err != nil {
+			return nil, err
+		}
 	}
 	return &OpenAIVideoCreateRequest{
 		Model:       model,
@@ -288,6 +322,8 @@ func IsOpenAIVideoModel(model string) bool {
 		openAIVideoModelFireflyV2,
 		openAIVideoModelFireflyV2Fast,
 		openAIVideoModelMiniMaxH3,
+		"grok-imagine-video-1.5",
+		"grok-imagine-video",
 		"sora-2-landscape-8s",
 		"sora-2-landscape-12s",
 		"sora-2-portrait-8s",
@@ -313,6 +349,36 @@ func IsMiniMaxH3VideoModel(model string) bool {
 func IsFireflyV2VideoModel(model string) bool {
 	normalized := normalizeOpenAIVideoModel(model)
 	return normalized == openAIVideoModelFireflyV2 || normalized == openAIVideoModelFireflyV2Fast
+}
+
+func isOpenAIGrokVideoModel(model string) bool {
+	normalized := normalizeOpenAIVideoModel(model)
+	return normalized == "grok-imagine-video" || normalized == "grok-imagine-video-1.5"
+}
+
+func openAIGrokVideoResolution(body []byte) (string, error) {
+	if resolution := strings.TrimSpace(gjson.GetBytes(body, "resolution").String()); resolution != "" {
+		if normalized, ok := LookupVideoBillingResolution(resolution); ok {
+			return normalized, nil
+		}
+		return "", fmt.Errorf("Grok video resolution must be 480p, 720p or 1080p")
+	}
+	size := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "size").String()))
+	if normalized, ok := LookupVideoBillingResolution(size); ok {
+		return normalized, nil
+	}
+	// Map known output sizes; other dimensions need an explicit
+	// resolution so they cannot silently fall back to the cheapest price tier.
+	switch size {
+	case "", "848x480", "480x848", "544x544":
+		return VideoBillingResolution480P, nil
+	case "1280x720", "720x1280", "944x960", "960x944":
+		return VideoBillingResolution720P, nil
+	case "1920x1088", "1088x1920", "1920x1080", "1080x1920", "1440x1440":
+		return VideoBillingResolution1080P, nil
+	default:
+		return "", fmt.Errorf("unknown Grok video size %q; specify resolution as 480p, 720p or 1080p", size)
+	}
 }
 
 func canonicalOpenAIVideoModel(model string) string {
@@ -381,6 +447,10 @@ func OpenAIVideoBillingParameters(model string, body []byte) (string, int) {
 	}
 	model = strings.ToLower(strings.TrimSpace(model))
 	resolution := strings.TrimSpace(gjson.GetBytes(body, "resolution").String())
+	if isOpenAIGrokVideoModel(model) {
+		// Request parsing validates resolution/size before billing preflight.
+		resolution, _ = openAIGrokVideoResolution(body)
+	}
 	durationSeconds := int(gjson.GetBytes(body, "duration").Int())
 	if durationSeconds <= 0 {
 		durationSeconds = int(gjson.GetBytes(body, "seconds").Int())
@@ -526,7 +596,7 @@ func extractOpenAIVideoTaskID(body []byte) string {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return ""
 	}
-	for _, path := range []string{"task_id", "id", "data.task_id", "data.id", "video.task_id", "video.id"} {
+	for _, path := range []string{"task_id", "id", "data.task_id", "data.id", "video.task_id", "video.id", "request_id", "data.request_id", "video.request_id"} {
 		if id := strings.TrimSpace(gjson.GetBytes(body, path).String()); id != "" {
 			return id
 		}
@@ -558,7 +628,7 @@ func OpenAIVideoStatusSucceeded(body []byte) bool {
 	for _, path := range []string{"status", "data.status", "video.status", "task.status", "result.status"} {
 		status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, path).String()))
 		switch status {
-		case "completed", "succeeded", "success", "finished":
+		case "completed", "succeeded", "success", "finished", "done":
 			return true
 		}
 	}
@@ -911,8 +981,8 @@ func (s *OpenAIGatewayService) ForwardOpenAIVideo(
 			}
 			forwardBody = rewritten
 		} else if isOpenAIVideoMultipartContentType(contentType) {
-			if !IsFireflyV2VideoModel(upstreamModel) {
-				return nil, fmt.Errorf("multipart video upstream model must be firefly-video-v2 or firefly-video-v2-fast, got %q", upstreamModel)
+			if !IsFireflyV2VideoModel(upstreamModel) && !isOpenAIGrokVideoModel(upstreamModel) {
+				return nil, fmt.Errorf("multipart video upstream model must be Firefly v2 or Grok Imagine video, got %q", upstreamModel)
 			}
 			rewritten, err := rewriteOpenAIVideoMultipartModel(body, contentType, upstreamModel)
 			if err != nil {
@@ -971,6 +1041,9 @@ func (s *OpenAIGatewayService) ForwardOpenAIVideo(
 	}
 
 	targetURL := buildOpenAIVideoEndpointURLForUpstream(validatedURL, endpoint, taskID)
+	if endpoint == OpenAIVideoEndpointCreate && isOpenAIGrokVideoModel(upstreamModel) && c != nil && c.Request != nil && c.Request.URL != nil && strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/videos/generations") {
+		targetURL = buildOpenAIEndpointURL(validatedURL, "/v1/videos/generations")
+	}
 	if miniMaxProtocol {
 		targetURL = buildMiniMaxV2VideoEndpointURL(validatedURL, endpoint, taskID)
 	}

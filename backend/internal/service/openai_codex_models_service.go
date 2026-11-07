@@ -95,6 +95,7 @@ func isCodexDedicatedMediaModel(modelID string) bool {
 	canonical := codexProviderQualifiedModelID(modelID)
 	return IsGPTImageGenerationModel(canonical) ||
 		isImageGenerationModel(canonical) ||
+		IsSunoMusicModel(canonical) ||
 		xai.IsGrokImagineModel(modelID)
 }
 
@@ -222,7 +223,13 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		return fmt.Errorf("filter retired Codex models: %w", err)
 	}
 	body = filtered
-	if changed || retired {
+	changed = changed || retired
+	body, optimized, err := applyGPT61SolSubscriptionOptimization(body, catalog, group, false)
+	if err != nil {
+		return fmt.Errorf("apply GPT-6.1 Sol group optimization: %w", err)
+	}
+	changed = changed || optimized
+	if changed {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
 	}
@@ -546,9 +553,6 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 		descriptor.Slug = modelID
 		descriptor.officialMetadata = openai.CodexGPT61SolMetadata
-		// The October 12, 2026 Codex/Work default increased to 500k after
-		// the bundled official snapshot. Explicit upstream metadata still wins.
-		descriptor.ContextWindow = 500_000
 	}
 	if openai.IsGPT61TerraModelSpelling(modelID) {
 		// The Codex descriptor differs from the API model page: Codex offers
@@ -975,6 +979,10 @@ func buildCodexModelsManifestForAccounts(
 	if err != nil || effectivePlatform != PlatformOpenAI {
 		return body, err
 	}
+	body, _, err = applyGPT61SolSubscriptionOptimization(body, accounts, group, true)
+	if err != nil {
+		return nil, err
+	}
 	// Conflicting aliases can intentionally omit synced metadata. Do not let
 	// the bundled Astra defaults reintroduce v2 for a possible BPS route.
 	body, _, err = restrictBasispointsCodexModelsManifest(body, accounts, group)
@@ -1041,6 +1049,71 @@ func buildCodexModelsManifest(
 	return json.Marshal(struct {
 		Models []json.RawMessage `json:"models"`
 	}{Models: models})
+}
+
+// applyGPT61SolSubscriptionOptimization applies the opt-in group policy to
+// generated Codex catalogs. Remote metadata remains authoritative; when the
+// catalog is generated locally, the subscription default is raised to 500k.
+func applyGPT61SolSubscriptionOptimization(body []byte, accounts []Account, group *Group, generated bool) ([]byte, bool, error) {
+	if group == nil || !group.GPT61SolSubscriptionOptimizationEnabled || len(accounts) == 0 {
+		return body, false, nil
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, false, err
+	}
+	var models []json.RawMessage
+	if err := json.Unmarshal(envelope["models"], &models); err != nil {
+		return nil, false, err
+	}
+	changed := false
+	for i, raw := range models {
+		var model map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &model); err != nil {
+			continue
+		}
+		var slug string
+		if err := json.Unmarshal(model["slug"], &slug); err != nil || !gpt61SolSubscriptionModelForAccounts(slug, accounts) {
+			continue
+		}
+		current := strings.TrimSpace(string(model["context_window"]))
+		if !generated && current != "" && current != "null" {
+			continue
+		}
+		if current == "500000" {
+			continue
+		}
+		model["context_window"] = json.RawMessage("500000")
+		encoded, err := json.Marshal(model)
+		if err != nil {
+			return nil, false, err
+		}
+		models[i] = encoded
+		changed = true
+	}
+	if !changed {
+		return body, false, nil
+	}
+	encoded, err := json.Marshal(models)
+	if err != nil {
+		return nil, false, err
+	}
+	envelope["models"] = encoded
+	result, err := json.Marshal(envelope)
+	return result, err == nil, err
+}
+
+func gpt61SolSubscriptionModelForAccounts(model string, accounts []Account) bool {
+	for i := range accounts {
+		account := &accounts[i]
+		if !account.IsOpenAIOAuthLike() || !account.IsModelSupported(model) {
+			continue
+		}
+		if openai.IsGPT61SolModelSpelling(account.GetMappedModel(model)) || openai.IsGPT61SolModelSpelling(model) {
+			return true
+		}
+	}
+	return false
 }
 
 func codexCatalogMetadataModels(
@@ -1718,6 +1791,9 @@ func (c *openAIModelsCache) set(key string, manifest *OpenAIModelsResponse, now 
 func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, account *Account, clientVersion, ifNoneMatch string) (*OpenAIModelsResponse, error) {
 	if account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_ACCOUNT_REQUIRED", "account is required")
+	}
+	if account.UsesBasispointsResponses() {
+		return s.fetchExcelBPSCodexManifest(ctx, account, ifNoneMatch)
 	}
 	credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 	if err != nil {

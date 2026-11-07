@@ -312,7 +312,8 @@ async function fetchAndRenderMarkdown(slug: string) {
       (match, alt, src) => isRelativeMarkdownAsset(src) ? `![${alt}](${buildPageImageUrl(slug, src)})` : match
     )
 
-    const html = marked.parse(raw) as string
+    // 显式传入解析选项，不依赖其他组件修改 marked 的全局默认值
+    const html = marked.parse(raw, { breaks: true, gfm: true }) as string
     const sanitized = DOMPurify.sanitize(html, {
       ADD_TAGS: ['iframe'],
       ADD_ATTR: ['allowfullscreen', 'frameborder', 'src'],

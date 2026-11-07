@@ -250,25 +250,32 @@
           </div>
         </template>
 
-        <!-- 合并首字/总耗时的健康度列：左侧色条上端随首字档、下端随总耗时档，中段(40%-60%)短渐变过渡，便于纵向扫视整体健康状况 -->
+        <!-- 缓存率沿用输入 token 口径，不参与延迟健康度色条。 -->
         <template #cell-latency="{ row }">
-          <div class="flex items-stretch gap-2">
+          <div class="grid grid-cols-[0.25rem_max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-xs">
             <span
-              class="w-1 shrink-0 rounded-full"
+              class="col-start-1 row-start-1 row-span-3 w-1 self-stretch rounded-full"
               :class="row.first_token_ms != null
                 ? ['bg-gradient-to-b from-40% to-60%', LATENCY_BAR_FROM_CLASSES[firstTokenSeverity(row.first_token_ms)], LATENCY_BAR_TO_CLASSES[durationSeverity(row.duration_ms ?? 0)]]
                 : LATENCY_BAR_CLASSES[durationSeverity(row.duration_ms ?? 0)]"
               aria-hidden="true"
             ></span>
-            <div class="grid grid-cols-[max-content_max-content] items-baseline gap-x-2 gap-y-0.5 text-xs">
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
-              <span v-if="row.first_token_ms != null" class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
-              <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-              <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
-              <span class="font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
-              <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
-              <span data-testid="output-tps" class="font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
-            </div>
+            <span class="col-start-2 row-start-1 text-gray-400 dark:text-gray-500">{{ t('usage.latencyFirstToken') }}</span>
+            <span v-if="row.first_token_ms != null" class="col-start-3 row-start-1 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[firstTokenSeverity(row.first_token_ms)]">{{ formatDuration(row.first_token_ms) }}</span>
+            <span v-else class="col-start-3 row-start-1 text-gray-400 dark:text-gray-500">-</span>
+            <span class="col-start-2 row-start-2 text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
+            <span class="col-start-3 row-start-2 font-medium tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
+            <span class="col-start-2 row-start-3 text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.outputTps') }}</span>
+            <span data-testid="output-tps" class="col-start-3 row-start-3 font-medium tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
+            <template v-if="showCacheRate">
+              <span class="col-start-2 row-start-4 text-gray-400 dark:text-gray-500">{{ t('usage.latencyCacheRate') }}</span>
+              <span
+                data-testid="latency-cache-rate"
+                class="col-start-3 row-start-4 font-medium tabular-nums"
+                :class="formatUsageCacheRate(row) ? 'text-sky-600 dark:text-sky-400' : 'text-gray-400 dark:text-gray-500'"
+                :title="cacheRateTitle(row)"
+              >{{ formatUsageCacheRate(row) ?? '-' }}</span>
+            </template>
           </div>
         </template>
 
@@ -402,6 +409,10 @@
             <div v-if="tokenTooltipData && tokenTooltipData.cache_read_tokens > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheReadTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
+            </div>
+            <div v-if="showCacheRate && tokenTooltipData && formatUsageCacheRate(tokenTooltipData)" class="flex items-center justify-between gap-4" data-testid="token-cache-rate">
+              <span class="text-gray-400">{{ t('usage.latencyCacheRate') }}</span>
+              <span class="font-medium text-sky-300" :title="cacheRateTitle(tokenTooltipData)">{{ formatUsageCacheRate(tokenTooltipData) }}</span>
             </div>
           </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
@@ -596,6 +607,7 @@ import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } fro
 import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
 import { getUsageServiceTierLabel } from '@/utils/usageServiceTier'
+import { formatUsageCacheRate, usageCacheRateParts, showUsageCacheRate, type UsageCacheRateAudience } from '@/utils/usageCacheRate'
 import { resolveUsageRequestType } from '@/utils/usageRequestType'
 import {
   LATENCY_BAR_CLASSES,
@@ -653,6 +665,7 @@ interface Props {
   defaultSortOrder?: 'asc' | 'desc'
   showAccountBilling?: boolean
   showUpstreamEndpoint?: boolean
+  cacheRateAudience?: UsageCacheRateAudience
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
 }
@@ -664,6 +677,7 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   showAccountBilling: true,
   showUpstreamEndpoint: true,
+  cacheRateAudience: 'admin',
   flat: false
 })
 const emit = defineEmits<{
@@ -673,6 +687,7 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const appStore = useAppStore()
+const showCacheRate = computed(() => showUsageCacheRate(appStore.cachedPublicSettings, props.cacheRateAudience))
 const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint
@@ -814,6 +829,16 @@ const formatDuration = (ms: number | null | undefined): string => {
   const totalSec = Math.round(ms / 1000)
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`
   return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`
+}
+
+const cacheRateTitle = (row: AdminUsageLog): string | undefined => {
+  const parts = usageCacheRateParts(row)
+  if (!parts) return undefined
+  return t('usage.latencyCacheRateHint', {
+    input: parts.input.toLocaleString(),
+    read: parts.read.toLocaleString(),
+    write: parts.write.toLocaleString(),
+  })
 }
 
 // Cost tooltip functions

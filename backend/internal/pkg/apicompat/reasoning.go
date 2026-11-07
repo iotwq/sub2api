@@ -35,7 +35,7 @@ func (req *ChatCompletionsRequest) EffectiveReasoningEffort() string {
 	if req == nil {
 		return ""
 	}
-	if openai.IsGPT6SolOrLunaModelSpelling(req.Model) {
+	if openai.IsGPT6SolOrLunaModelSpelling(req.Model) || openai.IsGPT61TerraModelSpelling(req.Model) {
 		raw := strings.TrimSpace(req.ReasoningEffort)
 		if raw == "" && req.Reasoning != nil {
 			raw = strings.TrimSpace(req.Reasoning.Effort)

@@ -554,6 +554,9 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 }
 
 func isOpenAIImageGenerationModel(model string) bool {
+	if isAPIKeyCompatibleImageModel(model) {
+		return false
+	}
 	return IsGPTImageGenerationModel(model) ||
 		IsNaiImageGenerationModel(model) ||
 		isGrokImageGenerationModel(model)
@@ -579,6 +582,12 @@ func isGrokImageGenerationModel(model string) bool {
 		strings.HasPrefix(model, "grok-imagine-image")
 }
 
+func isGeminiCompatibleImageModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gemini-") &&
+		(strings.HasSuffix(model, "-image") || strings.Contains(model, "-image-"))
+}
+
 func validateOpenAIImagesModel(model string) error {
 	model = strings.TrimSpace(model)
 	if isOpenAIImageGenerationModel(model) {
@@ -594,8 +603,7 @@ func validateOpenAIImagesModel(model string) error {
 // drives native Responses tool conversion, pricing and rate-limit policy.
 func isAPIKeyCompatibleImageModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
-	if strings.HasPrefix(model, "gemini-") &&
-		(strings.HasSuffix(model, "-image") || strings.Contains(model, "-image-")) {
+	if isGeminiCompatibleImageModel(model) {
 		return true
 	}
 	// Provider labels such as "（满血）" and " (X)" are used in account
@@ -603,8 +611,11 @@ func isAPIKeyCompatibleImageModel(model string) bool {
 	if i := strings.IndexAny(model, "(（"); i >= 0 {
 		model = strings.TrimSpace(model[:i])
 	}
-	return model == "midjourney-v7" || model == "midjourney v7" || model == "seedream-5.0-pro" || model == "seedream-5.0-pro-x" ||
-		model == "nano-banana2" || model == "nano-banana2-pro"
+	return model == "midjourney-v7" || model == "midjourney v7" || model == "seedream-5.0-pro" || model == "seedream-5.0-pro-x" || model == "seedream-5.0-lite" || model == "seedream-5.0-lite-x" || model == "seedream-5.0-flash" ||
+		model == "nano-banana2" || model == "nano-banana2-pro" ||
+		model == "nano-banana-2.1" || model == "nano-banana-2" || model == "nano-banana-pro" ||
+		model == "gpt-image-2-d" || model == "gpt-image-2.5-d" || model == "midjourney-d" ||
+		model == "grok-imagine-image" || model == "grok-imagine-image-2.0" || model == "grok-imagine-image-quality"
 }
 
 func validateCompatibleImagesModel(model string) error {

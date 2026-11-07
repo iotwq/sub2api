@@ -122,9 +122,8 @@
       </ClaudeResetCreditsCell>
     </template>
 
-    <!-- OpenAI Codex accounts: signal status; usage querying remains OAuth-only. -->
+    <!-- OpenAI Codex accounts: usage querying remains OAuth-only. -->
     <template v-else-if="account.platform === 'openai' && (account.type === 'oauth' || account.type === 'setup-token')">
-      <CodexSignalBadge :account="account" class="mb-1" />
       <div v-if="hasOpenAIUsageFallback" class="space-y-1">
         <UsageProgressBar
           v-if="usageInfo?.five_hour"
@@ -718,7 +717,6 @@
 </template>
 
 <script setup lang="ts">
-import CodexSignalBadge from './CodexSignalBadge.vue'
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

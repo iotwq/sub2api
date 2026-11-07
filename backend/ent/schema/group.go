@@ -198,6 +198,9 @@ func (Group) Fields() []ent.Field {
 		field.Bool("long_context_pricing_enabled").
 			Default(true).
 			Comment("是否按上下文长度应用模型阶梯价格；默认开启以保持官方/渠道长上下文价"),
+		field.Bool("gpt61_sol_subscription_optimization_enabled").
+			Default(false).
+			Comment("是否对 GPT-6.1 Sol 订阅账号免收长上下文附加费并使用 500k 生成上下文默认值"),
 		field.JSON("model_pricing", json.RawMessage{}).
 			Optional().
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).

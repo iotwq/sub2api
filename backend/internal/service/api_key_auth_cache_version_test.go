@@ -59,3 +59,41 @@ func TestAPIKeyService_RejectsV15AuthSnapshotWithoutReasoningEffortPolicy(t *tes
 		t.Fatalf("expected no API key from stale snapshot, got %#v", apiKey)
 	}
 }
+
+func TestAPIKeyService_RejectsV25AuthSnapshotWithoutGPT61SolOptimization(t *testing.T) {
+	groupID := int64(26)
+	svc := &APIKeyService{}
+
+	apiKey, ok, err := svc.applyAuthCacheEntry("k-legacy-gpt61-sol", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{
+			Version:  25,
+			APIKeyID: 1,
+			UserID:   2,
+			GroupID:  &groupID,
+			Status:   StatusActive,
+			User: APIKeyAuthUserSnapshot{
+				ID:          2,
+				Status:      StatusActive,
+				Role:        RoleUser,
+				Balance:     10,
+				Concurrency: 3,
+			},
+			Group: &APIKeyAuthGroupSnapshot{
+				ID:                                      groupID,
+				Platform:                                PlatformOpenAI,
+				Status:                                  StatusActive,
+				GPT61SolSubscriptionOptimizationEnabled: true,
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("expected stale v25 auth snapshot to be ignored without error, got %v", err)
+	}
+	if ok {
+		t.Fatal("expected v25 auth snapshot to be rejected after GPT-6.1 Sol optimization was added")
+	}
+	if apiKey != nil {
+		t.Fatalf("expected no API key from stale v25 snapshot, got %#v", apiKey)
+	}
+}
