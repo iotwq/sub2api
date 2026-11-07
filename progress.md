@@ -13367,3 +13367,26 @@ git -C "$restore_dir" add -N -f -- docs/IMAGE_RELEASE_20261029_005248.md docs/up
 ```
 
 - 精确增量反向检查：`git apply --reverse --check /var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-upstream-sync-20261107-nna6a1ek/task.patch`；不据此回退 Git 历史或数据库。后续部署前需备份数据库，保留本轮日志；临时证据如需长期保存请另行归档。
+
+
+## 2026-11-07 - Task: 将当前完整代码推送到 iotwq/sub2api
+
+### What was done
+- 按用户要求，将当前 main 的完整源码和此前未推送的历史通过普通快进推送至 `https://github.com/iotwq/sub2api.git`，远端从 `7775571f4bf513081ff651843b4553112f545554` 更新为代码提交 `618d706d47f5135dffaa3d39f8e15731661689e0`。
+- 将当前未提交的源码、测试和已有记录归入一个代码提交（367 个文件变更），包括本站定制、近期前端调整和上游 0.2.20 兼容修复；没有重新实现或修改业务逻辑。
+- 保留两份无关根目录临时文件为未跟踪状态；本轮只做 Git 同步，没有制作/推送镜像、部署或运行生产迁移。
+
+### Testing
+- `git fetch origin main` 后确认远端是本地祖先，推送不需要强制覆盖；`git push origin HEAD:refs/heads/main` 成功，随后 `git ls-remote origin refs/heads/main` 独立确认代码提交 SHA 完全一致。
+- 当前完整文件清单与上一轮合并验证结束快照一致；暂存的 359 个现存文件内容逐项核对一致，8 项既有删除保留，未遗漏新增源码或测试。
+- 沿用刚完成的前端 416 文件 / 3416 项测试、后端完整 unit/vet、相关 race、隔离数据库、浏览器和生产编译结果；本次源码无变化，不重复业务测试。
+- 暂存路径与常见凭据标记检查通过。空白检查仅有已知且未修改的 `docs/CHANNEL_MONITOR.md:100` 尾空行，不将此旧提示计为本轮引入的问题。
+- 记录文件单独检查并提交；既有 progress 历史前缀保留。代码推送后跟踪源码工作区干净，仅两份无关临时文件未跟踪。
+
+### Notes
+- 本轮新修改文件：
+  - `docs/GITHUB_SYNC_20261107.md`：记录目标分支、代码提交、远端核验、验证依据、排除文件和恢复点。
+  - `progress.md`：仅追加本轮 GitHub 推送记录。
+- 本次入库的 367 个既有变更路径保存在证据目录 `staged-files.json`，其业务改动与验证记录在前序任务条目中；本轮没有再改动这些文件内容。
+- 证据目录：`/var/folders/p3/s4y4scsx14s5wr1r7693n_fw0000gn/T/sub2api-github-push-20261107-fuaxbm7k`，含原索引、推送前差异、代码提交和远端回执。
+- 可执行恢复：`restore_dir=$(mktemp -d /tmp/sub2api-github-before-20261107.XXXXXX)` 后执行 `git worktree add --detach "$restore_dir" 7775571f4bf513081ff651843b4553112f545554`，在独立目录查看推送前远端，不覆盖当前工作区/远端。推送前本机完整代码内容保存在 `618d706d47f5135dffaa3d39f8e15731661689e0`；没有执行远端回退。
