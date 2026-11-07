@@ -50,11 +50,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+		if handleRequestBodyReadError(c, reqLog, err) {
 			return
 		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		status, message := requestBodyReadFailure(reqLog, c.Request, err)
+		h.errorResponse(c, status, "invalid_request_error", message)
 		return
 	}
 	if len(body) == 0 {
@@ -223,7 +223,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	defer inflightDone()
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
-	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
+	requestCtx := service.WithOpenAIImageSizeRouting(service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context())), parsed.Size)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -256,6 +256,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
+				if tier, unsupported := h.gatewayService.OpenAIImageSizeTierUnsupported(c.Request.Context(), apiKey.GroupID, routingModel, parsed.Size, "", parsed.RequiredCapabilityForModel(channelMapping.MappedModel)); unsupported {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+					h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", service.OpenAIImageSizeTierUnsupportedMessage(parsed.Size, tier), streamStarted)
+					return
+				}
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -471,32 +476,36 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		// a bookkeeping error must not turn a successful generation into free usage.
 		settlementHold := mediaHold
 		mediaHold = nil
-		if err := h.gatewayService.RecordUsage(c.Request.Context(), &service.OpenAIRecordUsageInput{
-			Result:             result,
-			APIKey:             apiKey,
-			User:               apiKey.User,
-			Account:            account,
-			Subscription:       subscription,
-			InboundEndpoint:    inboundEndpoint,
-			UpstreamEndpoint:   upstreamEndpoint,
-			UserAgent:          userAgent,
-			IPAddress:          clientIP,
-			RequestPayloadHash: requestPayloadHash,
-			APIKeyService:      h.apiKeyService,
-			QuotaPlatform:      quotaPlatform,
-			SessionID:          service.ExtractClientSessionID(c),
-			MediaBalanceHold:   settlementHold,
-			ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
-		}); err != nil {
-			logger.L().With(
-				zap.String("component", "handler.openai_gateway.images"),
-				zap.Int64("user_id", subject.UserID),
-				zap.Int64("api_key_id", apiKey.ID),
-				zap.Any("group_id", apiKey.GroupID),
-				zap.String("model", clientRequestModel),
-				zap.Int64("account_id", account.ID),
-			).Error("openai.images.record_usage_failed", zap.Error(err))
-		}
+		sessionID := service.ExtractClientSessionID(c)
+		channelUsageFields := clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel)
+		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+				Result:             result,
+				APIKey:             apiKey,
+				User:               apiKey.User,
+				Account:            account,
+				Subscription:       subscription,
+				InboundEndpoint:    inboundEndpoint,
+				UpstreamEndpoint:   upstreamEndpoint,
+				UserAgent:          userAgent,
+				IPAddress:          clientIP,
+				RequestPayloadHash: requestPayloadHash,
+				APIKeyService:      h.apiKeyService,
+				QuotaPlatform:      quotaPlatform,
+				MediaBalanceHold:   settlementHold,
+				SessionID:          sessionID,
+				ChannelUsageFields: channelUsageFields,
+			}); err != nil {
+				logger.L().With(
+					zap.String("component", "handler.openai_gateway.images"),
+					zap.Int64("user_id", subject.UserID),
+					zap.Int64("api_key_id", apiKey.ID),
+					zap.Any("group_id", apiKey.GroupID),
+					zap.String("model", clientRequestModel),
+					zap.Int64("account_id", account.ID),
+				).Error("openai.images.record_usage_failed", zap.Error(err))
+			}
+		})
 
 		reqLog.Debug("openai.images.request_completed",
 			zap.Int64("account_id", account.ID),

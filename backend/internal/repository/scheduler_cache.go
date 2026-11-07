@@ -1327,6 +1327,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.Basispoints403DisabledAtKey,
 		service.Basispoints403MovedAtKey,
 		service.Basispoints403MovedGroupIDKey,
+		// 生图尺寸档位在候选过滤阶段按本投影判定，裁掉后受限账号会接到不允许的档位。
+		service.AccountExtraOpenAIImageSizeTiers,
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		service.AccountTrafficPolicyKey,
